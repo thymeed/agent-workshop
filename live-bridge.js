@@ -210,6 +210,8 @@ function pushEvent(partial) {
     route: partial.route || null,
     routeTo: partial.routeTo || null,
     tokensDelta: partial.tokensDelta || 0,
+    usage: partial.usage != null ? partial.usage : null,
+    activity: partial.activity != null ? partial.activity : null,
     source: partial.source || "transcript"
   };
   events.push(ev);
@@ -318,6 +320,181 @@ function roleToCard(role) {
   return "opus";
 }
 
+/** Dashboard bill model keys: opus | fable | sonnet | haiku */
+function roleToModel(role) {
+  if (role === "advisor") return "fable";
+  if (role === "worker") return "sonnet";
+  if (role === "explorer" || role === "researcher") return "haiku";
+  return "opus";
+}
+
+function clampTokens(n) {
+  const x = Math.round(Number(n) || 0);
+  if (!Number.isFinite(x) || x < 0) return 0;
+  return Math.min(120000, x);
+}
+
+function charsToTokens(text) {
+  return clampTokens(String(text || "").length / 4);
+}
+
+/**
+ * Prefer transcript message.usage; else chars/4 clamped.
+ * @returns {{model:string,role:string,in:number,out:number}}
+ */
+function estimateUsage(role, obj, opts) {
+  opts = opts || {};
+  const r = role || "parent";
+  const model = roleToModel(r);
+  const msg = obj && obj.message;
+  const raw =
+    (msg && msg.usage) ||
+    (obj && obj.usage) ||
+    null;
+  if (raw && typeof raw === "object") {
+    const inn = clampTokens(
+      raw.input_tokens != null
+        ? raw.input_tokens
+        : raw.inputTokens != null
+          ? raw.inputTokens
+          : raw.in != null
+            ? raw.in
+            : raw.prompt_tokens
+    );
+    const out = clampTokens(
+      raw.output_tokens != null
+        ? raw.output_tokens
+        : raw.outputTokens != null
+          ? raw.outputTokens
+          : raw.out != null
+            ? raw.out
+            : raw.completion_tokens
+    );
+    if (inn > 0 || out > 0) {
+      return { model, role: r, in: inn, out };
+    }
+  }
+  const inn =
+    opts.inChars != null ? clampTokens(opts.inChars / 4) : charsToTokens(opts.inText);
+  const out =
+    opts.outChars != null ? clampTokens(opts.outChars / 4) : charsToTokens(opts.outText);
+  return { model, role: r, in: inn, out };
+}
+
+function toolArgs(tool) {
+  const input = (tool && tool.input) || {};
+  if (input.arguments && typeof input.arguments === "object") return input.arguments;
+  return input;
+}
+
+function resolveToolName(tool) {
+  const name = (tool && tool.name) || "";
+  const input = (tool && tool.input) || {};
+  const args = toolArgs(tool);
+  if (name === "CallDynamicTool") {
+    return String(input.toolName || args.toolName || name);
+  }
+  return String(name);
+}
+
+/** Short path/url for activity; never file body. */
+function activityPath(args) {
+  if (!args || typeof args !== "object") return "";
+  const p =
+    args.path ||
+    args.file_path ||
+    args.filePath ||
+    args.target_file ||
+    args.target_directory ||
+    args.working_directory ||
+    args.url ||
+    "";
+  return snippet(String(p), 120);
+}
+
+/**
+ * Map a tool_use to activity preview payload.
+ * @returns {{kind:string,path:string,detail:string}|null}
+ */
+function toolActivity(tool) {
+  if (!tool) return null;
+  const name = resolveToolName(tool);
+  const args = toolArgs(tool);
+  const p = activityPath(args);
+
+  if (/^(Read|WebFetch)$/i.test(name)) {
+    let detail = "read";
+    if (name === "Read") {
+      const parts = [];
+      if (args.offset != null) parts.push("@" + args.offset);
+      if (args.limit != null) parts.push("+" + args.limit);
+      detail = parts.length ? parts.join(" ") : "read";
+    } else {
+      detail = "fetch";
+    }
+    return { kind: "read", path: p, detail: snippet(detail, 80) };
+  }
+
+  if (/^(Grep|Glob|WebSearch|GetDynamicTools)$/i.test(name)) {
+    let detail = "";
+    if (/^Grep$/i.test(name)) detail = args.pattern || "";
+    else if (/^Glob$/i.test(name)) detail = args.glob_pattern || args.glob || "";
+    else if (/^WebSearch$/i.test(name)) detail = args.search_term || args.query || "";
+    else detail = args.namespace || args.pattern || "tools";
+    return { kind: "search", path: p, detail: snippet(detail, 80) };
+  }
+
+  if (/^(Write|StrReplace|Edit|EditNotebook)$/i.test(name)) {
+    return { kind: "edit", path: p, detail: "edited" };
+  }
+
+  if (/^(Shell|AwaitShell)$/i.test(name)) {
+    const cmd = args.command || args.cmd || "";
+    return {
+      kind: "run",
+      path: p || snippet(args.working_directory || "", 120),
+      detail: snippet(cmd, 80)
+    };
+  }
+
+  return null;
+}
+
+/** Char count for out-estimate from tools — uses write body length, not contents string. */
+function toolEstimateChars(tool) {
+  if (!tool) return 0;
+  const name = resolveToolName(tool);
+  const args = toolArgs(tool);
+  if (/^(Write|StrReplace|Edit|EditNotebook)$/i.test(name)) {
+    const body =
+      args.contents ||
+      args.new_string ||
+      args.newString ||
+      args.old_string ||
+      args.oldString ||
+      "";
+    return Math.min(480000, String(body).length);
+  }
+  try {
+    return JSON.stringify({
+      name,
+      path: activityPath(args),
+      keys: Object.keys(args || {})
+    }).length;
+  } catch (_) {
+    return String(name).length;
+  }
+}
+
+function onceUsage(usage) {
+  let used = false;
+  return function take() {
+    if (used) return null;
+    used = true;
+    return usage;
+  };
+}
+
 function inferRoleFromSubagentText(text) {
   const raw = String(text || "");
   const m =
@@ -375,6 +552,7 @@ function estimateReadTokens(text) {
 
 function handleParentLine(obj, filePath) {
   if (!obj || !obj.role) return;
+  const src = path.basename(filePath);
 
   if (obj.role === "user") {
     const text = extractText(obj);
@@ -386,7 +564,8 @@ function handleParentLine(obj, filePath) {
       kind: "message",
       message: "task / turn · " + body,
       active: ["opus"],
-      source: path.basename(filePath)
+      usage: estimateUsage("parent", obj, { inText: text, outText: "" }),
+      source: src
     });
     return;
   }
@@ -395,13 +574,16 @@ function handleParentLine(obj, filePath) {
 
   const text = extractText(obj);
   const tools = extractToolUses(obj);
+  let outChars = String(text || "").length;
+  for (const t of tools) outChars += toolEstimateChars(t);
+  const takeUsage = onceUsage(
+    estimateUsage("parent", obj, { inText: "", outChars })
+  );
 
   for (const tool of tools) {
     const name = tool.name || "";
     const input = tool.input || {};
-    const args = (input.arguments && typeof input.arguments === "object"
-      ? input.arguments
-      : input) || {};
+    const args = toolArgs(tool);
 
     const isTask =
       name === "Task" ||
@@ -422,7 +604,8 @@ function handleParentLine(obj, filePath) {
         route: "delegates",
         routeTo: card,
         tokensDelta: role === "explorer" || role === "researcher" ? 24000 : 0,
-        source: path.basename(filePath)
+        usage: takeUsage(),
+        source: src
       });
       continue;
     }
@@ -435,9 +618,28 @@ function handleParentLine(obj, filePath) {
           kind: "status",
           message: "step · " + snippet(step, 80),
           active: ["opus"],
-          source: path.basename(filePath)
+          usage: takeUsage(),
+          source: src
         });
       }
+      continue;
+    }
+
+    const activity = toolActivity(tool);
+    if (activity) {
+      const label =
+        activity.kind +
+        " · " +
+        snippet(activity.path || activity.detail || resolveToolName(tool), 72);
+      pushEvent({
+        role: "parent",
+        kind: "status",
+        message: label,
+        active: ["opus"],
+        usage: takeUsage(),
+        activity,
+        source: src
+      });
     }
   }
 
@@ -447,14 +649,29 @@ function handleParentLine(obj, filePath) {
       kind: "message",
       message: "reply · " + snippet(text, 90),
       active: ["opus"],
-      source: path.basename(filePath)
+      usage: takeUsage(),
+      source: src
     });
+  } else {
+    // Tools emitted nothing (or only non-activity tools) — still bill the turn once.
+    const leftover = takeUsage();
+    if (leftover && text) {
+      pushEvent({
+        role: "parent",
+        kind: "message",
+        message: "reply · " + snippet(text, 90),
+        active: ["opus"],
+        usage: leftover,
+        source: src
+      });
+    }
   }
 }
 
 function handleSubagentLine(obj, filePath, roleHint) {
   if (!obj || !obj.role) return;
   let role = roleHint || "worker";
+  const src = path.basename(filePath);
 
   if (obj.role === "user") {
     const text = extractText(obj);
@@ -474,7 +691,8 @@ function handleSubagentLine(obj, filePath, roleHint) {
       route: role === "advisor" ? "asks" : "delegates",
       routeTo: roleToCard(role),
       tokensDelta: role === "explorer" || role === "researcher" ? estimateReadTokens(text) : 0,
-      source: path.basename(filePath)
+      usage: estimateUsage(role, obj, { inText: text, outText: "" }),
+      source: src
     });
     return;
   }
@@ -482,24 +700,66 @@ function handleSubagentLine(obj, filePath, roleHint) {
   if (obj.role === "assistant") {
     const text = extractText(obj);
     const tools = extractToolUses(obj);
-    const toolNames = tools.map((t) => t.name).filter(Boolean);
+    const toolNames = tools.map((t) => resolveToolName(t)).filter(Boolean);
     let msg = toolNames.length
       ? "tools · " + toolNames.slice(0, 4).join(", ")
       : "working · " + snippet(text, 80);
     const readish = toolNames.some((n) =>
       /^(Read|Grep|Glob|WebFetch|WebSearch|GetDynamicTools)$/i.test(n)
     );
+    let outChars = String(text || "").length;
+    for (const t of tools) outChars += toolEstimateChars(t);
+    const takeUsage = onceUsage(
+      estimateUsage(role, obj, { inText: "", outChars })
+    );
+    const tokensDelta =
+      (role === "explorer" || role === "researcher") && readish
+        ? 18000 + Math.min(40000, toolNames.length * 4000)
+        : 0;
+
+    const activities = [];
+    for (const tool of tools) {
+      const activity = toolActivity(tool);
+      if (activity) activities.push(activity);
+    }
+
+    if (activities.length === 0) {
+      pushEvent({
+        role,
+        kind: "status",
+        message: msg,
+        active: [roleToCard(role)],
+        tokensDelta,
+        usage: takeUsage(),
+        source: src
+      });
+      return;
+    }
+
     pushEvent({
       role,
       kind: "status",
       message: msg,
       active: [roleToCard(role)],
-      tokensDelta:
-        (role === "explorer" || role === "researcher") && readish
-          ? 18000 + Math.min(40000, toolNames.length * 4000)
-          : 0,
-      source: path.basename(filePath)
+      tokensDelta,
+      usage: takeUsage(),
+      activity: activities[0],
+      source: src
     });
+    for (let i = 1; i < activities.length; i++) {
+      const a = activities[i];
+      pushEvent({
+        role,
+        kind: "status",
+        message:
+          a.kind + " · " + snippet(a.path || a.detail || "", 72),
+        active: [roleToCard(role)],
+        tokensDelta: 0,
+        usage: null,
+        activity: a,
+        source: src
+      });
+    }
   }
 }
 

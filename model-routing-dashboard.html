@@ -19,7 +19,7 @@
     Auto-Live when served from any 127.0.0.1/localhost origin.
 
   See README.md for limits (near-real polling, role inference from Task /
-  subagent prompts, illustrative Read Bill token estimates).
+  subagent prompts, estimated Session Bill + activity from transcripts).
 -->
 <style>
   :root {
@@ -395,14 +395,21 @@
   }
 
   .asks-bridge.pulse span {
-    border-color: rgba(245, 165, 36, 0.7);
+    border-color: rgba(245, 165, 36, 0.85);
     color: var(--advisor);
-    box-shadow: 0 0 16px rgba(245, 165, 36, 0.2);
+    box-shadow: 0 0 18px rgba(245, 165, 36, 0.28);
   }
 
   .flow-label.pulse {
     color: var(--sonnet);
-    text-shadow: 0 0 12px rgba(62, 207, 255, 0.35);
+    text-shadow: 0 0 14px rgba(62, 207, 255, 0.45);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .asks-bridge.pulse span,
+    .flow-label.pulse {
+      transition: color 0.2s ease, box-shadow 0.2s ease, text-shadow 0.2s ease;
+    }
   }
 
   .row {
@@ -579,6 +586,8 @@
   .price { color: var(--muted); }
   .card.role-opus .price { color: rgba(242, 244, 244, 0.68); }
   .card.role-advisor .price { color: rgba(245, 165, 36, 0.85); }
+  .card.role-sonnet .price { color: rgba(62, 207, 255, 0.85); }
+  .card.role-haiku .price { color: rgba(184, 240, 0, 0.85); }
 
   .trigger-chips {
     display: flex;
@@ -613,16 +622,16 @@
     color: var(--muted);
   }
 
-  .read-bill {
+  .session-bill {
     position: relative;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 16px 16px 14px;
+    padding: 14px 14px 12px;
     overflow: hidden;
   }
 
-  .read-bill::before {
+  .session-bill::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -632,65 +641,78 @@
       repeating-linear-gradient(0deg, transparent 0, transparent 23px, rgba(255, 255, 255, 0.018) 23px, rgba(255, 255, 255, 0.018) 24px);
   }
 
-  .read-bill-inner { position: relative; z-index: 1; }
+  .session-bill-inner { position: relative; z-index: 1; }
 
-  .bill-compare {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: 14px;
-    align-items: center;
-    margin-bottom: 14px;
-  }
-
-  @media (max-width: 700px) {
-    .bill-compare { grid-template-columns: 1fr; text-align: center; }
-    .bill-vs { display: none; }
-  }
-
-  .bill-side {
-    padding: 11px 13px;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: rgba(0, 0, 0, 0.22);
-  }
-
-  .bill-side.opus { border-color: rgba(255, 255, 255, 0.1); }
-  .bill-side.haiku {
-    border-color: rgba(184, 240, 0, 0.22);
-    box-shadow: 0 0 20px rgba(184, 240, 0, 0.05);
-  }
-
-  .bill-side .label {
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--dim);
-    margin-bottom: 4px;
-  }
-
-  .bill-side .rate {
+  .bill-grid {
+    width: 100%;
+    border-collapse: collapse;
     font-size: 11px;
-    color: var(--muted);
-    margin-bottom: 6px;
+    margin-bottom: 12px;
   }
 
-  .bill-side .cost {
-    font-family: var(--serif);
-    font-size: 1.75rem;
-    letter-spacing: -0.02em;
-  }
-
-  .bill-side.opus .cost { color: var(--opus); }
-  .bill-side.haiku .cost { color: var(--haiku); }
-
-  .bill-vs {
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    color: var(--dim);
+  .bill-grid th {
+    text-align: left;
+    font-size: 9px;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
+    color: var(--dim);
+    font-weight: 500;
+    padding: 0 8px 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   }
 
-  .bill-stats {
+  .bill-grid th:nth-child(2),
+  .bill-grid th:nth-child(3),
+  .bill-grid th:nth-child(5),
+  .bill-grid td:nth-child(2),
+  .bill-grid td:nth-child(3),
+  .bill-grid td:nth-child(5) { text-align: right; }
+
+  .bill-grid td {
+    padding: 7px 8px 7px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: var(--muted);
+    vertical-align: top;
+  }
+
+  .bill-grid tr:last-child td { border-bottom: none; }
+
+  .bill-grid .model-name {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .bill-grid tr.opus .model-name { color: var(--opus); }
+  .bill-grid tr.fable .model-name { color: var(--advisor); }
+  .bill-grid tr.sonnet .model-name { color: var(--sonnet); }
+  .bill-grid tr.haiku .model-name { color: var(--haiku); }
+
+  .bill-grid tr.bill-sub td {
+    padding-top: 2px;
+    padding-bottom: 4px;
+    font-size: 10px;
+    color: var(--dim);
+    border-bottom: none;
+  }
+
+  .bill-grid tr.bill-sub .model-name {
+    padding-left: 12px;
+    color: rgba(184, 240, 0, 0.65);
+    font-weight: 400;
+  }
+
+  .bill-grid .cost-cell {
+    font-family: var(--serif);
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .bill-grid tr.opus .cost-cell { color: var(--opus); }
+  .bill-grid tr.fable .cost-cell { color: var(--advisor); }
+  .bill-grid tr.sonnet .cost-cell { color: var(--sonnet); }
+  .bill-grid tr.haiku .cost-cell { color: var(--haiku); }
+
+  .bill-foot {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
@@ -699,66 +721,168 @@
     margin-bottom: 10px;
   }
 
-  .token-big {
+  .bill-total-block .session-total {
     font-family: var(--serif);
-    font-size: 1.55rem;
+    font-size: 1.65rem;
+    letter-spacing: -0.02em;
     color: var(--text);
+    line-height: 1.1;
   }
 
-  .token-big span {
-    display: block;
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.1em;
+  .bill-total-block .session-total-label {
+    font-size: 9px;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--dim);
     margin-bottom: 3px;
   }
 
-  .savings-callout { text-align: right; }
+  .bill-compare-block { text-align: right; }
 
-  .savings-callout .x {
-    font-family: var(--serif);
-    font-size: 2.1rem;
-    color: var(--haiku);
-    line-height: 1;
-    text-shadow: 0 0 24px rgba(184, 240, 0, 0.28);
+  .bill-compare-block .all-opus {
+    font-size: 12px;
+    color: var(--muted);
   }
 
-  .savings-callout .note {
+  .bill-compare-block .all-opus strong {
+    color: var(--opus);
+    font-weight: 500;
+  }
+
+  .bill-compare-block .savings-x {
+    font-family: var(--serif);
+    font-size: 1.55rem;
+    color: var(--haiku);
+    line-height: 1.1;
+    margin-top: 2px;
+    text-shadow: 0 0 20px rgba(184, 240, 0, 0.22);
+  }
+
+  .bill-compare-block .savings-note {
     font-size: 10px;
     color: var(--muted);
-    margin-top: 3px;
+    margin-top: 2px;
   }
 
   .illustrative {
     font-size: 9px;
     color: var(--dim);
-    margin-top: 2px;
+    margin-top: 4px;
   }
 
-  .progress {
-    height: 7px;
+  .cost-share {
+    display: flex;
+    height: 8px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.05);
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  .progress > i {
+  .cost-share > i {
     display: block;
     height: 100%;
     width: 0%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, rgba(184, 240, 0, 0.32), var(--haiku));
-    box-shadow: 0 0 10px rgba(184, 240, 0, 0.35);
-    transition: width 0.4s ease;
+    min-width: 0;
+    transition: width 0.45s ease;
+  }
+
+  .cost-share > i.opus { background: rgba(242, 244, 244, 0.75); }
+  .cost-share > i.fable { background: rgba(245, 165, 36, 0.85); }
+  .cost-share > i.sonnet { background: rgba(62, 207, 255, 0.85); }
+  .cost-share > i.haiku { background: rgba(184, 240, 0, 0.85); box-shadow: 0 0 10px rgba(184, 240, 0, 0.25); }
+
+  .activity-panel {
+    background: #070a0b;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 11px 13px;
+    min-height: 140px;
+    max-height: 220px;
+    overflow: hidden;
+  }
+
+  .activity-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    height: 100%;
+    max-height: 198px;
+  }
+
+  @media (max-width: 700px) {
+    .activity-cols { grid-template-columns: 1fr; max-height: none; }
+    .activity-panel { max-height: none; }
+  }
+
+  .activity-col-head {
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .activity-col.read .activity-col-head { color: var(--haiku); }
+  .activity-col.edit .activity-col-head { color: var(--sonnet); }
+
+  .activity-list {
+    overflow-y: auto;
+    max-height: 168px;
+    font-size: 11px;
+  }
+
+  .activity-row {
+    display: grid;
+    grid-template-columns: 42px 62px 1fr;
+    gap: 6px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    color: var(--muted);
+  }
+
+  .activity-row:last-child { border-bottom: none; }
+  .activity-row .t { color: var(--dim); font-size: 10px; }
+  .activity-row .role {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 9px;
+    padding-top: 1px;
+  }
+  .activity-row.role-parent .role { color: var(--opus); }
+  .activity-row.role-advisor .role { color: var(--advisor); }
+  .activity-row.role-worker .role { color: var(--sonnet); }
+  .activity-row.role-explorer .role,
+  .activity-row.role-researcher .role { color: var(--haiku); }
+  .activity-row .body { min-width: 0; }
+  .activity-row .path {
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .activity-row .detail {
+    font-size: 10px;
+    color: var(--dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .activity-empty {
+    color: var(--dim);
+    font-style: italic;
+    padding: 4px 0;
+    font-size: 11px;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .progress > i { transition: none; }
+    .cost-share > i { transition: none; }
     .card.active { animation: none; }
     .flow-svg .pulse.run { animation: none; opacity: 0.7; stroke-dashoffset: 0; stroke-dasharray: none; }
+    .asks-bridge.pulse span,
+    .flow-label.pulse { transition: none; }
   }
 
   .session-log {
@@ -956,6 +1080,9 @@
             </div>
           </div>
           <div class="status" id="status-worker"><span class="live">Standby</span></div>
+          <div class="meta-row">
+            <span class="price">$2.00 / $10.00 <strong>per 1M in/out</strong></span>
+          </div>
         </article>
 
         <article class="card role-haiku" id="card-explorer" data-role="explorer">
@@ -975,6 +1102,9 @@
             </div>
           </div>
           <div class="status" id="status-explorer"><span class="live">Standby</span></div>
+          <div class="meta-row">
+            <span class="price">$0.10 / $0.50 <strong>per 1M in/out</strong></span>
+          </div>
         </article>
 
         <article class="card role-haiku" id="card-researcher" data-role="researcher">
@@ -994,38 +1124,107 @@
             </div>
           </div>
           <div class="status" id="status-researcher"><span class="live">Standby</span></div>
+          <div class="meta-row">
+            <span class="price">$0.10 / $0.50 <strong>per 1M in/out</strong></span>
+          </div>
         </article>
       </section>
     </div>
 
-    <div class="section-label">The Read Bill</div>
-    <section class="read-bill" aria-label="The Read Bill">
-      <div class="read-bill-inner">
-        <div class="bill-compare">
-          <div class="bill-side opus">
-            <div class="label">If routed to Opus</div>
-            <div class="rate">$4.00 / 1M input</div>
-            <div class="cost" id="billOpusCost">$0.00</div>
+    <div class="section-label">Session Bill</div>
+    <section class="session-bill" aria-label="Session Bill">
+      <div class="session-bill-inner">
+        <table class="bill-grid">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>In</th>
+              <th>Out</th>
+              <th>Rate</th>
+              <th>$</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="opus">
+              <td class="model-name">Opus</td>
+              <td id="billOpusIn">0</td>
+              <td id="billOpusOut">0</td>
+              <td>$4 / $20</td>
+              <td class="cost-cell" id="billOpusCost">$0.00</td>
+            </tr>
+            <tr class="fable">
+              <td class="model-name">Fable</td>
+              <td id="billFableIn">0</td>
+              <td id="billFableOut">0</td>
+              <td>$10 / $50</td>
+              <td class="cost-cell" id="billFableCost">$0.00</td>
+            </tr>
+            <tr class="sonnet">
+              <td class="model-name">Sonnet</td>
+              <td id="billSonnetIn">0</td>
+              <td id="billSonnetOut">0</td>
+              <td>$2 / $10</td>
+              <td class="cost-cell" id="billSonnetCost">$0.00</td>
+            </tr>
+            <tr class="haiku">
+              <td class="model-name">Haiku</td>
+              <td id="billHaikuIn">0</td>
+              <td id="billHaikuOut">0</td>
+              <td>$0.10 / $0.50</td>
+              <td class="cost-cell" id="billHaikuCost">$0.00</td>
+            </tr>
+            <tr class="bill-sub haiku">
+              <td class="model-name">explorer</td>
+              <td id="billExplorerIn">0</td>
+              <td id="billExplorerOut">0</td>
+              <td></td>
+              <td id="billExplorerCost">$0.00</td>
+            </tr>
+            <tr class="bill-sub haiku">
+              <td class="model-name">researcher</td>
+              <td id="billResearcherIn">0</td>
+              <td id="billResearcherOut">0</td>
+              <td></td>
+              <td id="billResearcherCost">$0.00</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="bill-foot">
+          <div class="bill-total-block">
+            <div class="session-total-label">Session total</div>
+            <div class="session-total" id="billSessionTotal">$0.00</div>
+            <div class="illustrative" id="billIllustrative">estimated · not official usage</div>
           </div>
-          <div class="bill-vs">vs</div>
-          <div class="bill-side haiku">
-            <div class="label">Haiku reads</div>
-            <div class="rate">$0.10 / 1M input · 40× less</div>
-            <div class="cost" id="billHaikuCost">$0.00</div>
+          <div class="bill-compare-block">
+            <div class="all-opus">same work all-Opus <strong id="billAllOpus">$0.00</strong></div>
+            <div class="savings-x" id="billMultiplier">—</div>
+            <div class="savings-note" id="billSavingsNote">savings vs all-Opus</div>
           </div>
         </div>
-        <div class="bill-stats">
-          <div class="token-big">
-            <span>Haiku-routed input tokens</span>
-            <span id="billTokens" style="font-family:var(--serif);font-size:1.55rem;letter-spacing:-0.02em;color:var(--text);text-transform:none;">0</span>
-          </div>
-          <div class="savings-callout">
-            <div class="x" id="billMultiplier">—</div>
-            <div class="note" id="billSavingsNote">savings vs Opus-priced reads</div>
-            <div class="illustrative" id="billIllustrative">Illustrative figures · demo narrative</div>
+        <div class="cost-share" id="costShareBar" aria-hidden="true">
+          <i class="opus" id="shareOpus"></i>
+          <i class="fable" id="shareFable"></i>
+          <i class="sonnet" id="shareSonnet"></i>
+          <i class="haiku" id="shareHaiku"></i>
+        </div>
+      </div>
+    </section>
+
+    <div class="section-label">Activity</div>
+    <section class="activity-panel" aria-label="Activity preview">
+      <div class="activity-cols">
+        <div class="activity-col read">
+          <div class="activity-col-head">Read</div>
+          <div class="activity-list" id="activityRead">
+            <div class="activity-empty" id="activityReadEmpty">No reads yet…</div>
           </div>
         </div>
-        <div class="progress" aria-hidden="true"><i id="billBar"></i></div>
+        <div class="activity-col edit">
+          <div class="activity-col-head">Edited</div>
+          <div class="activity-list" id="activityEdit">
+            <div class="activity-empty" id="activityEditEmpty">No edits yet…</div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1040,9 +1239,10 @@
         <span class="cmd" id="footerProject">cursor --model opus --advisor fable</span>
       </div>
       <div class="footer-badges">
+        <span class="fbadge">session <strong id="footerSessionCost">$0.00</strong></span>
         <span class="fbadge">effort <strong id="footerEffort">mixed</strong></span>
         <span class="fbadge">subagents <strong id="footerSubs">0</strong></span>
-        <span class="fbadge">haiku read tokens <strong id="footerTokens">0</strong></span>
+        <span class="fbadge">haiku tokens <strong id="footerTokens">0</strong></span>
       </div>
     </footer>
   </div>
@@ -1052,9 +1252,13 @@
   "use strict";
 
   var STEP_MS = 1500;
-  var END_TOKENS = 1620000;
-  var OPUS_PER_M = 4.0;
-  var HAIKU_PER_M = 0.1;
+  var ACTIVITY_CAP = 40;
+  var RATES = {
+    opus: { in: 4.0, out: 20.0 },
+    fable: { in: 10.0, out: 50.0 },
+    sonnet: { in: 2.0, out: 10.0 },
+    haiku: { in: 0.1, out: 0.5 }
+  };
   var BRIDGE =
     /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(location.origin)
       ? location.origin
@@ -1084,20 +1288,45 @@
   var footerProject = document.getElementById("footerProject");
   var sessionLog = document.getElementById("sessionLog");
   var logEmpty = document.getElementById("logEmpty");
+  var activityRead = document.getElementById("activityRead");
+  var activityEdit = document.getElementById("activityEdit");
   var currentProjectLabel = null;
   var currentProjectId = null;
   var selectingProject = false;
   var advisorCallsEl = document.getElementById("advisorCalls");
   var advisorLastEl = document.getElementById("advisorLast");
-  var billOpusCost = document.getElementById("billOpusCost");
-  var billHaikuCost = document.getElementById("billHaikuCost");
-  var billTokens = document.getElementById("billTokens");
-  var billMultiplier = document.getElementById("billMultiplier");
-  var billSavingsNote = document.getElementById("billSavingsNote");
-  var billIllustrative = document.getElementById("billIllustrative");
-  var billBar = document.getElementById("billBar");
+  var billEls = {
+    opusIn: document.getElementById("billOpusIn"),
+    opusOut: document.getElementById("billOpusOut"),
+    opusCost: document.getElementById("billOpusCost"),
+    fableIn: document.getElementById("billFableIn"),
+    fableOut: document.getElementById("billFableOut"),
+    fableCost: document.getElementById("billFableCost"),
+    sonnetIn: document.getElementById("billSonnetIn"),
+    sonnetOut: document.getElementById("billSonnetOut"),
+    sonnetCost: document.getElementById("billSonnetCost"),
+    haikuIn: document.getElementById("billHaikuIn"),
+    haikuOut: document.getElementById("billHaikuOut"),
+    haikuCost: document.getElementById("billHaikuCost"),
+    explorerIn: document.getElementById("billExplorerIn"),
+    explorerOut: document.getElementById("billExplorerOut"),
+    explorerCost: document.getElementById("billExplorerCost"),
+    researcherIn: document.getElementById("billResearcherIn"),
+    researcherOut: document.getElementById("billResearcherOut"),
+    researcherCost: document.getElementById("billResearcherCost"),
+    sessionTotal: document.getElementById("billSessionTotal"),
+    allOpus: document.getElementById("billAllOpus"),
+    multiplier: document.getElementById("billMultiplier"),
+    savingsNote: document.getElementById("billSavingsNote"),
+    illustrative: document.getElementById("billIllustrative"),
+    shareOpus: document.getElementById("shareOpus"),
+    shareFable: document.getElementById("shareFable"),
+    shareSonnet: document.getElementById("shareSonnet"),
+    shareHaiku: document.getElementById("shareHaiku")
+  };
   var footerSubs = document.getElementById("footerSubs");
   var footerTokens = document.getElementById("footerTokens");
+  var footerSessionCost = document.getElementById("footerSessionCost");
   var footerEffort = document.getElementById("footerEffort");
   var stage = document.getElementById("stage");
   var asksLabel = document.getElementById("asksLabel");
@@ -1110,7 +1339,24 @@
   var seenLiveIds = {};
   var es = null;
   var livePoll = null;
-  var state = { tokens: 0, calls: 0, subs: 0, liveSubs: {} };
+  var state = {
+    calls: 0,
+    subs: 0,
+    liveSubs: {},
+    usage: emptyUsage(),
+    activity: []
+  };
+
+  function emptyUsage() {
+    return {
+      opus: { in: 0, out: 0 },
+      fable: { in: 0, out: 0 },
+      sonnet: { in: 0, out: 0 },
+      haiku: { in: 0, out: 0 },
+      explorer: { in: 0, out: 0 },
+      researcher: { in: 0, out: 0 }
+    };
+  }
 
   function prefersReducedMotion() {
     return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1236,6 +1482,7 @@
   }
 
   function formatTokens(n) {
+    n = Math.max(0, Math.round(n || 0));
     if (n >= 1000000) {
       return (n / 1000000).toFixed(n % 100000 === 0 ? 1 : 2).replace(/\.00$/, ".0") + "M";
     }
@@ -1244,31 +1491,211 @@
   }
 
   function formatMoney(n) {
+    if (!isFinite(n) || n < 0) n = 0;
+    if (n > 0 && n < 0.01) return "$" + n.toFixed(3);
     return "$" + n.toFixed(2);
   }
 
-  function updateBill(tokens) {
-    state.tokens = tokens;
-    var opusCost = (tokens / 1000000) * OPUS_PER_M;
-    var haikuCost = (tokens / 1000000) * HAIKU_PER_M;
-    billTokens.textContent = formatTokens(tokens);
-    billOpusCost.textContent = formatMoney(opusCost);
-    billHaikuCost.textContent = formatMoney(haikuCost);
-    footerTokens.textContent = formatTokens(tokens);
-    var pct = Math.min(100, (tokens / END_TOKENS) * 100);
-    billBar.style.width = pct + "%";
-    if (tokens >= END_TOKENS) {
-      billMultiplier.textContent = "~40×";
-      billSavingsNote.textContent =
-        formatMoney(opusCost) + " → " + formatMoney(haikuCost) + " · Haiku savings";
-    } else if (tokens > 0) {
-      var mult = opusCost / Math.max(haikuCost, 0.0001);
-      billMultiplier.textContent = "~" + Math.round(mult) + "×";
-      billSavingsNote.textContent = "climbing toward Haiku-routed reads";
+  function normalizeModel(model, role) {
+    var m = String(model || "").toLowerCase();
+    var r = String(role || "").toLowerCase();
+    if (m === "opus" || m === "fable" || m === "sonnet" || m === "haiku") return m;
+    if (r === "parent" || r === "opus") return "opus";
+    if (r === "advisor" || r === "fable") return "fable";
+    if (r === "worker" || r === "sonnet") return "sonnet";
+    if (r === "explorer" || r === "researcher" || r === "haiku") return "haiku";
+    return "opus";
+  }
+
+  function modelCost(model, inn, out) {
+    var rates = RATES[model] || RATES.opus;
+    return (inn / 1000000) * rates.in + (out / 1000000) * rates.out;
+  }
+
+  function renderBill() {
+    var u = state.usage;
+    var costs = {
+      opus: modelCost("opus", u.opus.in, u.opus.out),
+      fable: modelCost("fable", u.fable.in, u.fable.out),
+      sonnet: modelCost("sonnet", u.sonnet.in, u.sonnet.out),
+      haiku: modelCost("haiku", u.haiku.in, u.haiku.out),
+      explorer: modelCost("haiku", u.explorer.in, u.explorer.out),
+      researcher: modelCost("haiku", u.researcher.in, u.researcher.out)
+    };
+    billEls.opusIn.textContent = formatTokens(u.opus.in);
+    billEls.opusOut.textContent = formatTokens(u.opus.out);
+    billEls.opusCost.textContent = formatMoney(costs.opus);
+    billEls.fableIn.textContent = formatTokens(u.fable.in);
+    billEls.fableOut.textContent = formatTokens(u.fable.out);
+    billEls.fableCost.textContent = formatMoney(costs.fable);
+    billEls.sonnetIn.textContent = formatTokens(u.sonnet.in);
+    billEls.sonnetOut.textContent = formatTokens(u.sonnet.out);
+    billEls.sonnetCost.textContent = formatMoney(costs.sonnet);
+    billEls.haikuIn.textContent = formatTokens(u.haiku.in);
+    billEls.haikuOut.textContent = formatTokens(u.haiku.out);
+    billEls.haikuCost.textContent = formatMoney(costs.haiku);
+    billEls.explorerIn.textContent = formatTokens(u.explorer.in);
+    billEls.explorerOut.textContent = formatTokens(u.explorer.out);
+    billEls.explorerCost.textContent = formatMoney(costs.explorer);
+    billEls.researcherIn.textContent = formatTokens(u.researcher.in);
+    billEls.researcherOut.textContent = formatTokens(u.researcher.out);
+    billEls.researcherCost.textContent = formatMoney(costs.researcher);
+
+    var sessionTotal = costs.opus + costs.fable + costs.sonnet + costs.haiku;
+    var totalIn = u.opus.in + u.fable.in + u.sonnet.in + u.haiku.in;
+    var totalOut = u.opus.out + u.fable.out + u.sonnet.out + u.haiku.out;
+    var allOpus = modelCost("opus", totalIn, totalOut);
+
+    billEls.sessionTotal.textContent = formatMoney(sessionTotal);
+    billEls.allOpus.textContent = formatMoney(allOpus);
+    footerSessionCost.textContent = formatMoney(sessionTotal);
+    footerTokens.textContent = formatTokens(u.haiku.in + u.haiku.out);
+
+    if (sessionTotal > 0 && allOpus > sessionTotal) {
+      var mult = allOpus / Math.max(sessionTotal, 0.0001);
+      billEls.multiplier.textContent = "~" + (mult >= 10 ? Math.round(mult) : mult.toFixed(1)) + "×";
+      billEls.savingsNote.textContent =
+        formatMoney(allOpus) + " → " + formatMoney(sessionTotal) + " · vs all-Opus";
+    } else if (sessionTotal > 0) {
+      billEls.multiplier.textContent = "~1×";
+      billEls.savingsNote.textContent = "routed cost near all-Opus";
     } else {
-      billMultiplier.textContent = "—";
-      billSavingsNote.textContent = "savings vs Opus-priced reads";
+      billEls.multiplier.textContent = "—";
+      billEls.savingsNote.textContent = "savings vs all-Opus";
     }
+
+    var shareTotal = sessionTotal || 0;
+    function setShare(el, cost) {
+      var pct = shareTotal > 0 ? (cost / shareTotal) * 100 : 0;
+      el.style.width = pct + "%";
+    }
+    setShare(billEls.shareOpus, costs.opus);
+    setShare(billEls.shareFable, costs.fable);
+    setShare(billEls.shareSonnet, costs.sonnet);
+    setShare(billEls.shareHaiku, costs.haiku);
+  }
+
+  function addUsage(usage) {
+    if (!usage) return;
+    var role = String(usage.role || "").toLowerCase();
+    var model = normalizeModel(usage.model, role);
+    var inn = Math.max(0, Number(usage.in) || 0);
+    var out = Math.max(0, Number(usage.out) || 0);
+    if (!inn && !out) return;
+    state.usage[model].in += inn;
+    state.usage[model].out += out;
+    if (role === "explorer" || role === "researcher") {
+      state.usage[role].in += inn;
+      state.usage[role].out += out;
+    } else if (model === "haiku") {
+      /* Live may send model=haiku without role — attribute to explorer by default */
+      state.usage.explorer.in += inn;
+      state.usage.explorer.out += out;
+    }
+    renderBill();
+  }
+
+  function setUsageSnapshot(snap) {
+    state.usage = emptyUsage();
+    if (!snap) {
+      renderBill();
+      return;
+    }
+    ["opus", "fable", "sonnet", "haiku", "explorer", "researcher"].forEach(function (key) {
+      if (!snap[key]) return;
+      state.usage[key].in = Math.max(0, Number(snap[key].in) || 0);
+      state.usage[key].out = Math.max(0, Number(snap[key].out) || 0);
+    });
+    /* Keep Haiku total as max of sum of sublines vs explicit haiku */
+    var subIn = state.usage.explorer.in + state.usage.researcher.in;
+    var subOut = state.usage.explorer.out + state.usage.researcher.out;
+    if (subIn > state.usage.haiku.in) state.usage.haiku.in = subIn;
+    if (subOut > state.usage.haiku.out) state.usage.haiku.out = subOut;
+    renderBill();
+  }
+
+  function clearActivity() {
+    state.activity = [];
+    if (activityRead) {
+      activityRead.innerHTML = "";
+      var er = document.createElement("div");
+      er.className = "activity-empty";
+      er.id = "activityReadEmpty";
+      er.textContent = "No reads yet…";
+      activityRead.appendChild(er);
+    }
+    if (activityEdit) {
+      activityEdit.innerHTML = "";
+      var ee = document.createElement("div");
+      ee.className = "activity-empty";
+      ee.id = "activityEditEmpty";
+      ee.textContent = "No edits yet…";
+      activityEdit.appendChild(ee);
+    }
+  }
+
+  function activityKindBucket(kind) {
+    var k = String(kind || "").toLowerCase();
+    if (k === "edit" || k === "edited" || k === "write" || k === "strreplace") return "edit";
+    if (k === "read" || k === "search" || k === "grep" || k === "glob" || k === "webfetch") return "read";
+    if (k === "run") return "edit";
+    return "read";
+  }
+
+  function appendActivity(item, timeStr) {
+    if (!item) return;
+    var kind = activityKindBucket(item.kind);
+    var role = item.role || "parent";
+    if (role === "parent") role = "parent";
+    var path = item.path || "—";
+    var detail = item.detail || "";
+    var t = timeStr;
+    if (!t) {
+      var sec = Math.floor(logSeq * (STEP_MS / 1000));
+      t = "00:" + pad2(Math.min(59, sec));
+    }
+    var entry = {
+      kind: kind,
+      role: role,
+      path: path,
+      detail: detail,
+      t: t
+    };
+    state.activity.unshift(entry);
+    if (state.activity.length > ACTIVITY_CAP) {
+      state.activity.length = ACTIVITY_CAP;
+    }
+    renderActivity();
+  }
+
+  function renderActivity() {
+    if (!activityRead || !activityEdit) return;
+    activityRead.innerHTML = "";
+    activityEdit.innerHTML = "";
+    var reads = state.activity.filter(function (a) { return a.kind === "read"; });
+    var edits = state.activity.filter(function (a) { return a.kind === "edit"; });
+    function paint(list, host, emptyMsg) {
+      if (!list.length) {
+        var empty = document.createElement("div");
+        empty.className = "activity-empty";
+        empty.textContent = emptyMsg;
+        host.appendChild(empty);
+        return;
+      }
+      list.forEach(function (a) {
+        var row = document.createElement("div");
+        row.className = "activity-row role-" + a.role;
+        row.innerHTML =
+          '<span class="t">' + escapeHtml(a.t) + "</span>" +
+          '<span class="role">' + escapeHtml(a.role) + "</span>" +
+          '<span class="body"><div class="path">' + escapeHtml(a.path) + "</div>" +
+          (a.detail ? '<div class="detail">' + escapeHtml(a.detail) + "</div>" : "") +
+          "</span>";
+        host.appendChild(row);
+      });
+    }
+    paint(reads, activityRead, "No reads yet…");
+    paint(edits, activityEdit, "No edits yet…");
   }
 
   function setCalls(n) {
@@ -1386,15 +1813,16 @@
   }
 
   function animateRoute(route, routeTo) {
+    var labelMs = prefersReducedMotion() ? 200 : 900;
     if (route === "asks") {
       pulsePath("path-asks-pulse");
       asksLabel.classList.add("pulse");
-      setTimeout(function () { asksLabel.classList.remove("pulse"); }, 900);
+      setTimeout(function () { asksLabel.classList.remove("pulse"); }, labelMs);
       return;
     }
     if (route === "delegates") {
       delegatesLabel.classList.add("pulse");
-      setTimeout(function () { delegatesLabel.classList.remove("pulse"); }, 900);
+      setTimeout(function () { delegatesLabel.classList.remove("pulse"); }, labelMs);
       var map = {
         worker: "path-d-worker-pulse",
         explorer: "path-d-explorer-pulse",
@@ -1403,6 +1831,10 @@
       };
       if (routeTo && map[routeTo]) {
         pulsePath(map[routeTo]);
+        if (routeTo === "advisor") {
+          asksLabel.classList.add("pulse");
+          setTimeout(function () { asksLabel.classList.remove("pulse"); }, labelMs);
+        }
       } else {
         pulsePath("path-d-worker-pulse");
         pulsePath("path-d-explorer-pulse");
@@ -1541,11 +1973,13 @@
     setSubs(0);
     advisorLastEl.textContent = "Last advice: —";
     footerEffort.textContent = mode === "live" ? "live" : "mixed";
-    updateBill(0);
-    billIllustrative.textContent =
+    state.usage = emptyUsage();
+    renderBill();
+    clearActivity();
+    billEls.illustrative.textContent =
       mode === "live"
         ? "Live estimates from transcript activity · not official usage"
-        : "Illustrative figures · demo narrative";
+        : "estimated · not official usage · demo narrative";
     sessionLog.innerHTML = "";
     logEmpty = document.createElement("div");
     logEmpty.className = "log-empty";
@@ -1584,8 +2018,32 @@
         setSubs(Object.keys(state.liveSubs).length);
       }
     }
-    if (ev.tokensDelta) {
-      updateBill(state.tokens + Number(ev.tokensDelta) || state.tokens);
+    if (ev.usage) {
+      addUsage({
+        model: ev.usage.model,
+        role: ev.usage.role || role,
+        in: ev.usage.in,
+        out: ev.usage.out
+      });
+    } else if (ev.tokensDelta) {
+      /* Backward compat: attribute legacy deltas to Haiku reads */
+      addUsage({
+        model: "haiku",
+        role: role === "researcher" ? "researcher" : "explorer",
+        in: Number(ev.tokensDelta) || 0,
+        out: 0
+      });
+    }
+    if (ev.activity) {
+      appendActivity(
+        {
+          kind: ev.activity.kind,
+          path: ev.activity.path,
+          detail: ev.activity.detail,
+          role: role === "parent" ? "parent" : role
+        },
+        ev.ts
+      );
     }
     if (ev.route) animateRoute(ev.route, ev.routeTo || cardRole);
 
@@ -1696,12 +2154,20 @@
     };
   }
 
-  /* Demo narrative */
+  /* Demo narrative — advances Opus / Fable / Sonnet / Haiku bill buckets */
   var steps = [
     function () {
       setActive(["opus"]);
       setStatus("opus", '<span class="live">Task received · refactor billing webhooks</span>');
       appendLog("parent", "task received · refactor billing webhooks");
+      setUsageSnapshot({
+        opus: { in: 18000, out: 4200 },
+        fable: { in: 0, out: 0 },
+        sonnet: { in: 0, out: 0 },
+        haiku: { in: 0, out: 0 },
+        explorer: { in: 0, out: 0 },
+        researcher: { in: 0, out: 0 }
+      });
       footerEffort.textContent = "high";
     },
     function () {
@@ -1710,6 +2176,14 @@
       setStatus("advisor", '<span class="live">Reviewing approach…</span>');
       appendLog("parent", "calling advisor · before the plan");
       appendLog("advisor", "triggered · before plan");
+      setUsageSnapshot({
+        opus: { in: 24000, out: 6100 },
+        fable: { in: 12000, out: 3800 },
+        sonnet: { in: 0, out: 0 },
+        haiku: { in: 0, out: 0 },
+        explorer: { in: 0, out: 0 },
+        researcher: { in: 0, out: 0 }
+      });
       animateRoute("asks", "advisor");
     },
     function () {
@@ -1719,21 +2193,46 @@
       setStatus("opus", '<span class="live">Plan approved · delegating reads & edits</span>');
       advisorLastEl.textContent = "Last advice: keep Haiku on reads; Sonnet owns edits";
       appendLog("advisor", "reviews approach → quiet; calls = 1");
+      setUsageSnapshot({
+        opus: { in: 28000, out: 7200 },
+        fable: { in: 22000, out: 9000 },
+        sonnet: { in: 0, out: 0 },
+        haiku: { in: 0, out: 0 },
+        explorer: { in: 0, out: 0 },
+        researcher: { in: 0, out: 0 }
+      });
     },
     function () {
       setActive(["explorer"]);
       setSubs(1);
       setStatus("explorer", '<span class="live">Searching src/billing/**</span>');
-      updateBill(420000);
-      appendLog("explorer", "searching src/billing/** · tokens climb");
+      setUsageSnapshot({
+        opus: { in: 28000, out: 7200 },
+        fable: { in: 22000, out: 9000 },
+        sonnet: { in: 0, out: 0 },
+        haiku: { in: 420000, out: 18000 },
+        explorer: { in: 420000, out: 18000 },
+        researcher: { in: 0, out: 0 }
+      });
+      appendActivity({ kind: "read", role: "explorer", path: "src/billing/**", detail: "glob · webhook handlers" });
+      appendActivity({ kind: "read", role: "explorer", path: "src/billing/webhooks.ts", detail: "lines 1–240" });
+      appendLog("explorer", "searching src/billing/** · Session Bill climbs");
       animateRoute("delegates", "explorer");
     },
     function () {
       setActive(["explorer", "researcher"]);
       setSubs(2);
       setStatus("researcher", '<span class="live">Pulling docs · webhook patterns</span>');
-      updateBill(980000);
-      appendLog("researcher", "pulling docs · tokens climb");
+      setUsageSnapshot({
+        opus: { in: 32000, out: 8000 },
+        fable: { in: 22000, out: 9000 },
+        sonnet: { in: 0, out: 0 },
+        haiku: { in: 980000, out: 42000 },
+        explorer: { in: 520000, out: 22000 },
+        researcher: { in: 460000, out: 20000 }
+      });
+      appendActivity({ kind: "read", role: "researcher", path: "docs/webhooks.md", detail: "signature verify patterns" });
+      appendLog("researcher", "pulling docs · Session Bill climbs");
       animateRoute("delegates", "researcher");
     },
     function () {
@@ -1742,7 +2241,16 @@
       setStatus("explorer", '<span class="live">Search complete</span>');
       setStatus("researcher", '<span class="live">Docs cached</span>');
       setStatus("worker", "Editing 4 files · running tests → FAIL", "fail");
-      updateBill(1100000);
+      setUsageSnapshot({
+        opus: { in: 36000, out: 9000 },
+        fable: { in: 22000, out: 9000 },
+        sonnet: { in: 85000, out: 32000 },
+        haiku: { in: 1050000, out: 45000 },
+        explorer: { in: 540000, out: 23000 },
+        researcher: { in: 510000, out: 22000 }
+      });
+      appendActivity({ kind: "edit", role: "worker", path: "src/billing/webhooks.ts", detail: "edited · signature check" });
+      appendActivity({ kind: "edit", role: "worker", path: "src/billing/verify.ts", detail: "edited · HMAC helper" });
       appendLog("worker", "editing 4 files · running tests → FAIL", "fail");
       animateRoute("delegates", "worker");
     },
@@ -1750,12 +2258,28 @@
       setActive(["worker"]);
       setStatus("worker", "Same error again → FAIL", "fail");
       appendLog("worker", "same error again → FAIL", "fail");
+      setUsageSnapshot({
+        opus: { in: 40000, out: 10000 },
+        fable: { in: 22000, out: 9000 },
+        sonnet: { in: 120000, out: 48000 },
+        haiku: { in: 1080000, out: 46000 },
+        explorer: { in: 550000, out: 23500 },
+        researcher: { in: 530000, out: 22500 }
+      });
     },
     function () {
       setActive(["opus", "advisor"]);
       setStatus("opus", '<span class="live">Calling advisor · same error twice</span>');
       setStatus("advisor", '<span class="live">Analyzing failure loop…</span>');
       appendLog("parent", "calling advisor · same error twice");
+      setUsageSnapshot({
+        opus: { in: 52000, out: 14000 },
+        fable: { in: 38000, out: 16000 },
+        sonnet: { in: 120000, out: 48000 },
+        haiku: { in: 1080000, out: 46000 },
+        explorer: { in: 550000, out: 23500 },
+        researcher: { in: 530000, out: 22500 }
+      });
       animateRoute("asks", "advisor");
     },
     function () {
@@ -1765,11 +2289,27 @@
       advisorLastEl.textContent = "Last advice: stop / change approach — fix signature mismatch first";
       setStatus("worker", '<span class="live">Awaiting revised approach</span>');
       appendLog("advisor", "stop / change approach; calls = 2");
+      setUsageSnapshot({
+        opus: { in: 56000, out: 15000 },
+        fable: { in: 52000, out: 24000 },
+        sonnet: { in: 120000, out: 48000 },
+        haiku: { in: 1080000, out: 46000 },
+        explorer: { in: 550000, out: 23500 },
+        researcher: { in: 530000, out: 22500 }
+      });
     },
     function () {
       setActive(["worker"]);
       setStatus("worker", "Fix applied · tests → PASS", "pass");
-      updateBill(1400000);
+      setUsageSnapshot({
+        opus: { in: 60000, out: 16000 },
+        fable: { in: 52000, out: 24000 },
+        sonnet: { in: 210000, out: 78000 },
+        haiku: { in: 1120000, out: 48000 },
+        explorer: { in: 570000, out: 24500 },
+        researcher: { in: 550000, out: 23500 }
+      });
+      appendActivity({ kind: "edit", role: "worker", path: "src/billing/webhooks.test.ts", detail: "edited · fixture sig" });
       appendLog("worker", "fix + tests → PASS", "pass");
       animateRoute("delegates", "worker");
     },
@@ -1779,6 +2319,14 @@
       setStatus("advisor", '<span class="live">Final review…</span>');
       setCalls(3);
       appendLog("parent", "calling advisor · before done; calls = 3");
+      setUsageSnapshot({
+        opus: { in: 78000, out: 22000 },
+        fable: { in: 68000, out: 32000 },
+        sonnet: { in: 210000, out: 78000 },
+        haiku: { in: 1120000, out: 48000 },
+        explorer: { in: 570000, out: 24500 },
+        researcher: { in: 550000, out: 23500 }
+      });
       animateRoute("asks", "advisor");
     },
     function () {
@@ -1789,8 +2337,15 @@
       setStatus("worker", '<span class="live">Done</span>');
       setStatus("explorer", '<span class="live">Done</span>');
       setStatus("researcher", '<span class="live">Done</span>');
-      updateBill(END_TOKENS);
-      appendLog("parent", "reviewed · shipped · Read Bill shows Haiku ~40× savings");
+      setUsageSnapshot({
+        opus: { in: 95000, out: 28000 },
+        fable: { in: 72000, out: 36000 },
+        sonnet: { in: 225000, out: 82000 },
+        haiku: { in: 1200000, out: 52000 },
+        explorer: { in: 620000, out: 27000 },
+        researcher: { in: 580000, out: 25000 }
+      });
+      appendLog("parent", "reviewed · shipped · Session Bill shows multi-model savings vs all-Opus");
       footerEffort.textContent = "done";
       playing = false;
       demoBtn.textContent = "Play";
@@ -1885,7 +2440,8 @@
   });
 
   // Initial
-  updateBill(0);
+  renderBill();
+  clearActivity();
   updateFooterProject();
   requestAnimationFrame(function () {
     layoutFlow();

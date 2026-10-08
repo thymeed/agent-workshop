@@ -97,6 +97,7 @@ Roles are inferred from `Task` / `CallDynamicTool` `subagent_type` and subagent 
 ### Limits
 
 - Near-real, not hook-level realtime (no Cursor hooks required for this slice).
-- Read Bill token deltas are **estimates** from transcript activity, not official usage metering.
+- **SESSION BILL** is transcript-estimated tokens × published rates per 1M input/output: Opus $4/$20, Sonnet $2/$10, Haiku $0.10/$0.50, Fable $10/$50. Estimated · not official Cursor invoices.
+- **ACTIVITY** preview lists reads and edits from the transcript (path + short detail). It does not include full file contents.
 - Only sees chats that write into the selected transcripts folder.
 - Hooks / statusline / Cursor SDK are complementary paths; this slice uses transcripts on disk.
