@@ -288,14 +288,26 @@ function snippet(text, max) {
 }
 
 function mapSubagentType(type) {
-  const t = String(type || "").toLowerCase();
+  const t = String(type || "").toLowerCase().trim();
+  if (!t) return "parent";
   if (t === "advisor") return "advisor";
-  if (t === "worker") return "worker";
   if (t === "explore" || t === "explorer") return "explorer";
   if (t === "researcher") return "researcher";
-  if (t === "bugbot" || t === "security-review" || t === "ci-investigator") return "worker";
-  if (t === "generalpurpose" || t === "agents" || t === "best-of-n-runner") return "worker";
-  return "parent";
+  if (
+    t === "worker" ||
+    t === "shell" ||
+    t === "bugbot" ||
+    t === "security-review" ||
+    t === "ci-investigator" ||
+    t === "generalpurpose" ||
+    t === "general-purpose" ||
+    t === "agents" ||
+    t === "best-of-n-runner"
+  ) {
+    return "worker";
+  }
+  // Unknown non-empty Task types share the worker card, never the parent.
+  return "worker";
 }
 
 function roleToCard(role) {
@@ -307,16 +319,34 @@ function roleToCard(role) {
 }
 
 function inferRoleFromSubagentText(text) {
+  const raw = String(text || "");
   const m =
-    text.match(/operating as the ["']([^"']+)["'] custom subagent/i) ||
-    text.match(/subagent_type["']?\s*[:=]\s*["']([^"']+)["']/i) ||
-    text.match(/Task description to exactly ["']([^"']+)["']/i);
-  if (m) return mapSubagentType(m[1]);
-  if (/You are the Advisor/i.test(text)) return "advisor";
-  if (/\bExplore\b.*codebase|thoroughness:\s*quick/i.test(text)) return "explorer";
-  if (/Research|docs and external/i.test(text) && /read-only/i.test(text)) return "researcher";
-  if (/Implementation worker/i.test(text)) return "worker";
-  return "parent";
+    raw.match(/operating as the ["']([^"']+)["'] custom subagent/i) ||
+    raw.match(/subagent_type["']?\s*[:=]\s*["']([^"']+)["']/i) ||
+    raw.match(/Task description to exactly ["']([^"']+)["']/i);
+  if (m) {
+    const mapped = mapSubagentType(m[1]);
+    if (mapped !== "parent") return mapped;
+  }
+
+  const queryMatch = raw.match(/<user_query>([\s\S]*?)<\/user_query>/);
+  const query = queryMatch ? queryMatch[1] : raw;
+
+  if (/You are the Advisor/i.test(raw) || /^\s*Advisor\b/i.test(query)) return "advisor";
+  if (/Implementation worker/i.test(raw)) return "worker";
+  if (/file search specialist/i.test(raw)) return "explorer";
+  if (/Thoroughness\s*:/i.test(raw)) return "explorer";
+  if (
+    /docs and external/i.test(raw) ||
+    /^\s*Research\b/i.test(query) ||
+    /(?:^|[^/])\bresearcher\b(?:[^/]|$)/i.test(query)
+  ) {
+    return "researcher";
+  }
+  if (/\bexplor(?:e|ing)\b/i.test(raw)) return "explorer";
+  if (/(?:^|[^/])\badvisor\b(?:[^/]|$)/i.test(query.slice(0, 180))) return "advisor";
+  // Subagent files never fall through to the parent card.
+  return "worker";
 }
 
 function extractToolUses(obj) {
@@ -383,14 +413,14 @@ function handleParentLine(obj, filePath) {
       const role = mapSubagentType(subType);
       const desc = snippet(args.description || args.prompt || subType || "subagent", 72);
       const card = roleToCard(role);
-      const asks = role === "advisor";
+      const delegate = card !== "opus";
       pushEvent({
-        role: asks ? "advisor" : role === "parent" ? "parent" : role,
-        kind: asks ? "asks" : "delegates",
-        message: (asks ? "asks advisor · " : "delegates · ") + (subType || role) + " · " + desc,
-        active: asks ? ["opus", "advisor"] : ["opus", card],
-        route: asks ? "asks" : "delegates",
-        routeTo: asks ? "advisor" : card,
+        role: delegate ? role : "parent",
+        kind: "delegates",
+        message: "delegates · " + (subType || role) + " · " + desc,
+        active: delegate ? [card] : ["opus"],
+        route: "delegates",
+        routeTo: card,
         tokensDelta: role === "explorer" || role === "researcher" ? 24000 : 0,
         source: path.basename(filePath)
       });
@@ -424,7 +454,7 @@ function handleParentLine(obj, filePath) {
 
 function handleSubagentLine(obj, filePath, roleHint) {
   if (!obj || !obj.role) return;
-  let role = roleHint || "parent";
+  let role = roleHint || "worker";
 
   if (obj.role === "user") {
     const text = extractText(obj);
@@ -526,7 +556,7 @@ function primeSubagentRole(filePath) {
     const obj = JSON.parse(firstLine);
     const text = extractText(obj);
     const role = inferRoleFromSubagentText(text);
-    if (role !== "parent") subagentRoles.set(uuid, role);
+    if (role && role !== "parent") subagentRoles.set(uuid, role);
   } catch (_) {
     /* ignore priming failures */
   }
@@ -551,12 +581,13 @@ function ingestNewBytes(filePath) {
   }
   if (st.size === state.size) return;
 
+  const readFrom = state.size;
   let buf;
   try {
     const fd = fs.openSync(filePath, "r");
     const len = st.size - state.size;
     buf = Buffer.alloc(len);
-    fs.readSync(fd, buf, 0, len, state.size);
+    fs.readSync(fd, buf, 0, len, readFrom);
     fs.closeSync(fd);
   } catch (e) {
     lastScanError = String(e.message || e);
@@ -566,7 +597,10 @@ function ingestNewBytes(filePath) {
 
   const text = buf.toString("utf8");
   const lines = text.split(/\r?\n/);
-  if (!state.warm && lines.length > 1) {
+  // A mid-file tail can start on a partial line. A brand-new file (start === 0)
+  // must keep line 1 so the subagent spawn record is not dropped.
+  const startedMidFile = !state.warm && readFrom > 0;
+  if (startedMidFile && lines.length > 1) {
     lines.shift();
   }
   state.warm = true;

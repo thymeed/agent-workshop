@@ -1129,6 +1129,105 @@
     });
   }
 
+  /* Live only: non-opus cards stay lit across parent active:["opus"] chatter. */
+  var STICKY_MS = 14000;
+  var stickyActive = {};
+  var lastLiveActive = [];
+  var stickyTimer = null;
+
+  function clearStickyActive() {
+    stickyActive = {};
+    lastLiveActive = [];
+    if (stickyTimer) {
+      clearTimeout(stickyTimer);
+      stickyTimer = null;
+    }
+  }
+
+  function pruneStickyActive(now) {
+    now = now || Date.now();
+    Object.keys(stickyActive).forEach(function (card) {
+      if (!(stickyActive[card] > now)) delete stickyActive[card];
+    });
+  }
+
+  function scheduleStickyExpiry() {
+    if (stickyTimer) {
+      clearTimeout(stickyTimer);
+      stickyTimer = null;
+    }
+    var next = 0;
+    Object.keys(stickyActive).forEach(function (card) {
+      var exp = stickyActive[card];
+      if (!next || exp < next) next = exp;
+    });
+    if (!next) return;
+    stickyTimer = setTimeout(function () {
+      stickyTimer = null;
+      pruneStickyActive();
+      if (mode !== "live") return;
+      setActive(mergeStickyActive(lastLiveActive));
+      scheduleStickyExpiry();
+    }, Math.max(0, next - Date.now()) + 30);
+  }
+
+  function nonOpusCards(active) {
+    var out = [];
+    var seen = {};
+    (active || []).forEach(function (card) {
+      if (!card || card === "opus" || seen[card] || !cards[card]) return;
+      seen[card] = true;
+      out.push(card);
+    });
+    return out;
+  }
+
+  function touchStickyActive(stick) {
+    var now = Date.now();
+    pruneStickyActive(now);
+    stick.forEach(function (card) {
+      stickyActive[card] = now + STICKY_MS;
+    });
+    scheduleStickyExpiry();
+  }
+
+  function mergeStickyActive(active) {
+    pruneStickyActive();
+    var merged = [];
+    var seen = {};
+    (active || []).forEach(function (card) {
+      if (!card || seen[card]) return;
+      seen[card] = true;
+      merged.push(card);
+    });
+    Object.keys(stickyActive).forEach(function (card) {
+      if (!seen[card]) {
+        seen[card] = true;
+        merged.push(card);
+      }
+    });
+    return merged;
+  }
+
+  function rememberLiveFocus(explicit, active) {
+    lastLiveActive = (active || []).slice();
+    if (explicit && explicit.length === 0) {
+      stickyActive = {};
+      if (stickyTimer) {
+        clearTimeout(stickyTimer);
+        stickyTimer = null;
+      }
+      return;
+    }
+    var stick = nonOpusCards(active);
+    if (stick.length) {
+      touchStickyActive(stick);
+      return;
+    }
+    pruneStickyActive();
+    scheduleStickyExpiry();
+  }
+
   function setStatus(role, html, cls) {
     var el = statusEls[role];
     if (!el) return;
@@ -1415,6 +1514,7 @@
   function resetUI(opts) {
     opts = opts || {};
     clearTimers();
+    clearStickyActive();
     playing = false;
     logSeq = 0;
     state.liveSubs = {};
@@ -1466,8 +1566,10 @@
       role === "explorer" ? "explorer" :
       role === "researcher" ? "researcher" : "opus";
 
-    var active = Array.isArray(ev.active) && ev.active.length ? ev.active : [cardRole];
-    setActive(active);
+    var explicit = Array.isArray(ev.active) ? ev.active : null;
+    var active = explicit && explicit.length ? explicit.slice() : [cardRole];
+    rememberLiveFocus(explicit, active);
+    setActive(mergeStickyActive(active));
 
     var msg = ev.message || "";
     setStatus(cardRole, '<span class="live">' + escapeHtml(msg) + "</span>");
@@ -1500,6 +1602,7 @@
       clearInterval(livePoll);
       livePoll = null;
     }
+    clearStickyActive();
     demoBtn.classList.remove("live-connected");
   }
 
@@ -1718,6 +1821,7 @@
 
   function stopDemo() {
     clearTimers();
+    clearStickyActive();
     playing = false;
     demoBtn.textContent = "Play";
     demoBtn.classList.remove("playing");
