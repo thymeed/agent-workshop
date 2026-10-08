@@ -1,0 +1,906 @@
+#!/usr/bin/env node
+/**
+ * Minimal localhost bridge: tails Cursor agent-transcripts JSONL and serves
+ * JSON + SSE for model-routing-dashboard.html Live mode.
+ *
+ * Usage (CLI):
+ *   node live-bridge.js
+ *   node live-bridge.js --port 3847
+ *   node live-bridge.js --dir "C:\\Users\\...\\agent-transcripts"
+ *
+ * Usage (Electron / require):
+ *   const { startBridge, stopBridge } = require("./live-bridge");
+ *   await startBridge({ port: 3847, quiet: true });
+ *   // … later …
+ *   await stopBridge();
+ *
+ * Then open http://127.0.0.1:3847/
+ */
+"use strict";
+
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
+
+const PROJECTS_ROOT = path.join(os.homedir(), ".cursor", "projects");
+const FALLBACK_DIR = path.join(
+  PROJECTS_ROOT,
+  "c-Users-louje-OneDrive-Desktop-Custom-TUI",
+  "agent-transcripts"
+);
+const DASHBOARD = path.join(__dirname, "model-routing-dashboard.html");
+const MAX_EVENTS = 400;
+const POLL_MS = 900;
+
+let PORT = 3847;
+/** @type {string} */
+let TRANSCRIPTS = FALLBACK_DIR;
+/** @type {string|null} */
+let currentProjectId = null;
+/** @type {string|null} */
+let currentProjectLabel = null;
+
+/** @type {Array<object>} */
+const events = [];
+/** @type {Set<http.ServerResponse>} */
+const sseClients = new Set();
+/** filePath -> { size, warm } */
+const fileState = new Map();
+/** subagent uuid -> role */
+const subagentRoles = new Map();
+let eventSeq = 0;
+let lastScanError = null;
+
+/** @type {http.Server|null} */
+let server = null;
+/** @type {ReturnType<typeof setInterval>|null} */
+let pollTimer = null;
+let quiet = false;
+let started = false;
+
+function flag(name) {
+  const i = process.argv.indexOf(name);
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : null;
+}
+
+function log(...args) {
+  if (!quiet) console.log(...args);
+}
+
+function logErr(...args) {
+  if (!quiet) console.error(...args);
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function clock() {
+  const d = new Date();
+  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map((n) => String(n).padStart(2, "0"))
+    .join(":");
+}
+
+function humanizeProjectId(id) {
+  return String(id || "")
+    .replace(/^c-Users-[^-]+-/i, "")
+    .replace(/-/g, " ")
+    .trim() || id;
+}
+
+/**
+ * Discover Cursor projects that have an agent-transcripts folder.
+ * @returns {Array<{id:string,label:string,path:string,mtime:number}>}
+ */
+function discoverProjects() {
+  const out = [];
+  if (!fs.existsSync(PROJECTS_ROOT)) return out;
+  let entries;
+  try {
+    entries = fs.readdirSync(PROJECTS_ROOT, { withFileTypes: true });
+  } catch (_) {
+    return out;
+  }
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    const id = ent.name;
+    const transcriptsPath = path.join(PROJECTS_ROOT, id, "agent-transcripts");
+    if (!fs.existsSync(transcriptsPath)) continue;
+    let mtime = 0;
+    try {
+      mtime = fs.statSync(transcriptsPath).mtimeMs;
+      // Bump with newest top-level entry mtime (cheap; avoids full walk)
+      const kids = fs.readdirSync(transcriptsPath, { withFileTypes: true });
+      for (const kid of kids) {
+        try {
+          mtime = Math.max(
+            mtime,
+            fs.statSync(path.join(transcriptsPath, kid.name)).mtimeMs
+          );
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    out.push({
+      id,
+      label: humanizeProjectId(id),
+      path: transcriptsPath,
+      mtime
+    });
+  }
+  out.sort((a, b) => b.mtime - a.mtime);
+  return out;
+}
+
+function projectById(id) {
+  if (!id) return null;
+  const projects = discoverProjects();
+  return projects.find((p) => p.id === id) || null;
+}
+
+function isPathUnderProjectsRoot(absPath) {
+  const resolved = path.resolve(absPath);
+  const root = path.resolve(PROJECTS_ROOT);
+  const rel = path.relative(root, resolved);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+function resolveDefaultTranscripts(opts) {
+  opts = opts || {};
+  const fromFlag = opts.dir || flag("--dir") || process.env.CURSOR_TRANSCRIPTS;
+  if (fromFlag) {
+    const abs = path.resolve(fromFlag);
+    TRANSCRIPTS = abs;
+    // Try to map back to a known project id
+    if (isPathUnderProjectsRoot(abs)) {
+      const parts = path.relative(path.resolve(PROJECTS_ROOT), abs).split(path.sep);
+      if (parts.length >= 1) {
+        currentProjectId = parts[0];
+        currentProjectLabel = humanizeProjectId(parts[0]);
+      }
+    } else {
+      currentProjectId = null;
+      currentProjectLabel = path.basename(abs);
+    }
+    return TRANSCRIPTS;
+  }
+
+  const projects = discoverProjects();
+  if (projects.length) {
+    const newest = projects[0];
+    TRANSCRIPTS = newest.path;
+    currentProjectId = newest.id;
+    currentProjectLabel = newest.label;
+    return TRANSCRIPTS;
+  }
+
+  TRANSCRIPTS = FALLBACK_DIR;
+  currentProjectId = "c-Users-louje-OneDrive-Desktop-Custom-TUI";
+  currentProjectLabel = humanizeProjectId(currentProjectId);
+  return TRANSCRIPTS;
+}
+
+function broadcastSse(eventName, data) {
+  const payload =
+    (eventName ? `event: ${eventName}\n` : "") +
+    `data: ${JSON.stringify(data)}\n\n`;
+  for (const res of sseClients) {
+    try {
+      res.write(payload);
+    } catch (_) {
+      sseClients.delete(res);
+    }
+  }
+}
+
+function pushEvent(partial) {
+  const ev = {
+    id: ++eventSeq,
+    ts: clock(),
+    iso: nowIso(),
+    role: partial.role || "parent",
+    kind: partial.kind || "status",
+    message: partial.message || "",
+    active: partial.active || [],
+    route: partial.route || null,
+    routeTo: partial.routeTo || null,
+    tokensDelta: partial.tokensDelta || 0,
+    source: partial.source || "transcript"
+  };
+  events.push(ev);
+  if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+  broadcastSse(null, ev);
+  return ev;
+}
+
+function resetWatchState() {
+  events.length = 0;
+  fileState.clear();
+  subagentRoles.clear();
+  // Keep eventSeq monotonic so client after= / seenLiveIds stay valid across project switches
+  lastScanError = null;
+  broadcastSse("reset", {
+    ok: true,
+    transcripts: TRANSCRIPTS,
+    projectId: currentProjectId,
+    projectLabel: currentProjectLabel
+  });
+  scan();
+  if (!events.length) {
+    pushEvent({
+      role: "parent",
+      kind: "status",
+      message: "bridge online · watching " + (currentProjectLabel || TRANSCRIPTS),
+      active: [],
+      source: "bridge"
+    });
+  }
+}
+
+function selectProject(id) {
+  const proj = projectById(id);
+  if (!proj) {
+    return { ok: false, error: "Unknown or disallowed project id" };
+  }
+  if (!isPathUnderProjectsRoot(proj.path)) {
+    return { ok: false, error: "Path escapes Cursor projects root" };
+  }
+  TRANSCRIPTS = proj.path;
+  currentProjectId = proj.id;
+  currentProjectLabel = proj.label;
+  resetWatchState();
+  return {
+    ok: true,
+    projectId: currentProjectId,
+    projectLabel: currentProjectLabel,
+    transcripts: TRANSCRIPTS
+  };
+}
+
+function statusPayload() {
+  return {
+    ok: true,
+    port: PORT,
+    transcripts: TRANSCRIPTS,
+    projectId: currentProjectId,
+    projectLabel: currentProjectLabel,
+    exists: fs.existsSync(TRANSCRIPTS),
+    events: events.length,
+    sseClients: sseClients.size,
+    watching: fileState.size,
+    lastScanError,
+    time: nowIso()
+  };
+}
+
+function snippet(text, max) {
+  if (!text) return "";
+  const one = String(text)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return one.length > max ? one.slice(0, max - 1) + "…" : one;
+}
+
+function mapSubagentType(type) {
+  const t = String(type || "").toLowerCase();
+  if (t === "advisor") return "advisor";
+  if (t === "worker") return "worker";
+  if (t === "explore" || t === "explorer") return "explorer";
+  if (t === "researcher") return "researcher";
+  if (t === "bugbot" || t === "security-review" || t === "ci-investigator") return "worker";
+  if (t === "generalpurpose" || t === "agents" || t === "best-of-n-runner") return "worker";
+  return "parent";
+}
+
+function roleToCard(role) {
+  if (role === "advisor") return "advisor";
+  if (role === "worker") return "worker";
+  if (role === "explorer") return "explorer";
+  if (role === "researcher") return "researcher";
+  return "opus";
+}
+
+function inferRoleFromSubagentText(text) {
+  const m =
+    text.match(/operating as the ["']([^"']+)["'] custom subagent/i) ||
+    text.match(/subagent_type["']?\s*[:=]\s*["']([^"']+)["']/i) ||
+    text.match(/Task description to exactly ["']([^"']+)["']/i);
+  if (m) return mapSubagentType(m[1]);
+  if (/You are the Advisor/i.test(text)) return "advisor";
+  if (/\bExplore\b.*codebase|thoroughness:\s*quick/i.test(text)) return "explorer";
+  if (/Research|docs and external/i.test(text) && /read-only/i.test(text)) return "researcher";
+  if (/Implementation worker/i.test(text)) return "worker";
+  return "parent";
+}
+
+function extractToolUses(obj) {
+  const out = [];
+  const content = obj && obj.message && obj.message.content;
+  if (!Array.isArray(content)) return out;
+  for (const part of content) {
+    if (part && part.type === "tool_use") out.push(part);
+  }
+  return out;
+}
+
+function extractText(obj) {
+  const content = obj && obj.message && obj.message.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((p) => p && p.type === "text" && p.text)
+    .map((p) => p.text)
+    .join("\n");
+}
+
+function estimateReadTokens(text) {
+  const n = Math.round(String(text || "").length / 4);
+  return Math.min(120000, Math.max(800, n));
+}
+
+function handleParentLine(obj, filePath) {
+  if (!obj || !obj.role) return;
+
+  if (obj.role === "user") {
+    const text = extractText(obj);
+    const q = text.match(/<user_query>([\s\S]*?)<\/user_query>/);
+    const body = snippet(q ? q[1] : text, 96);
+    if (!body) return;
+    pushEvent({
+      role: "parent",
+      kind: "message",
+      message: "task / turn · " + body,
+      active: ["opus"],
+      source: path.basename(filePath)
+    });
+    return;
+  }
+
+  if (obj.role !== "assistant") return;
+
+  const text = extractText(obj);
+  const tools = extractToolUses(obj);
+
+  for (const tool of tools) {
+    const name = tool.name || "";
+    const input = tool.input || {};
+    const args = (input.arguments && typeof input.arguments === "object"
+      ? input.arguments
+      : input) || {};
+
+    const isTask =
+      name === "Task" ||
+      (name === "CallDynamicTool" &&
+        (input.toolName === "Task" || (args && args.subagent_type)));
+
+    if (isTask) {
+      const subType = args.subagent_type || input.subagent_type || "";
+      const role = mapSubagentType(subType);
+      const desc = snippet(args.description || args.prompt || subType || "subagent", 72);
+      const card = roleToCard(role);
+      const asks = role === "advisor";
+      pushEvent({
+        role: asks ? "advisor" : role === "parent" ? "parent" : role,
+        kind: asks ? "asks" : "delegates",
+        message: (asks ? "asks advisor · " : "delegates · ") + (subType || role) + " · " + desc,
+        active: asks ? ["opus", "advisor"] : ["opus", card],
+        route: asks ? "asks" : "delegates",
+        routeTo: asks ? "advisor" : card,
+        tokensDelta: role === "explorer" || role === "researcher" ? 24000 : 0,
+        source: path.basename(filePath)
+      });
+      continue;
+    }
+
+    if (name === "UpdateCurrentStep" || (name === "CallDynamicTool" && input.toolName === "UpdateCurrentStep")) {
+      const step = args.current_step || input.current_step;
+      if (step) {
+        pushEvent({
+          role: "parent",
+          kind: "status",
+          message: "step · " + snippet(step, 80),
+          active: ["opus"],
+          source: path.basename(filePath)
+        });
+      }
+    }
+  }
+
+  if (text && tools.length === 0) {
+    pushEvent({
+      role: "parent",
+      kind: "message",
+      message: "reply · " + snippet(text, 90),
+      active: ["opus"],
+      source: path.basename(filePath)
+    });
+  }
+}
+
+function handleSubagentLine(obj, filePath, roleHint) {
+  if (!obj || !obj.role) return;
+  let role = roleHint || "parent";
+
+  if (obj.role === "user") {
+    const text = extractText(obj);
+    const inferred = inferRoleFromSubagentText(text);
+    if (inferred !== "parent") role = inferred;
+    const uuid = path.basename(path.dirname(filePath)) === "subagents"
+      ? path.basename(filePath, ".jsonl")
+      : null;
+    if (uuid) subagentRoles.set(uuid, role);
+    const q = text.match(/<user_query>([\s\S]*?)<\/user_query>/);
+    const body = snippet(q ? q[1] : text, 80);
+    pushEvent({
+      role,
+      kind: "delegates",
+      message: "spawned · " + body,
+      active: [roleToCard(role)],
+      route: role === "advisor" ? "asks" : "delegates",
+      routeTo: roleToCard(role),
+      tokensDelta: role === "explorer" || role === "researcher" ? estimateReadTokens(text) : 0,
+      source: path.basename(filePath)
+    });
+    return;
+  }
+
+  if (obj.role === "assistant") {
+    const text = extractText(obj);
+    const tools = extractToolUses(obj);
+    const toolNames = tools.map((t) => t.name).filter(Boolean);
+    let msg = toolNames.length
+      ? "tools · " + toolNames.slice(0, 4).join(", ")
+      : "working · " + snippet(text, 80);
+    const readish = toolNames.some((n) =>
+      /^(Read|Grep|Glob|WebFetch|WebSearch|GetDynamicTools)$/i.test(n)
+    );
+    pushEvent({
+      role,
+      kind: "status",
+      message: msg,
+      active: [roleToCard(role)],
+      tokensDelta:
+        (role === "explorer" || role === "researcher") && readish
+          ? 18000 + Math.min(40000, toolNames.length * 4000)
+          : 0,
+      source: path.basename(filePath)
+    });
+  }
+}
+
+function listJsonlFiles(root) {
+  const out = [];
+  if (!fs.existsSync(root)) return out;
+
+  function walk(dir) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      lastScanError = String(e.message || e);
+      return;
+    }
+    for (const ent of entries) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(full);
+      else if (ent.isFile() && ent.name.endsWith(".jsonl")) out.push(full);
+    }
+  }
+  walk(root);
+  return out.sort((a, b) => {
+    try {
+      return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
+    } catch (_) {
+      return 0;
+    }
+  });
+}
+
+function isSubagentFile(filePath) {
+  return filePath.split(path.sep).includes("subagents");
+}
+
+function roleForFile(filePath) {
+  if (!isSubagentFile(filePath)) return null;
+  const uuid = path.basename(filePath, ".jsonl");
+  return subagentRoles.get(uuid) || null;
+}
+
+function primeSubagentRole(filePath) {
+  if (!isSubagentFile(filePath)) return;
+  const uuid = path.basename(filePath, ".jsonl");
+  if (subagentRoles.has(uuid)) return;
+  try {
+    const fd = fs.openSync(filePath, "r");
+    const headLen = Math.min(12000, fs.fstatSync(fd).size);
+    const buf = Buffer.alloc(headLen);
+    fs.readSync(fd, buf, 0, headLen, 0);
+    fs.closeSync(fd);
+    const firstLine = buf.toString("utf8").split(/\r?\n/).find((l) => l.trim());
+    if (!firstLine) return;
+    const obj = JSON.parse(firstLine);
+    const text = extractText(obj);
+    const role = inferRoleFromSubagentText(text);
+    if (role !== "parent") subagentRoles.set(uuid, role);
+  } catch (_) {
+    /* ignore priming failures */
+  }
+}
+
+function ingestNewBytes(filePath) {
+  let st;
+  try {
+    st = fs.statSync(filePath);
+  } catch (_) {
+    return;
+  }
+  let state = fileState.get(filePath);
+  if (!state) {
+    if (isSubagentFile(filePath)) primeSubagentRole(filePath);
+    const start = Math.max(0, st.size - 8192);
+    state = { size: start, warm: false };
+    fileState.set(filePath, state);
+  }
+  if (st.size < state.size) {
+    state.size = 0;
+  }
+  if (st.size === state.size) return;
+
+  let buf;
+  try {
+    const fd = fs.openSync(filePath, "r");
+    const len = st.size - state.size;
+    buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, state.size);
+    fs.closeSync(fd);
+  } catch (e) {
+    lastScanError = String(e.message || e);
+    return;
+  }
+  state.size = st.size;
+
+  const text = buf.toString("utf8");
+  const lines = text.split(/\r?\n/);
+  if (!state.warm && lines.length > 1) {
+    lines.shift();
+  }
+  state.warm = true;
+
+  const sub = isSubagentFile(filePath);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let obj;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch (_) {
+      continue;
+    }
+    if (sub) handleSubagentLine(obj, filePath, roleForFile(filePath));
+    else handleParentLine(obj, filePath);
+  }
+}
+
+function scan() {
+  try {
+    const files = listJsonlFiles(TRANSCRIPTS).slice(0, 40);
+    for (const f of files) ingestNewBytes(f);
+    lastScanError = fs.existsSync(TRANSCRIPTS) ? null : "transcripts dir missing";
+  } catch (e) {
+    lastScanError = String(e.message || e);
+  }
+}
+
+function sendJson(res, code, obj) {
+  const body = JSON.stringify(obj, null, 2);
+  res.writeHead(code, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "Access-Control-Allow-Origin": "*"
+  });
+  res.end(body);
+}
+
+function serveDashboard(res) {
+  fs.readFile(DASHBOARD, (err, data) => {
+    if (err) {
+      res.writeHead(500, { "Content-Type": "text/plain" });
+      res.end("Missing model-routing-dashboard.html next to live-bridge.js");
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store"
+    });
+    res.end(data);
+  });
+}
+
+function createServer() {
+  return http.createServer((req, res) => {
+    const url = new URL(req.url || "/", `http://127.0.0.1:${PORT}`);
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      });
+      res.end();
+      return;
+    }
+
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      serveDashboard(res);
+      return;
+    }
+
+    if (url.pathname === "/api/status") {
+      sendJson(res, 200, statusPayload());
+      return;
+    }
+
+    if (url.pathname === "/api/projects") {
+      const projects = discoverProjects();
+      sendJson(res, 200, {
+        ok: true,
+        projects,
+        selectedId: currentProjectId,
+        selectedLabel: currentProjectLabel,
+        transcripts: TRANSCRIPTS
+      });
+      return;
+    }
+
+    if (url.pathname === "/api/select") {
+      const id = url.searchParams.get("id");
+      if (!id) {
+        sendJson(res, 400, { ok: false, error: "Missing id query param" });
+        return;
+      }
+      const result = selectProject(id);
+      sendJson(res, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    if (url.pathname === "/api/events") {
+      const after = Number(url.searchParams.get("after") || 0);
+      sendJson(res, 200, {
+        events: events.filter((e) => e.id > after),
+        transcripts: TRANSCRIPTS,
+        projectId: currentProjectId,
+        projectLabel: currentProjectLabel
+      });
+      return;
+    }
+
+    if (url.pathname === "/api/stream") {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "Access-Control-Allow-Origin": "*"
+      });
+      res.write(
+        `event: hello\ndata: ${JSON.stringify({
+          ok: true,
+          transcripts: TRANSCRIPTS,
+          projectId: currentProjectId,
+          projectLabel: currentProjectLabel
+        })}\n\n`
+      );
+      const backlog = events.slice(-40);
+      for (const ev of backlog) {
+        res.write(`data: ${JSON.stringify(ev)}\n\n`);
+      }
+      sseClients.add(res);
+      req.on("close", () => sseClients.delete(res));
+      return;
+    }
+
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not found");
+  });
+}
+
+function probeExistingBridge(port) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/api/status",
+        timeout: 800
+      },
+      (res) => {
+        let body = "";
+        res.on("data", (c) => {
+          body += c;
+        });
+        res.on("end", () => {
+          try {
+            const j = JSON.parse(body);
+            resolve(j && j.ok === true ? j : null);
+          } catch (_) {
+            resolve(null);
+          }
+        });
+      }
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+    req.on("error", () => resolve(null));
+  });
+}
+
+/**
+ * Start the bridge HTTP server + transcript poller.
+ * @param {{port?:number, dir?:string, quiet?:boolean, reuseExisting?:boolean}} [opts]
+ * @returns {Promise<{port:number, reused:boolean, transcripts:string}>}
+ */
+function startBridge(opts) {
+  opts = opts || {};
+  if (started && server) {
+    return Promise.resolve({
+      port: PORT,
+      reused: false,
+      transcripts: TRANSCRIPTS,
+      alreadyStarted: true
+    });
+  }
+
+  quiet = !!opts.quiet;
+  PORT = Number(opts.port || flag("--port") || 3847);
+  resolveDefaultTranscripts(opts);
+
+  return new Promise((resolve, reject) => {
+    server = createServer();
+
+    const onListening = () => {
+      started = true;
+      scan();
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(() => {
+        try {
+          scan();
+        } catch (e) {
+          lastScanError = String(e && e.message ? e.message : e);
+          logErr("[live-bridge] scan error:", lastScanError);
+        }
+      }, POLL_MS);
+
+      log(`[live-bridge] http://127.0.0.1:${PORT}/`);
+      log(`[live-bridge] transcripts: ${TRANSCRIPTS}`);
+      log(`[live-bridge] project: ${currentProjectLabel || "(custom)"} (${currentProjectId || "n/a"})`);
+      log(`[live-bridge] exists: ${fs.existsSync(TRANSCRIPTS)}`);
+      if (!quiet) log("[live-bridge] Leave this window open. Ctrl+C to stop.");
+      if (!events.length) {
+        pushEvent({
+          role: "parent",
+          kind: "status",
+          message: "bridge online · waiting for transcript activity",
+          active: [],
+          source: "bridge"
+        });
+      }
+      resolve({
+        port: PORT,
+        reused: false,
+        transcripts: TRANSCRIPTS,
+        projectId: currentProjectId,
+        projectLabel: currentProjectLabel
+      });
+    };
+
+    server.on("error", (err) => {
+      if (err && err.code === "EADDRINUSE") {
+        const reuse = opts.reuseExisting !== false;
+        probeExistingBridge(PORT).then((status) => {
+          if (status && reuse) {
+            log(`[live-bridge] already running at http://127.0.0.1:${PORT}/`);
+            log(`[live-bridge] transcripts: ${status.transcripts || "(unknown)"}`);
+            if (require.main === module) {
+              log("[live-bridge] Open that URL and click Live. (No second copy needed.)");
+              process.exit(0);
+              return;
+            }
+            // Electron path: reuse existing server; we did not bind
+            server = null;
+            started = false;
+            resolve({
+              port: PORT,
+              reused: true,
+              transcripts: status.transcripts || TRANSCRIPTS,
+              projectId: status.projectId || currentProjectId,
+              projectLabel: status.projectLabel || currentProjectLabel
+            });
+            return;
+          }
+          if (require.main === module) {
+            logErr(`[live-bridge] port ${PORT} is in use (not this bridge).`);
+            logErr(`[live-bridge] Fix: close the other process, or run:`);
+            logErr(`  node live-bridge.js --port ${PORT + 1}`);
+            logErr(`Then open http://127.0.0.1:${PORT + 1}/`);
+            process.exit(1);
+            return;
+          }
+          reject(new Error(`Port ${PORT} in use`));
+        });
+        return;
+      }
+      logErr("[live-bridge] server error:", err && err.message ? err.message : err);
+      if (require.main === module) process.exit(1);
+      else reject(err);
+    });
+
+    server.listen(PORT, "127.0.0.1", onListening);
+  });
+}
+
+/**
+ * Stop poller + HTTP server (for Electron quit).
+ * @returns {Promise<void>}
+ */
+function stopBridge() {
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      resolve();
+    };
+
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    for (const res of sseClients) {
+      try {
+        res.end();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    sseClients.clear();
+    if (!server) {
+      started = false;
+      finish();
+      return;
+    }
+    const s = server;
+    server = null;
+    started = false;
+    s.close(() => finish());
+    const t = setTimeout(finish, 500);
+    if (typeof t.unref === "function") t.unref();
+  });
+}
+
+module.exports = {
+  startBridge,
+  stopBridge,
+  discoverProjects,
+  resetWatchState,
+  selectProject
+};
+
+if (require.main === module) {
+  process.on("uncaughtException", (err) => {
+    console.error("[live-bridge] uncaughtException:", err && err.stack ? err.stack : err);
+  });
+  process.on("unhandledRejection", (err) => {
+    console.error("[live-bridge] unhandledRejection:", err);
+  });
+
+  startBridge({ quiet: false }).catch((err) => {
+    console.error("[live-bridge] failed to start:", err && err.message ? err.message : err);
+    process.exit(1);
+  });
+}

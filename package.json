@@ -1,0 +1,64 @@
+{
+  "name": "cursor-agents-model-routing",
+  "version": "1.0.0",
+  "description": "Cursor Agents · Model Routing — Electron desktop dashboard with in-process live bridge",
+  "main": "electron/main.js",
+  "private": true,
+  "author": "Tai",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "bridge": "node live-bridge.js",
+    "build": "electron-builder --win",
+    "pack": "electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.cursor.agents.model-routing",
+    "productName": "Cursor Agents Model Routing",
+    "copyright": "Copyright © Tai",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "live-bridge.js",
+      "model-routing-dashboard.html",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Cursor Agents Model Routing"
+    },
+    "portable": {
+      "artifactName": "CursorAgentsModelRouting-Portable.exe"
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}

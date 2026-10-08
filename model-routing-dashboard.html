@@ -1,0 +1,1798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cursor Agents · Model Routing</title>
+<!--
+  Model Routing Dashboard — Cursor Agents
+
+  Demo (static):
+    Double-click this file, or open it in a browser (file://).
+    Click “Demo · Play”. No server required.
+
+  Live (session events):
+    Preferred: npm start (Electron) — bridge runs in-process, no CMD window.
+    Or packaged .exe (see README). Headless: node live-bridge.js then open
+    http://127.0.0.1:3847/ (or any localhost port) and click Live.
+    Live-only project picker: GET /api/projects, switch via /api/select;
+    Auto-Live when served from any 127.0.0.1/localhost origin.
+
+  See README.md for limits (near-real polling, role inference from Task /
+  subagent prompts, illustrative Read Bill token estimates).
+-->
+<style>
+  :root {
+    --bg: #0a0e0f;
+    --surface: #101617;
+    --surface-2: #141a1b;
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #e8ecec;
+    --muted: #8a9698;
+    --dim: #5c686a;
+    --opus: #f2f4f4;
+    --sonnet: #3ecfff;
+    --haiku: #b8f000;
+    --advisor: #f5a524;
+    --fail: #ff6b6b;
+    --pass: #7dff9a;
+    --radius: 8px;
+    --mono: ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
+    --serif: Georgia, "Times New Roman", Times, serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+
+  body {
+    position: relative;
+    overflow-x: auto;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 70% 42% at 50% -4%, rgba(184, 240, 0, 0.045), transparent 55%),
+      radial-gradient(ellipse 36% 28% at 82% 38%, rgba(62, 207, 255, 0.028), transparent 50%),
+      radial-gradient(circle at 18% 72%, rgba(245, 165, 36, 0.028), transparent 40%);
+  }
+
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 22px 22px;
+    opacity: 0.5;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 22px 24px 32px;
+  }
+
+  .header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .eyebrow {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .pill-new {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(184, 240, 0, 0.32);
+    background: rgba(184, 240, 0, 0.07);
+    color: var(--haiku);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .pill-new::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--haiku);
+    box-shadow: 0 0 7px rgba(184, 240, 0, 0.75);
+  }
+
+  .mode-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .seg {
+    display: inline-flex;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .seg button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 7px 12px;
+    cursor: pointer;
+    transition: background 0.18s, color 0.18s;
+  }
+
+  .seg button:hover { color: var(--text); }
+
+  .seg button.on {
+    background: rgba(184, 240, 0, 0.1);
+    color: var(--haiku);
+  }
+
+  .seg button.on.live-on {
+    background: rgba(62, 207, 255, 0.12);
+    color: var(--sonnet);
+  }
+
+  .action-btn {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 7px 12px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s, color 0.2s;
+  }
+
+  .action-btn:hover {
+    border-color: rgba(184, 240, 0, 0.4);
+    background: rgba(184, 240, 0, 0.05);
+  }
+
+  .action-btn.playing {
+    border-color: rgba(245, 165, 36, 0.5);
+    background: rgba(245, 165, 36, 0.1);
+    color: var(--advisor);
+    box-shadow: 0 0 14px rgba(245, 165, 36, 0.14);
+  }
+
+  .action-btn.live-connected {
+    border-color: rgba(62, 207, 255, 0.45);
+    color: var(--sonnet);
+    box-shadow: 0 0 14px rgba(62, 207, 255, 0.12);
+  }
+
+  .live-hint {
+    font-size: 10px;
+    color: var(--dim);
+    min-width: 0;
+    max-width: 280px;
+  }
+
+  .live-hint.err { color: var(--fail); }
+  .live-hint.ok { color: rgba(62, 207, 255, 0.85); }
+
+  .project-picker {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    padding: 7px 28px 7px 10px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    max-width: 220px;
+    min-width: 120px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+      linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+
+  .project-picker:hover {
+    border-color: rgba(62, 207, 255, 0.35);
+  }
+
+  .project-picker:focus {
+    outline: none;
+    border-color: rgba(62, 207, 255, 0.55);
+  }
+
+  .project-picker option {
+    background: #101617;
+    color: var(--text);
+  }
+
+  h1.headline {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(1.95rem, 4.2vw, 2.85rem);
+    margin: 4px 0 10px;
+    letter-spacing: -0.02em;
+    line-height: 1.12;
+  }
+
+  h1.headline em {
+    font-style: italic;
+    color: var(--haiku);
+    text-shadow: 0 0 22px rgba(184, 240, 0, 0.22);
+  }
+
+  .role-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 18px;
+  }
+
+  .role-pill {
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    border: 1px solid transparent;
+  }
+
+  .role-pill.opus {
+    color: var(--opus);
+    border-color: rgba(242, 244, 244, 0.22);
+    background: rgba(242, 244, 244, 0.05);
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.05);
+  }
+
+  .role-pill.sonnet {
+    color: var(--sonnet);
+    border-color: rgba(62, 207, 255, 0.32);
+    background: rgba(62, 207, 255, 0.06);
+    box-shadow: 0 0 10px rgba(62, 207, 255, 0.08);
+  }
+
+  .role-pill.haiku {
+    color: var(--haiku);
+    border-color: rgba(184, 240, 0, 0.32);
+    background: rgba(184, 240, 0, 0.06);
+    box-shadow: 0 0 10px rgba(184, 240, 0, 0.08);
+  }
+
+  .role-pill.advisor {
+    color: var(--advisor);
+    border-color: rgba(245, 165, 36, 0.36);
+    background: rgba(245, 165, 36, 0.07);
+    box-shadow: 0 0 10px rgba(245, 165, 36, 0.1);
+  }
+
+  /* Stage + flow lines */
+  .stage {
+    position: relative;
+  }
+
+  .flow-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: visible;
+  }
+
+  .flow-svg .base {
+    fill: none;
+    stroke-width: 1.25;
+    stroke-linecap: round;
+    opacity: 0.35;
+  }
+
+  .flow-svg .base.asks { stroke: rgba(245, 165, 36, 0.55); }
+  .flow-svg .base.delegates { stroke: rgba(62, 207, 255, 0.4); }
+  .flow-svg .base.delegates.haiku { stroke: rgba(184, 240, 0, 0.4); }
+
+  .flow-svg .pulse {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-dasharray: 10 140;
+    stroke-dashoffset: 160;
+    opacity: 0;
+  }
+
+  .flow-svg .pulse.asks { stroke: var(--advisor); filter: drop-shadow(0 0 4px rgba(245, 165, 36, 0.85)); }
+  .flow-svg .pulse.delegates { stroke: var(--sonnet); filter: drop-shadow(0 0 4px rgba(62, 207, 255, 0.8)); }
+  .flow-svg .pulse.delegates.to-haiku { stroke: var(--haiku); filter: drop-shadow(0 0 4px rgba(184, 240, 0, 0.75)); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .flow-svg .pulse.run {
+      opacity: 1;
+      animation: dash-travel 0.85s ease-out forwards;
+    }
+  }
+
+  @keyframes dash-travel {
+    0% { stroke-dashoffset: 160; opacity: 0.2; }
+    15% { opacity: 1; }
+    100% { stroke-dashoffset: -40; opacity: 0; }
+  }
+
+  .flow-label {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin: 4px 0 8px;
+  }
+
+  .asks-bridge {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: center;
+    margin: 0 0 6px;
+  }
+
+  .asks-bridge span {
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 2px 10px;
+    border: 1px dashed rgba(245, 165, 36, 0.28);
+    border-radius: 999px;
+    background: rgba(10, 14, 15, 0.65);
+  }
+
+  .asks-bridge.pulse span {
+    border-color: rgba(245, 165, 36, 0.7);
+    color: var(--advisor);
+    box-shadow: 0 0 16px rgba(245, 165, 36, 0.2);
+  }
+
+  .flow-label.pulse {
+    color: var(--sonnet);
+    text-shadow: 0 0 12px rgba(62, 207, 255, 0.35);
+  }
+
+  .row {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    gap: 12px;
+  }
+
+  .row.top { grid-template-columns: 1.12fr 1fr; }
+  .row.mid { grid-template-columns: repeat(3, 1fr); }
+
+  @media (max-width: 900px) {
+    .row.top, .row.mid { grid-template-columns: 1fr; }
+    .flow-svg { display: none; }
+  }
+
+  .card {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 13px 14px 14px;
+    transition: border-color 0.22s, box-shadow 0.22s;
+  }
+
+  .card.role-opus {
+    border-color: rgba(242, 244, 244, 0.12);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.025), 0 0 22px rgba(255, 255, 255, 0.03);
+  }
+
+  .card.role-advisor {
+    border-color: rgba(245, 165, 36, 0.2);
+    box-shadow: 0 0 0 1px rgba(245, 165, 36, 0.05), 0 0 26px rgba(245, 165, 36, 0.06);
+  }
+
+  .card.role-sonnet {
+    border-color: rgba(62, 207, 255, 0.18);
+    box-shadow: 0 0 0 1px rgba(62, 207, 255, 0.04), 0 0 22px rgba(62, 207, 255, 0.05);
+  }
+
+  .card.role-haiku {
+    border-color: rgba(184, 240, 0, 0.16);
+    box-shadow: 0 0 0 1px rgba(184, 240, 0, 0.04), 0 0 22px rgba(184, 240, 0, 0.05);
+  }
+
+  .card.active.role-opus {
+    border-color: rgba(242, 244, 244, 0.38);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 0 18px rgba(255, 255, 255, 0.14), 0 0 40px rgba(255, 255, 255, 0.06);
+  }
+
+  .card.active.role-advisor {
+    border-color: rgba(245, 165, 36, 0.58);
+    box-shadow: 0 0 0 1px rgba(245, 165, 36, 0.16), 0 0 20px rgba(245, 165, 36, 0.3), 0 0 44px rgba(245, 165, 36, 0.12);
+  }
+
+  .card.active.role-sonnet {
+    border-color: rgba(62, 207, 255, 0.58);
+    box-shadow: 0 0 0 1px rgba(62, 207, 255, 0.14), 0 0 20px rgba(62, 207, 255, 0.3), 0 0 44px rgba(62, 207, 255, 0.1);
+  }
+
+  .card.active.role-haiku {
+    border-color: rgba(184, 240, 0, 0.52);
+    box-shadow: 0 0 0 1px rgba(184, 240, 0, 0.12), 0 0 20px rgba(184, 240, 0, 0.26), 0 0 44px rgba(184, 240, 0, 0.1);
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.07); }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .card.active { animation: pulse-glow 1.7s ease-in-out infinite; }
+  }
+
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .card-name {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .card.role-opus .card-name { color: var(--opus); }
+  .card.role-advisor .card-name { color: var(--advisor); }
+  .card.role-sonnet .card-name { color: var(--sonnet); }
+  .card.role-haiku .card-name { color: var(--haiku); }
+
+  .card-role {
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-top: 1px;
+  }
+
+  .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    justify-content: flex-end;
+  }
+
+  .effort {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .effort-bars {
+    display: inline-flex;
+    gap: 2px;
+  }
+
+  .effort-bars span {
+    width: 4px;
+    height: 9px;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .effort-bars[data-level="high"] span:nth-child(-n+4) { background: var(--opus); }
+  .card.role-advisor .effort-bars[data-level="high"] span:nth-child(-n+4) { background: var(--advisor); }
+  .effort-bars[data-level="medium"] span:nth-child(-n+3) { background: var(--sonnet); }
+  .effort-bars[data-level="low"] span:nth-child(-n+1) { background: var(--haiku); }
+
+  .readonly-pill {
+    font-size: 8px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(184, 240, 0, 0.28);
+    color: var(--haiku);
+    background: rgba(184, 240, 0, 0.05);
+  }
+
+  .status {
+    font-size: 11.5px;
+    color: var(--muted);
+    min-height: 2.6em;
+  }
+
+  .status .live { color: var(--text); }
+  .status.fail { color: var(--fail); }
+  .status.pass { color: var(--pass); }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--dim);
+  }
+
+  .meta-row strong {
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .price { color: var(--muted); }
+  .card.role-opus .price { color: rgba(242, 244, 244, 0.68); }
+  .card.role-advisor .price { color: rgba(245, 165, 36, 0.85); }
+
+  .trigger-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 6px 0 6px;
+  }
+
+  .chip {
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(245, 165, 36, 0.24);
+    color: rgba(245, 165, 36, 0.9);
+    background: rgba(245, 165, 36, 0.05);
+  }
+
+  .advisor-quiet {
+    font-size: 10px;
+    color: var(--dim);
+    font-style: italic;
+    margin-top: 6px;
+  }
+
+  .call-count { margin-left: auto; }
+
+  .section-label {
+    margin: 22px 0 8px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .read-bill {
+    position: relative;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 16px 14px;
+    overflow: hidden;
+  }
+
+  .read-bill::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      repeating-linear-gradient(90deg, transparent 0, transparent 47px, rgba(255, 255, 255, 0.012) 47px, rgba(255, 255, 255, 0.012) 48px),
+      repeating-linear-gradient(0deg, transparent 0, transparent 23px, rgba(255, 255, 255, 0.018) 23px, rgba(255, 255, 255, 0.018) 24px);
+  }
+
+  .read-bill-inner { position: relative; z-index: 1; }
+
+  .bill-compare {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 14px;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  @media (max-width: 700px) {
+    .bill-compare { grid-template-columns: 1fr; text-align: center; }
+    .bill-vs { display: none; }
+  }
+
+  .bill-side {
+    padding: 11px 13px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  .bill-side.opus { border-color: rgba(255, 255, 255, 0.1); }
+  .bill-side.haiku {
+    border-color: rgba(184, 240, 0, 0.22);
+    box-shadow: 0 0 20px rgba(184, 240, 0, 0.05);
+  }
+
+  .bill-side .label {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 4px;
+  }
+
+  .bill-side .rate {
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .bill-side .cost {
+    font-family: var(--serif);
+    font-size: 1.75rem;
+    letter-spacing: -0.02em;
+  }
+
+  .bill-side.opus .cost { color: var(--opus); }
+  .bill-side.haiku .cost { color: var(--haiku); }
+
+  .bill-vs {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--dim);
+    text-transform: uppercase;
+  }
+
+  .bill-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .token-big {
+    font-family: var(--serif);
+    font-size: 1.55rem;
+    color: var(--text);
+  }
+
+  .token-big span {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 3px;
+  }
+
+  .savings-callout { text-align: right; }
+
+  .savings-callout .x {
+    font-family: var(--serif);
+    font-size: 2.1rem;
+    color: var(--haiku);
+    line-height: 1;
+    text-shadow: 0 0 24px rgba(184, 240, 0, 0.28);
+  }
+
+  .savings-callout .note {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .illustrative {
+    font-size: 9px;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+
+  .progress {
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .progress > i {
+    display: block;
+    height: 100%;
+    width: 0%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(184, 240, 0, 0.32), var(--haiku));
+    box-shadow: 0 0 10px rgba(184, 240, 0, 0.35);
+    transition: width 0.4s ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .progress > i { transition: none; }
+    .card.active { animation: none; }
+    .flow-svg .pulse.run { animation: none; opacity: 0.7; stroke-dashoffset: 0; stroke-dasharray: none; }
+  }
+
+  .session-log {
+    background: #070a0b;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 11px 13px;
+    min-height: 200px;
+    max-height: 260px;
+    overflow-y: auto;
+    font-size: 11.5px;
+  }
+
+  .log-line {
+    display: grid;
+    grid-template-columns: 58px 82px 1fr;
+    gap: 8px;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    color: var(--muted);
+  }
+
+  .log-line:last-child { border-bottom: none; }
+
+  .log-line .t { color: var(--dim); }
+  .log-line .role {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 9px;
+    padding-top: 2px;
+  }
+  .log-line.role-parent .role { color: var(--opus); }
+  .log-line.role-advisor .role { color: var(--advisor); }
+  .log-line.role-worker .role { color: var(--sonnet); }
+  .log-line.role-explorer .role { color: var(--haiku); }
+  .log-line.role-researcher .role { color: var(--haiku); }
+  .log-line .msg { color: var(--text); }
+  .log-line .msg.fail { color: var(--fail); }
+  .log-line .msg.pass { color: var(--pass); }
+
+  .log-empty {
+    color: var(--dim);
+    font-style: italic;
+    padding: 6px 0;
+  }
+
+  .footer {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .cli { font-size: 11px; color: var(--muted); }
+  .cli .prompt { color: var(--haiku); }
+  .cli .cmd { color: var(--text); }
+
+  .footer-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .fbadge {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .fbadge strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="header-top">
+        <div class="title-row">
+          <div class="eyebrow">CURSOR AGENTS · MODEL ROUTING</div>
+          <span class="pill-new">NEW · HAIKU 5.5</span>
+        </div>
+        <div class="mode-bar">
+          <div class="seg" role="group" aria-label="Mode">
+            <button type="button" id="modeDemo" class="on">Demo</button>
+            <button type="button" id="modeLive">Live</button>
+          </div>
+          <button type="button" class="action-btn" id="demoBtn" aria-pressed="false">Play</button>
+          <select id="projectPicker" class="project-picker" aria-label="Cursor project" hidden></select>
+          <span class="live-hint" id="liveHint" hidden></span>
+        </div>
+      </div>
+      <h1 class="headline">Four models, <em>one session.</em></h1>
+      <div class="role-pills" aria-label="Role summary">
+        <span class="role-pill opus">opus plans</span>
+        <span class="role-pill sonnet">sonnet edits</span>
+        <span class="role-pill haiku">haiku reads</span>
+        <span class="role-pill advisor">advisor reviews</span>
+      </div>
+    </header>
+
+    <div class="stage" id="stage">
+      <svg class="flow-svg" id="flowSvg" aria-hidden="true">
+        <path id="path-asks" class="base asks" d="" />
+        <path id="path-asks-pulse" class="pulse asks" d="" />
+        <path id="path-d-worker" class="base delegates" d="" />
+        <path id="path-d-worker-pulse" class="pulse delegates" d="" />
+        <path id="path-d-explorer" class="base delegates haiku" d="" />
+        <path id="path-d-explorer-pulse" class="pulse delegates to-haiku" d="" />
+        <path id="path-d-researcher" class="base delegates haiku" d="" />
+        <path id="path-d-researcher-pulse" class="pulse delegates to-haiku" d="" />
+      </svg>
+
+      <div class="asks-bridge" id="asksLabel"><span>asks</span></div>
+
+      <section class="row top" aria-label="Main session and advisor">
+        <article class="card role-opus" id="card-opus" data-role="opus">
+          <div class="card-head">
+            <div>
+              <div class="card-name">Opus</div>
+              <div class="card-role">Main session</div>
+            </div>
+            <div class="badge-row">
+              <div class="effort" title="Effort: high">
+                <span>Effort</span>
+                <span class="effort-bars" data-level="high" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span><span></span><span></span>
+                </span>
+                <span>high</span>
+              </div>
+            </div>
+          </div>
+          <div class="status" id="status-opus"><span class="live">Idle · waiting for task</span></div>
+          <div class="meta-row">
+            <span class="price">$4.00 / $20.00 <strong>per 1M in/out</strong></span>
+          </div>
+        </article>
+
+        <article class="card role-advisor" id="card-advisor" data-role="advisor">
+          <div class="card-head">
+            <div>
+              <div class="card-name">Fable</div>
+              <div class="card-role">Advisor</div>
+            </div>
+            <div class="badge-row">
+              <div class="effort" title="Effort: high">
+                <span>Effort</span>
+                <span class="effort-bars" data-level="high" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span><span></span><span></span>
+                </span>
+                <span>high</span>
+              </div>
+            </div>
+          </div>
+          <div class="trigger-chips" aria-label="Advisor triggers">
+            <span class="chip">before plan</span>
+            <span class="chip">same error ×2</span>
+            <span class="chip">before done</span>
+          </div>
+          <div class="status" id="status-advisor"><span class="live">Quiet</span></div>
+          <div class="meta-row">
+            <span class="price">$10.00 / $50.00 <strong>per 1M in/out</strong></span>
+            <span class="call-count">Calls <strong id="advisorCalls">0</strong></span>
+          </div>
+          <div class="advisor-quiet" id="advisorLast">Last advice: —</div>
+        </article>
+      </section>
+
+      <div class="flow-label" id="delegatesLabel">delegates</div>
+
+      <section class="row mid" aria-label="Subagents">
+        <article class="card role-sonnet" id="card-worker" data-role="worker">
+          <div class="card-head">
+            <div>
+              <div class="card-name">Worker</div>
+              <div class="card-role">Sonnet · edits</div>
+            </div>
+            <div class="badge-row">
+              <div class="effort" title="Effort: medium">
+                <span class="effort-bars" data-level="medium" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span><span></span><span></span>
+                </span>
+                <span>med</span>
+              </div>
+            </div>
+          </div>
+          <div class="status" id="status-worker"><span class="live">Standby</span></div>
+        </article>
+
+        <article class="card role-haiku" id="card-explorer" data-role="explorer">
+          <div class="card-head">
+            <div>
+              <div class="card-name">Explorer</div>
+              <div class="card-role">Haiku · search</div>
+            </div>
+            <div class="badge-row">
+              <span class="readonly-pill">read-only</span>
+              <div class="effort" title="Effort: low">
+                <span class="effort-bars" data-level="low" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span><span></span><span></span>
+                </span>
+                <span>low</span>
+              </div>
+            </div>
+          </div>
+          <div class="status" id="status-explorer"><span class="live">Standby</span></div>
+        </article>
+
+        <article class="card role-haiku" id="card-researcher" data-role="researcher">
+          <div class="card-head">
+            <div>
+              <div class="card-name">Researcher</div>
+              <div class="card-role">Haiku · docs</div>
+            </div>
+            <div class="badge-row">
+              <span class="readonly-pill">read-only</span>
+              <div class="effort" title="Effort: low">
+                <span class="effort-bars" data-level="low" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span><span></span><span></span>
+                </span>
+                <span>low</span>
+              </div>
+            </div>
+          </div>
+          <div class="status" id="status-researcher"><span class="live">Standby</span></div>
+        </article>
+      </section>
+    </div>
+
+    <div class="section-label">The Read Bill</div>
+    <section class="read-bill" aria-label="The Read Bill">
+      <div class="read-bill-inner">
+        <div class="bill-compare">
+          <div class="bill-side opus">
+            <div class="label">If routed to Opus</div>
+            <div class="rate">$4.00 / 1M input</div>
+            <div class="cost" id="billOpusCost">$0.00</div>
+          </div>
+          <div class="bill-vs">vs</div>
+          <div class="bill-side haiku">
+            <div class="label">Haiku reads</div>
+            <div class="rate">$0.10 / 1M input · 40× less</div>
+            <div class="cost" id="billHaikuCost">$0.00</div>
+          </div>
+        </div>
+        <div class="bill-stats">
+          <div class="token-big">
+            <span>Haiku-routed input tokens</span>
+            <span id="billTokens" style="font-family:var(--serif);font-size:1.55rem;letter-spacing:-0.02em;color:var(--text);text-transform:none;">0</span>
+          </div>
+          <div class="savings-callout">
+            <div class="x" id="billMultiplier">—</div>
+            <div class="note" id="billSavingsNote">savings vs Opus-priced reads</div>
+            <div class="illustrative" id="billIllustrative">Illustrative figures · demo narrative</div>
+          </div>
+        </div>
+        <div class="progress" aria-hidden="true"><i id="billBar"></i></div>
+      </div>
+    </section>
+
+    <div class="section-label">Session Log</div>
+    <section class="session-log" id="sessionLog" aria-live="polite" aria-label="Session log">
+      <div class="log-empty" id="logEmpty">Waiting for session… choose Demo · Play or Live.</div>
+    </section>
+
+    <footer class="footer">
+      <div class="cli">
+        <span class="prompt">project $</span>
+        <span class="cmd" id="footerProject">cursor --model opus --advisor fable</span>
+      </div>
+      <div class="footer-badges">
+        <span class="fbadge">effort <strong id="footerEffort">mixed</strong></span>
+        <span class="fbadge">subagents <strong id="footerSubs">0</strong></span>
+        <span class="fbadge">haiku read tokens <strong id="footerTokens">0</strong></span>
+      </div>
+    </footer>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var STEP_MS = 1500;
+  var END_TOKENS = 1620000;
+  var OPUS_PER_M = 4.0;
+  var HAIKU_PER_M = 0.1;
+  var BRIDGE =
+    /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(location.origin)
+      ? location.origin
+      : "http://127.0.0.1:3847";
+
+  var cards = {
+    opus: document.getElementById("card-opus"),
+    advisor: document.getElementById("card-advisor"),
+    worker: document.getElementById("card-worker"),
+    explorer: document.getElementById("card-explorer"),
+    researcher: document.getElementById("card-researcher")
+  };
+
+  var statusEls = {
+    opus: document.getElementById("status-opus"),
+    advisor: document.getElementById("status-advisor"),
+    worker: document.getElementById("status-worker"),
+    explorer: document.getElementById("status-explorer"),
+    researcher: document.getElementById("status-researcher")
+  };
+
+  var demoBtn = document.getElementById("demoBtn");
+  var modeDemo = document.getElementById("modeDemo");
+  var modeLive = document.getElementById("modeLive");
+  var liveHint = document.getElementById("liveHint");
+  var projectPicker = document.getElementById("projectPicker");
+  var footerProject = document.getElementById("footerProject");
+  var sessionLog = document.getElementById("sessionLog");
+  var logEmpty = document.getElementById("logEmpty");
+  var currentProjectLabel = null;
+  var currentProjectId = null;
+  var selectingProject = false;
+  var advisorCallsEl = document.getElementById("advisorCalls");
+  var advisorLastEl = document.getElementById("advisorLast");
+  var billOpusCost = document.getElementById("billOpusCost");
+  var billHaikuCost = document.getElementById("billHaikuCost");
+  var billTokens = document.getElementById("billTokens");
+  var billMultiplier = document.getElementById("billMultiplier");
+  var billSavingsNote = document.getElementById("billSavingsNote");
+  var billIllustrative = document.getElementById("billIllustrative");
+  var billBar = document.getElementById("billBar");
+  var footerSubs = document.getElementById("footerSubs");
+  var footerTokens = document.getElementById("footerTokens");
+  var footerEffort = document.getElementById("footerEffort");
+  var stage = document.getElementById("stage");
+  var asksLabel = document.getElementById("asksLabel");
+  var delegatesLabel = document.getElementById("delegatesLabel");
+
+  var mode = "demo"; /* demo | live */
+  var playing = false;
+  var timers = [];
+  var logSeq = 0;
+  var seenLiveIds = {};
+  var es = null;
+  var livePoll = null;
+  var state = { tokens: 0, calls: 0, subs: 0, liveSubs: {} };
+
+  function prefersReducedMotion() {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function clearTimers() {
+    timers.forEach(function (t) { clearTimeout(t); });
+    timers = [];
+  }
+
+  function setActive(roles) {
+    var set = {};
+    (roles || []).forEach(function (r) { set[r] = true; });
+    Object.keys(cards).forEach(function (key) {
+      cards[key].classList.toggle("active", !!set[key]);
+    });
+  }
+
+  function setStatus(role, html, cls) {
+    var el = statusEls[role];
+    if (!el) return;
+    el.className = "status" + (cls ? " " + cls : "");
+    el.innerHTML = html;
+  }
+
+  function formatTokens(n) {
+    if (n >= 1000000) {
+      return (n / 1000000).toFixed(n % 100000 === 0 ? 1 : 2).replace(/\.00$/, ".0") + "M";
+    }
+    if (n >= 1000) return Math.round(n / 1000) + "K";
+    return String(n);
+  }
+
+  function formatMoney(n) {
+    return "$" + n.toFixed(2);
+  }
+
+  function updateBill(tokens) {
+    state.tokens = tokens;
+    var opusCost = (tokens / 1000000) * OPUS_PER_M;
+    var haikuCost = (tokens / 1000000) * HAIKU_PER_M;
+    billTokens.textContent = formatTokens(tokens);
+    billOpusCost.textContent = formatMoney(opusCost);
+    billHaikuCost.textContent = formatMoney(haikuCost);
+    footerTokens.textContent = formatTokens(tokens);
+    var pct = Math.min(100, (tokens / END_TOKENS) * 100);
+    billBar.style.width = pct + "%";
+    if (tokens >= END_TOKENS) {
+      billMultiplier.textContent = "~40×";
+      billSavingsNote.textContent =
+        formatMoney(opusCost) + " → " + formatMoney(haikuCost) + " · Haiku savings";
+    } else if (tokens > 0) {
+      var mult = opusCost / Math.max(haikuCost, 0.0001);
+      billMultiplier.textContent = "~" + Math.round(mult) + "×";
+      billSavingsNote.textContent = "climbing toward Haiku-routed reads";
+    } else {
+      billMultiplier.textContent = "—";
+      billSavingsNote.textContent = "savings vs Opus-priced reads";
+    }
+  }
+
+  function setCalls(n) {
+    state.calls = n;
+    advisorCallsEl.textContent = String(n);
+  }
+
+  function setSubs(n) {
+    state.subs = n;
+    footerSubs.textContent = String(n);
+  }
+
+  function pad2(n) {
+    return (n < 10 ? "0" : "") + n;
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function appendLog(role, message, msgClass, timeStr) {
+    if (logEmpty && logEmpty.parentNode) {
+      logEmpty.parentNode.removeChild(logEmpty);
+      logEmpty = null;
+    }
+    logSeq += 1;
+    var t = timeStr;
+    if (!t) {
+      var sec = Math.floor((logSeq - 1) * (STEP_MS / 1000));
+      t = "00:" + pad2(Math.min(59, sec));
+    }
+    var line = document.createElement("div");
+    line.className = "log-line role-" + role;
+    line.innerHTML =
+      '<span class="t">' + escapeHtml(t) + "</span>" +
+      '<span class="role">' + escapeHtml(role) + "</span>" +
+      '<span class="msg' + (msgClass ? " " + msgClass : "") + '">' + escapeHtml(message) + "</span>";
+    sessionLog.appendChild(line);
+    sessionLog.scrollTop = sessionLog.scrollHeight;
+  }
+
+  function cardCenter(el) {
+    var sr = stage.getBoundingClientRect();
+    var r = el.getBoundingClientRect();
+    return {
+      x: r.left - sr.left + r.width / 2,
+      y: r.top - sr.top + r.height / 2,
+      top: r.top - sr.top,
+      bottom: r.bottom - sr.top,
+      left: r.left - sr.left,
+      right: r.right - sr.left
+    };
+  }
+
+  function layoutFlow() {
+    var svg = document.getElementById("flowSvg");
+    if (!svg || window.matchMedia("(max-width: 900px)").matches) return;
+    var sr = stage.getBoundingClientRect();
+    svg.setAttribute("viewBox", "0 0 " + sr.width + " " + sr.height);
+    svg.setAttribute("width", sr.width);
+    svg.setAttribute("height", sr.height);
+
+    var opus = cardCenter(cards.opus);
+    var advisor = cardCenter(cards.advisor);
+    var worker = cardCenter(cards.worker);
+    var explorer = cardCenter(cards.explorer);
+    var researcher = cardCenter(cards.researcher);
+
+    var asksY = (opus.y + advisor.y) / 2;
+    var asksD =
+      "M " + opus.right + " " + asksY +
+      " C " + (opus.right + 40) + " " + asksY +
+      ", " + (advisor.left - 40) + " " + asksY +
+      ", " + advisor.left + " " + asksY;
+
+    function downPath(target) {
+      var x1 = opus.x;
+      var y1 = opus.bottom - 2;
+      var x2 = target.x;
+      var y2 = target.top + 2;
+      var midY = (y1 + y2) / 2;
+      return (
+        "M " + x1 + " " + y1 +
+        " C " + x1 + " " + midY +
+        ", " + x2 + " " + midY +
+        ", " + x2 + " " + y2
+      );
+    }
+
+    var pairs = [
+      ["path-asks", "path-asks-pulse", asksD],
+      ["path-d-worker", "path-d-worker-pulse", downPath(worker)],
+      ["path-d-explorer", "path-d-explorer-pulse", downPath(explorer)],
+      ["path-d-researcher", "path-d-researcher-pulse", downPath(researcher)]
+    ];
+    pairs.forEach(function (p) {
+      var a = document.getElementById(p[0]);
+      var b = document.getElementById(p[1]);
+      if (a) a.setAttribute("d", p[2]);
+      if (b) b.setAttribute("d", p[2]);
+    });
+  }
+
+  function pulsePath(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove("run");
+    void el.offsetWidth;
+    el.classList.add("run");
+    setTimeout(function () { el.classList.remove("run"); }, prefersReducedMotion() ? 200 : 900);
+  }
+
+  function animateRoute(route, routeTo) {
+    if (route === "asks") {
+      pulsePath("path-asks-pulse");
+      asksLabel.classList.add("pulse");
+      setTimeout(function () { asksLabel.classList.remove("pulse"); }, 900);
+      return;
+    }
+    if (route === "delegates") {
+      delegatesLabel.classList.add("pulse");
+      setTimeout(function () { delegatesLabel.classList.remove("pulse"); }, 900);
+      var map = {
+        worker: "path-d-worker-pulse",
+        explorer: "path-d-explorer-pulse",
+        researcher: "path-d-researcher-pulse",
+        advisor: "path-asks-pulse"
+      };
+      if (routeTo && map[routeTo]) {
+        pulsePath(map[routeTo]);
+      } else {
+        pulsePath("path-d-worker-pulse");
+        pulsePath("path-d-explorer-pulse");
+        pulsePath("path-d-researcher-pulse");
+      }
+    }
+  }
+
+  function emptyLogMessage() {
+    return mode === "live"
+      ? "Live mode · waiting for transcript events from the bridge…"
+      : "Waiting for session… choose Demo · Play or Live.";
+  }
+
+  function updateFooterProject() {
+    if (!footerProject) return;
+    if (mode === "live" && currentProjectLabel) {
+      footerProject.textContent = currentProjectLabel;
+    } else {
+      footerProject.textContent = "cursor --model opus --advisor fable";
+    }
+  }
+
+  function setProjectPickerVisible(visible) {
+    if (!projectPicker) return;
+    projectPicker.hidden = !visible;
+  }
+
+  function fillProjectPicker(data) {
+    if (!projectPicker || !data) return;
+    var projects = data.projects || [];
+    var selected = data.selectedId || currentProjectId;
+    currentProjectId = data.selectedId || currentProjectId;
+    currentProjectLabel = data.selectedLabel || currentProjectLabel;
+    projectPicker.innerHTML = "";
+    if (!projects.length) {
+      var opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No Cursor projects found";
+      projectPicker.appendChild(opt);
+      projectPicker.disabled = true;
+      updateFooterProject();
+      return;
+    }
+    projectPicker.disabled = false;
+    projects.forEach(function (p) {
+      var opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.label || p.id;
+      if (p.id === selected) opt.selected = true;
+      projectPicker.appendChild(opt);
+    });
+    if (selected && projectPicker.value !== selected) {
+      projectPicker.value = selected;
+    }
+    updateFooterProject();
+  }
+
+  function loadProjects() {
+    if (!projectPicker) return Promise.resolve(null);
+    return fetch(BRIDGE + "/api/projects", { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("projects " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        if (mode === "live") setProjectPickerVisible(true);
+        fillProjectPicker(data);
+        return data;
+      })
+      .catch(function () {
+        setProjectPickerVisible(false);
+        return null;
+      });
+  }
+
+  function selectProject(id) {
+    if (!id || selectingProject) return Promise.resolve(null);
+    selectingProject = true;
+    return fetch(BRIDGE + "/api/select?id=" + encodeURIComponent(id), { cache: "no-store" })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (body) {
+          if (!r.ok) {
+            return {
+              ok: false,
+              error: (body && body.error) || ("Select failed (" + r.status + ")")
+            };
+          }
+          return body;
+        });
+      })
+      .then(function (data) {
+        if (data && data.ok) {
+          currentProjectId = data.projectId;
+          currentProjectLabel = data.projectLabel;
+          updateFooterProject();
+        }
+        return data;
+      })
+      .catch(function () {
+        return { ok: false, error: "Could not switch project" };
+      })
+      .then(function (data) {
+        selectingProject = false;
+        return data;
+      });
+  }
+
+  function resetUI(opts) {
+    opts = opts || {};
+    clearTimers();
+    playing = false;
+    logSeq = 0;
+    state.liveSubs = {};
+    demoBtn.classList.remove("playing");
+    demoBtn.setAttribute("aria-pressed", "false");
+    if (mode === "demo") {
+      demoBtn.textContent = "Play";
+      demoBtn.hidden = false;
+      liveHint.hidden = true;
+      setProjectPickerVisible(false);
+      updateFooterProject();
+    } else {
+      demoBtn.textContent = "Reconnect";
+      demoBtn.hidden = false;
+      setProjectPickerVisible(true);
+    }
+    if (!opts.keepActive) setActive([]);
+    setStatus("opus", '<span class="live">Idle · waiting for task</span>');
+    setStatus("advisor", '<span class="live">Quiet</span>');
+    setStatus("worker", '<span class="live">Standby</span>');
+    setStatus("explorer", '<span class="live">Standby</span>');
+    setStatus("researcher", '<span class="live">Standby</span>');
+    setCalls(0);
+    setSubs(0);
+    advisorLastEl.textContent = "Last advice: —";
+    footerEffort.textContent = mode === "live" ? "live" : "mixed";
+    updateBill(0);
+    billIllustrative.textContent =
+      mode === "live"
+        ? "Live estimates from transcript activity · not official usage"
+        : "Illustrative figures · demo narrative";
+    sessionLog.innerHTML = "";
+    logEmpty = document.createElement("div");
+    logEmpty.className = "log-empty";
+    logEmpty.id = "logEmpty";
+    logEmpty.textContent = emptyLogMessage();
+    sessionLog.appendChild(logEmpty);
+  }
+
+  function applyLiveEvent(ev) {
+    if (!ev || seenLiveIds[ev.id]) return;
+    seenLiveIds[ev.id] = true;
+
+    var role = ev.role || "parent";
+    var cardRole =
+      role === "parent" ? "opus" :
+      role === "advisor" ? "advisor" :
+      role === "worker" ? "worker" :
+      role === "explorer" ? "explorer" :
+      role === "researcher" ? "researcher" : "opus";
+
+    var active = Array.isArray(ev.active) && ev.active.length ? ev.active : [cardRole];
+    setActive(active);
+
+    var msg = ev.message || "";
+    setStatus(cardRole, '<span class="live">' + escapeHtml(msg) + "</span>");
+    if (role === "advisor" || ev.kind === "asks") {
+      setCalls(state.calls + 1);
+      advisorLastEl.textContent = "Last advice: " + msg;
+    }
+    if (ev.kind === "delegates" || (ev.route === "delegates" && role !== "parent")) {
+      var key = role + ":" + (ev.source || "");
+      if (!state.liveSubs[key] && role !== "parent" && role !== "advisor") {
+        state.liveSubs[key] = true;
+        setSubs(Object.keys(state.liveSubs).length);
+      }
+    }
+    if (ev.tokensDelta) {
+      updateBill(state.tokens + Number(ev.tokensDelta) || state.tokens);
+    }
+    if (ev.route) animateRoute(ev.route, ev.routeTo || cardRole);
+
+    var logRole = role === "parent" ? "parent" : role;
+    appendLog(logRole, msg, null, ev.ts);
+  }
+
+  function stopLive() {
+    if (es) {
+      try { es.close(); } catch (_) {}
+      es = null;
+    }
+    if (livePoll) {
+      clearInterval(livePoll);
+      livePoll = null;
+    }
+    demoBtn.classList.remove("live-connected");
+  }
+
+  function startLive() {
+    stopLive();
+    seenLiveIds = {};
+    resetUI();
+    liveHint.hidden = false;
+    liveHint.className = "live-hint";
+    liveHint.textContent = "Connecting to " + BRIDGE + "…";
+    setProjectPickerVisible(true);
+    loadProjects();
+
+    function hintLabel() {
+      return currentProjectLabel || "agent-transcripts";
+    }
+
+    function onOk(meta) {
+      if (meta && meta.projectLabel) {
+        currentProjectLabel = meta.projectLabel;
+        currentProjectId = meta.projectId || currentProjectId;
+        updateFooterProject();
+        if (projectPicker && currentProjectId) {
+          projectPicker.value = currentProjectId;
+        }
+      }
+      liveHint.className = "live-hint ok";
+      liveHint.textContent = "Streaming · " + hintLabel();
+      demoBtn.classList.add("live-connected");
+      demoBtn.textContent = "Connected";
+    }
+
+    function onErr(msg) {
+      liveHint.className = "live-hint err";
+      liveHint.textContent = msg || "Bridge offline — use npm start or node live-bridge.js";
+      demoBtn.classList.remove("live-connected");
+      demoBtn.textContent = "Reconnect";
+    }
+
+    function onReset(meta) {
+      seenLiveIds = {};
+      if (meta) {
+        if (meta.projectLabel) currentProjectLabel = meta.projectLabel;
+        if (meta.projectId) currentProjectId = meta.projectId;
+      }
+      resetUI({ keepActive: false });
+      liveHint.hidden = false;
+      liveHint.className = "live-hint ok";
+      liveHint.textContent = "Switched · " + hintLabel();
+      demoBtn.classList.add("live-connected");
+      demoBtn.textContent = "Connected";
+      updateFooterProject();
+      loadProjects();
+    }
+
+    if (typeof EventSource === "undefined") {
+      onErr("EventSource unavailable in this browser");
+      return;
+    }
+
+    try {
+      es = new EventSource(BRIDGE + "/api/stream");
+    } catch (e) {
+      onErr("Cannot open SSE — start the app (npm start)");
+      return;
+    }
+
+    es.addEventListener("hello", function (msg) {
+      try {
+        onOk(JSON.parse(msg.data));
+      } catch (_) {
+        onOk();
+      }
+    });
+    es.addEventListener("reset", function (msg) {
+      try {
+        onReset(JSON.parse(msg.data));
+      } catch (_) {
+        onReset(null);
+      }
+    });
+    es.onopen = function () { onOk(); };
+    es.onmessage = function (msg) {
+      try {
+        applyLiveEvent(JSON.parse(msg.data));
+      } catch (_) {}
+    };
+    es.onerror = function () {
+      onErr("Bridge offline — use npm start or node live-bridge.js");
+      stopLive();
+    };
+  }
+
+  /* Demo narrative */
+  var steps = [
+    function () {
+      setActive(["opus"]);
+      setStatus("opus", '<span class="live">Task received · refactor billing webhooks</span>');
+      appendLog("parent", "task received · refactor billing webhooks");
+      footerEffort.textContent = "high";
+    },
+    function () {
+      setActive(["opus", "advisor"]);
+      setStatus("opus", '<span class="live">Calling advisor · before the plan</span>');
+      setStatus("advisor", '<span class="live">Reviewing approach…</span>');
+      appendLog("parent", "calling advisor · before the plan");
+      appendLog("advisor", "triggered · before plan");
+      animateRoute("asks", "advisor");
+    },
+    function () {
+      setActive(["advisor"]);
+      setCalls(1);
+      setStatus("advisor", '<span class="live">Quiet</span>');
+      setStatus("opus", '<span class="live">Plan approved · delegating reads & edits</span>');
+      advisorLastEl.textContent = "Last advice: keep Haiku on reads; Sonnet owns edits";
+      appendLog("advisor", "reviews approach → quiet; calls = 1");
+    },
+    function () {
+      setActive(["explorer"]);
+      setSubs(1);
+      setStatus("explorer", '<span class="live">Searching src/billing/**</span>');
+      updateBill(420000);
+      appendLog("explorer", "searching src/billing/** · tokens climb");
+      animateRoute("delegates", "explorer");
+    },
+    function () {
+      setActive(["explorer", "researcher"]);
+      setSubs(2);
+      setStatus("researcher", '<span class="live">Pulling docs · webhook patterns</span>');
+      updateBill(980000);
+      appendLog("researcher", "pulling docs · tokens climb");
+      animateRoute("delegates", "researcher");
+    },
+    function () {
+      setActive(["worker"]);
+      setSubs(3);
+      setStatus("explorer", '<span class="live">Search complete</span>');
+      setStatus("researcher", '<span class="live">Docs cached</span>');
+      setStatus("worker", "Editing 4 files · running tests → FAIL", "fail");
+      updateBill(1100000);
+      appendLog("worker", "editing 4 files · running tests → FAIL", "fail");
+      animateRoute("delegates", "worker");
+    },
+    function () {
+      setActive(["worker"]);
+      setStatus("worker", "Same error again → FAIL", "fail");
+      appendLog("worker", "same error again → FAIL", "fail");
+    },
+    function () {
+      setActive(["opus", "advisor"]);
+      setStatus("opus", '<span class="live">Calling advisor · same error twice</span>');
+      setStatus("advisor", '<span class="live">Analyzing failure loop…</span>');
+      appendLog("parent", "calling advisor · same error twice");
+      animateRoute("asks", "advisor");
+    },
+    function () {
+      setActive(["advisor"]);
+      setCalls(2);
+      setStatus("advisor", '<span class="live">Quiet</span>');
+      advisorLastEl.textContent = "Last advice: stop / change approach — fix signature mismatch first";
+      setStatus("worker", '<span class="live">Awaiting revised approach</span>');
+      appendLog("advisor", "stop / change approach; calls = 2");
+    },
+    function () {
+      setActive(["worker"]);
+      setStatus("worker", "Fix applied · tests → PASS", "pass");
+      updateBill(1400000);
+      appendLog("worker", "fix + tests → PASS", "pass");
+      animateRoute("delegates", "worker");
+    },
+    function () {
+      setActive(["opus", "advisor"]);
+      setStatus("opus", '<span class="live">Calling advisor · before done</span>');
+      setStatus("advisor", '<span class="live">Final review…</span>');
+      setCalls(3);
+      appendLog("parent", "calling advisor · before done; calls = 3");
+      animateRoute("asks", "advisor");
+    },
+    function () {
+      setActive(["opus"]);
+      setStatus("advisor", '<span class="live">Quiet</span>');
+      advisorLastEl.textContent = "Last advice: ship it — Haiku absorbed the read load";
+      setStatus("opus", '<span class="live">Reviewed · shipped</span>');
+      setStatus("worker", '<span class="live">Done</span>');
+      setStatus("explorer", '<span class="live">Done</span>');
+      setStatus("researcher", '<span class="live">Done</span>');
+      updateBill(END_TOKENS);
+      appendLog("parent", "reviewed · shipped · Read Bill shows Haiku ~40× savings");
+      footerEffort.textContent = "done";
+      playing = false;
+      demoBtn.textContent = "Play";
+      demoBtn.classList.remove("playing");
+      demoBtn.setAttribute("aria-pressed", "false");
+      setTimeout(function () { setActive([]); }, prefersReducedMotion() ? 0 : 800);
+    }
+  ];
+
+  function playDemo() {
+    stopLive();
+    resetUI();
+    playing = true;
+    demoBtn.textContent = "Stop";
+    demoBtn.classList.add("playing");
+    demoBtn.setAttribute("aria-pressed", "true");
+    layoutFlow();
+
+    var delay = prefersReducedMotion() ? 400 : STEP_MS;
+    steps.forEach(function (fn, i) {
+      var t = setTimeout(function () {
+        if (!playing && i < steps.length - 1) return;
+        fn();
+      }, delay * i);
+      timers.push(t);
+    });
+  }
+
+  function stopDemo() {
+    clearTimers();
+    playing = false;
+    demoBtn.textContent = "Play";
+    demoBtn.classList.remove("playing");
+    demoBtn.setAttribute("aria-pressed", "false");
+    setActive([]);
+  }
+
+  function setMode(next) {
+    if (next === mode && next === "live" && es) return;
+    mode = next;
+    modeDemo.classList.toggle("on", mode === "demo");
+    modeLive.classList.toggle("on", mode === "live");
+    modeLive.classList.toggle("live-on", mode === "live");
+    stopDemo();
+    stopLive();
+    if (mode === "demo") {
+      resetUI();
+    } else {
+      startLive();
+    }
+    layoutFlow();
+  }
+
+  modeDemo.addEventListener("click", function () { setMode("demo"); });
+  modeLive.addEventListener("click", function () { setMode("live"); });
+
+  if (projectPicker) {
+    projectPicker.addEventListener("change", function () {
+      var id = projectPicker.value;
+      var previousId = currentProjectId;
+      if (!id || id === previousId) return;
+      selectProject(id).then(function (data) {
+        if (!data || !data.ok) {
+          if (previousId) projectPicker.value = previousId;
+          else projectPicker.selectedIndex = 0;
+          liveHint.hidden = false;
+          liveHint.className = "live-hint err";
+          liveHint.textContent = (data && data.error) || "Could not switch project";
+          return;
+        }
+        currentProjectId = data.projectId || id;
+        currentProjectLabel = data.projectLabel || currentProjectLabel;
+        updateFooterProject();
+        // Restart Live stream; SSE "reset" also clears if the bridge emits it
+        startLive();
+      });
+    });
+  }
+
+  demoBtn.addEventListener("click", function () {
+    if (mode === "live") {
+      startLive();
+      return;
+    }
+    if (playing) stopDemo();
+    else playDemo();
+  });
+
+  window.addEventListener("resize", function () {
+    layoutFlow();
+  });
+
+  // Initial
+  updateBill(0);
+  updateFooterProject();
+  requestAnimationFrame(function () {
+    layoutFlow();
+    setTimeout(layoutFlow, 50);
+  });
+
+  // Auto-Live when served by the bridge (any localhost port)
+  if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(location.origin)) {
+    setMode("live");
+  }
+})();
+</script>
+</body>
+</html>

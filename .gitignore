@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build / pack output
+dist/
+out/
+build/
+release/
+*.asar
+
+# electron-builder / packaging
+win-unpacked/
+mac/
+linux-unpacked/
+*.exe
+*.dmg
+*.AppImage
+*.blockmap
+*.nsis.7z
+
+# Logs & caches
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.cache/
+.eslintcache
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Coverage / test
+coverage/
+
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
