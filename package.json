@@ -4,7 +4,7 @@
   "description": "Cursor Agents · Model Routing — Electron desktop dashboard with in-process live bridge",
   "main": "electron/main.js",
   "private": true,
-  "author": "Tai",
+  "author": "Thymeed",
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
