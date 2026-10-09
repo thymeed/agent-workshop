@@ -302,7 +302,17 @@ async function smokeLiveReplaySkipsFastestTiming(browser) {
       message: "live · worker on",
       active: ["worker"]
     });
-    await page.waitForTimeout(90);
+    await page.waitForFunction(
+      () => {
+        if (!window.__cursorAgentsDashTest || window.__cursorAgentsDashTest.isLiveBacklogReplay()) {
+          return false;
+        }
+        return document.getElementById("card-worker")?.classList.contains("active");
+      },
+      { timeout: 15000 }
+    );
+    const workerOnMs = await page.evaluate(() => Date.now());
+    await page.waitForFunction((start) => Date.now() - start >= 55, workerOnMs, { timeout: 10000 });
     pushEvent({
       role: "parent",
       message: "live · worker off",
@@ -315,7 +325,7 @@ async function smokeLiveReplaySkipsFastestTiming(browser) {
         const s = ac.getDailyStats();
         return s.fastestAgent === "worker" && s.fastestMs != null && s.fastestMs >= 40;
       },
-      { timeout: 5000 }
+      { timeout: 15000 }
     );
     const liveStats = await page.evaluate(() => {
       const s = window.AgentCards.getDailyStats();
