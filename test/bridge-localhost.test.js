@@ -4,20 +4,7 @@
 "use strict";
 
 const http = require("http");
-const net = require("net");
-const { startBridge, stopBridge } = require("../live-bridge.js");
-
-function getFreePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.listen(0, "127.0.0.1", () => {
-      const addr = s.address();
-      const port = addr && addr.port;
-      s.close((err) => (err ? reject(err) : resolve(port)));
-    });
-    s.on("error", reject);
-  });
-}
+const { startBridgeForSmoke, stopBridgeForSmoke } = require("./bridge-smoke-harness.js");
 
 function request(
   port,
@@ -72,8 +59,7 @@ function request(
 }
 
 async function main() {
-  const port = await getFreePort();
-  await startBridge({ port, quiet: true });
+  const { port } = await startBridgeForSmoke();
   const errors = [];
   const origin = `http://127.0.0.1:${port}`;
   const baseHeaders = { Host: `127.0.0.1:${port}` };
@@ -253,7 +239,7 @@ async function main() {
       errors.push("dashboard HTML not served for localhost");
     }
   } finally {
-    await stopBridge();
+    await stopBridgeForSmoke();
   }
 
   if (errors.length) {

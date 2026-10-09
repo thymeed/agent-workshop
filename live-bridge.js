@@ -1958,7 +1958,8 @@ module.exports = {
   terminalTypeFromTranscript,
   TRANSCRIPT_SCAN_LIMIT,
   TRANSCRIPT_READ_MAX_PER_POLL,
-  STALL_MS: DEFAULT_STALL_MS
+  STALL_MS: DEFAULT_STALL_MS,
+  pushEvent
 };
 
 if (require.main === module) {

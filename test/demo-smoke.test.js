@@ -6,50 +6,17 @@
 "use strict";
 
 const path = require("path");
-const net = require("net");
 const { pathToFileURL } = require("url");
 const { chromium } = require("playwright");
-const { startBridge, stopBridge } = require("../live-bridge.js");
+const { startBridgeForSmoke, stopBridgeForSmoke } = require("./bridge-smoke-harness.js");
+const { attachErrorCollectors } = require("./smoke-http-collectors.js");
 
 const HTML = path.resolve(__dirname, "..", "model-routing-dashboard.html");
 const FILE_URL = pathToFileURL(HTML).href;
 
-function getFreePort() {
-  return new Promise((resolve, reject) => {
-    const s = net.createServer();
-    s.listen(0, "127.0.0.1", () => {
-      const addr = s.address();
-      const port = addr && addr.port;
-      s.close((err) => (err ? reject(err) : resolve(port)));
-    });
-    s.on("error", reject);
-  });
-}
-
-function attachErrorCollectors(page) {
-  const errors = [];
-  const failedRequests = [];
-  page.on("pageerror", (err) => {
-    errors.push("pageerror: " + (err && err.message ? err.message : String(err)));
-  });
-  page.on("console", (msg) => {
-    if (msg.type() === "error") errors.push("console: " + msg.text());
-  });
-  page.on("requestfailed", (req) => {
-    const url = req.url();
-    const why = (req.failure() && req.failure().errorText) || "";
-    // EventSource reconnects abort the prior /api/stream; that is expected.
-    if (/\/api\/stream(?:\?|$)/.test(url) && /ERR_ABORTED|ns_binding_aborted/i.test(why)) {
-      return;
-    }
-    failedRequests.push(url + " · " + why);
-  });
-  return { errors, failedRequests };
-}
-
 async function smokeDemoFile(browser) {
   const page = await browser.newPage();
-  const { errors, failedRequests } = attachErrorCollectors(page);
+  const { errors, failedRequests, finalizeErrors } = attachErrorCollectors(page);
 
   await page.goto(FILE_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
   await page.waitForSelector("#workshop", { timeout: 5000 });
@@ -114,6 +81,7 @@ async function smokeDemoFile(browser) {
     { timeout: 4000 }
   );
 
+  finalizeErrors();
   await page.close();
 
   if (failedRequests.length) {
@@ -123,10 +91,9 @@ async function smokeDemoFile(browser) {
 }
 
 async function smokeLiveHttp(browser) {
-  const port = await getFreePort();
-  await startBridge({ port, quiet: true });
+  const { port } = await startBridgeForSmoke();
   const page = await browser.newPage();
-  const { errors, failedRequests } = attachErrorCollectors(page);
+  const { errors, failedRequests, finalizeErrors } = attachErrorCollectors(page);
 
   try {
     await page.goto(`http://127.0.0.1:${port}/`, {
@@ -284,8 +251,9 @@ async function smokeLiveHttp(browser) {
       await page.unroute("**/api/select*").catch(() => {});
     }
   } finally {
+    finalizeErrors();
     await page.close();
-    await stopBridge();
+    await stopBridgeForSmoke();
   }
 
   if (failedRequests.length) {

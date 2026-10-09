@@ -1,0 +1,346 @@
+/* Living agent cards — avatars, privacy meter, daily stats */
+
+.agent-avatar {
+  --avatar-size: 36px;
+  flex: 0 0 var(--avatar-size);
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  margin-right: 2px;
+}
+
+.avatar-face {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.card.role-opus .avatar-face {
+  border-color: rgba(242, 244, 244, 0.22);
+  background: rgba(242, 244, 244, 0.08);
+}
+.card.role-advisor .avatar-face {
+  border-color: rgba(245, 165, 36, 0.35);
+  background: rgba(245, 165, 36, 0.1);
+}
+.card.role-sonnet .avatar-face {
+  border-color: rgba(62, 207, 255, 0.35);
+  background: rgba(62, 207, 255, 0.1);
+}
+.card.role-haiku .avatar-face {
+  border-color: rgba(184, 240, 0, 0.35);
+  background: rgba(184, 240, 0, 0.08);
+}
+
+.avatar-initials {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.avatar-eyes,
+.avatar-mouth {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.avatar-eyes {
+  top: 11px;
+  width: 16px;
+  height: 4px;
+  background:
+    radial-gradient(circle at 3px 2px, currentColor 1.4px, transparent 1.5px),
+    radial-gradient(circle at 13px 2px, currentColor 1.4px, transparent 1.5px);
+  color: rgba(255, 255, 255, 0.75);
+  opacity: 0;
+}
+
+.avatar-mouth {
+  top: 20px;
+  width: 8px;
+  height: 3px;
+  border-radius: 0 0 6px 6px;
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.55);
+  opacity: 0;
+}
+
+/* State: typing — soft bounce + mouth chat */
+.agent-avatar.state-typing .avatar-initials {
+  opacity: 0.2;
+}
+.agent-avatar.state-typing .avatar-eyes,
+.agent-avatar.state-typing .avatar-mouth {
+  opacity: 1;
+}
+.agent-avatar.state-typing .avatar-mouth {
+  width: 10px;
+  height: 4px;
+  border-radius: 2px;
+  border: none;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* State: thinking — slow blink feel via opacity pulse on eyes */
+.agent-avatar.state-thinking .avatar-initials {
+  opacity: 0.25;
+}
+.agent-avatar.state-thinking .avatar-eyes {
+  opacity: 0.85;
+  width: 14px;
+  height: 2px;
+  top: 13px;
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    currentColor 2px,
+    currentColor 5px,
+    transparent 5px,
+    transparent 9px,
+    currentColor 9px,
+    currentColor 12px,
+    transparent 12px
+  );
+  color: rgba(255, 255, 255, 0.65);
+}
+.agent-avatar.state-thinking .avatar-mouth {
+  opacity: 0.7;
+  width: 5px;
+  border-radius: 50%;
+  border: none;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.35);
+  top: 21px;
+}
+
+/* State: done — celebration */
+.agent-avatar.state-done .avatar-face {
+  border-color: rgba(61, 214, 140, 0.55);
+  box-shadow: 0 0 10px rgba(61, 214, 140, 0.2);
+}
+.agent-avatar.state-done .avatar-initials {
+  opacity: 0.15;
+}
+.agent-avatar.state-done .avatar-eyes,
+.agent-avatar.state-done .avatar-mouth {
+  opacity: 1;
+}
+.agent-avatar.state-done .avatar-eyes {
+  color: rgba(61, 214, 140, 0.95);
+}
+.agent-avatar.state-done .avatar-mouth {
+  width: 10px;
+  height: 5px;
+  border-radius: 0 0 8px 8px;
+  border-bottom: 2px solid rgba(61, 214, 140, 0.9);
+}
+
+/* State: error — sad */
+.agent-avatar.state-error .avatar-face {
+  border-color: rgba(255, 90, 90, 0.45);
+  background: rgba(255, 90, 90, 0.08);
+}
+.agent-avatar.state-error .avatar-initials {
+  opacity: 0.15;
+}
+.agent-avatar.state-error .avatar-eyes,
+.agent-avatar.state-error .avatar-mouth {
+  opacity: 1;
+}
+.agent-avatar.state-error .avatar-eyes {
+  color: rgba(255, 160, 160, 0.9);
+  top: 12px;
+}
+.agent-avatar.state-error .avatar-mouth {
+  width: 10px;
+  height: 5px;
+  border-radius: 8px 8px 0 0;
+  border: none;
+  border-top: 2px solid rgba(255, 140, 140, 0.85);
+  top: 22px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agent-avatar.state-typing .avatar-face {
+    animation: avatar-type-bounce 0.55s ease-in-out infinite;
+  }
+  .agent-avatar.state-typing .avatar-mouth {
+    animation: avatar-mouth-chat 0.35s steps(2, end) infinite;
+  }
+  .agent-avatar.state-thinking .avatar-eyes {
+    animation: avatar-think-blink 2.2s ease-in-out infinite;
+  }
+  .agent-avatar.state-done .avatar-face {
+    animation: avatar-celebrate 0.7s ease-out 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-avatar .avatar-face,
+  .agent-avatar .avatar-mouth,
+  .agent-avatar .avatar-eyes {
+    animation: none !important;
+  }
+}
+
+@keyframes avatar-type-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes avatar-mouth-chat {
+  0%,
+  100% {
+    transform: translateX(-50%) scaleY(1);
+  }
+  50% {
+    transform: translateX(-50%) scaleY(0.45);
+  }
+}
+
+@keyframes avatar-think-blink {
+  0%,
+  40%,
+  100% {
+    opacity: 0.85;
+  }
+  45%,
+  55% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes avatar-celebrate {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.08) rotate(-3deg);
+  }
+  70% {
+    transform: scale(1.05) rotate(3deg);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Privacy meter — badge/level only, never the path */
+.privacy-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--dim);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.privacy-meter .privacy-label {
+  opacity: 0.7;
+}
+
+.privacy-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.privacy-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.privacy-meter.level-low {
+  border-color: rgba(245, 165, 36, 0.35);
+  color: #f5a524;
+}
+.privacy-meter.level-low .privacy-dots i:nth-child(-n + 1) {
+  background: #f5a524;
+}
+
+.privacy-meter.level-med {
+  border-color: rgba(255, 140, 66, 0.45);
+  color: #ff8c42;
+}
+.privacy-meter.level-med .privacy-dots i:nth-child(-n + 2) {
+  background: #ff8c42;
+}
+
+.privacy-meter.level-high {
+  border-color: rgba(255, 90, 90, 0.5);
+  color: #ff5a5a;
+}
+.privacy-meter.level-high .privacy-dots i {
+  background: #ff5a5a;
+}
+
+.privacy-meter.level-none .privacy-level {
+  opacity: 0.65;
+}
+
+/* Daily stats card */
+.daily-stats-card {
+  margin-top: 10px;
+  border-color: rgba(62, 207, 255, 0.16);
+}
+
+.daily-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.daily-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.daily-stat-label {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.daily-stat strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-head:has(.agent-avatar) {
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .daily-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}

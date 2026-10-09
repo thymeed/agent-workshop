@@ -23,6 +23,8 @@
   subagent prompts, estimated Session Bill + activity from transcripts).
 -->
     <link rel="stylesheet" href="dashboard/styles.css" />
+    <link rel="stylesheet" href="dashboard/cards.css" />
+    <link rel="stylesheet" href="dashboard/insights.css" />
   </head>
   <body>
     <div class="wrap">
@@ -690,6 +692,8 @@
         </details>
       </div>
 
+      <div id="insightsMount" class="insights-mount" aria-label="Insights panel mount"></div>
+
       <footer class="footer">
         <div class="cli">
           <span class="prompt">project $</span>
@@ -703,6 +707,8 @@
         </div>
       </footer>
     </div>
+    <script src="dashboard/cards.js"></script>
+    <script src="dashboard/insights.js"></script>
     <script src="dashboard/app.js"></script>
   </body>
 </html>

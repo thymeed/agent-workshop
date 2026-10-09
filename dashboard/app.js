@@ -13,21 +13,9 @@
     ? location.origin
     : "http://127.0.0.1:3847";
 
-  var cards = {
-    opus: document.getElementById("card-opus"),
-    advisor: document.getElementById("card-advisor"),
-    worker: document.getElementById("card-worker"),
-    explorer: document.getElementById("card-explorer"),
-    researcher: document.getElementById("card-researcher")
-  };
-
-  var statusEls = {
-    opus: document.getElementById("status-opus"),
-    advisor: document.getElementById("status-advisor"),
-    worker: document.getElementById("status-worker"),
-    explorer: document.getElementById("status-explorer"),
-    researcher: document.getElementById("status-researcher")
-  };
+  var AgentCards = window.AgentCards;
+  var cards = {};
+  var statusEls = {};
 
   var demoBtn = document.getElementById("demoBtn");
   var modeDemo = document.getElementById("modeDemo");
@@ -105,13 +93,80 @@
     }
   })();
 
+  /* Card module after relocate so avatars/privacy/daily-stats mount on final DOM. */
+  var isBridgeOrigin = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(location.origin);
+  if (AgentCards && typeof AgentCards.init === "function") {
+    AgentCards.init(document.getElementById("stationsDrawerBody"), {
+      demo: !isBridgeOrigin
+    });
+    cards = AgentCards.getCards();
+    statusEls = AgentCards.getStatusEls();
+  } else {
+    cards = {
+      opus: document.getElementById("card-opus"),
+      advisor: document.getElementById("card-advisor"),
+      worker: document.getElementById("card-worker"),
+      explorer: document.getElementById("card-explorer"),
+      researcher: document.getElementById("card-researcher")
+    };
+    statusEls = {
+      opus: document.getElementById("status-opus"),
+      advisor: document.getElementById("status-advisor"),
+      worker: document.getElementById("status-worker"),
+      explorer: document.getElementById("status-explorer"),
+      researcher: document.getElementById("status-researcher")
+    };
+  }
+
+  /* Lane C insights panel — guarded until dashboard/insights.js defines window.Insights. */
+  if (window.Insights && typeof window.Insights.init === "function") {
+    try {
+      window.Insights.init(
+        document.getElementById("insightsMount") ||
+          document.getElementById("drawers") ||
+          document.body,
+        { demo: !isBridgeOrigin }
+      );
+    } catch (_insightsErr) {}
+  }
+
   var mode = "demo"; /* demo | live */
+  var lastDemoUsageTotal = 0;
   var playing = false;
   var timers = [];
   var logSeq = 0;
-  var seenLiveIds = {};
+  /** Live event ids already applied to UI + daily stats, keyed by project scope. */
+  var liveSeenByProject = {};
   var es = null;
   var livePoll = null;
+  /** True while SSE is draining the bridge's initial backlog (connect / reload / reconnect). */
+  var liveSseBacklogReplay = false;
+  var liveSseBacklogEndTimer = null;
+  var LIVE_SSE_BACKLOG_QUIET_MS = 80;
+
+  function scheduleLiveSseBacklogEnd() {
+    if (liveSseBacklogEndTimer) clearTimeout(liveSseBacklogEndTimer);
+    liveSseBacklogEndTimer = setTimeout(function () {
+      liveSseBacklogReplay = false;
+      liveSseBacklogEndTimer = null;
+    }, LIVE_SSE_BACKLOG_QUIET_MS);
+  }
+
+  function armLiveSseBacklogReplay() {
+    liveSseBacklogReplay = true;
+    scheduleLiveSseBacklogEnd();
+  }
+
+  function touchLiveSseBacklogMessage() {
+    if (!liveSseBacklogReplay) return;
+    scheduleLiveSseBacklogEnd();
+  }
+
+  function clearLiveSseBacklogReplay() {
+    if (liveSseBacklogEndTimer) clearTimeout(liveSseBacklogEndTimer);
+    liveSseBacklogEndTimer = null;
+    liveSseBacklogReplay = false;
+  }
   var state = {
     calls: 0,
     subs: 0,
@@ -531,14 +586,18 @@
     timers = [];
   }
 
-  function setActive(roles) {
-    var set = {};
-    (roles || []).forEach(function (r) {
-      set[r] = true;
-    });
-    Object.keys(cards).forEach(function (key) {
-      if (cards[key]) cards[key].classList.toggle("active", !!set[key]);
-    });
+  function setActive(roles, opts) {
+    if (AgentCards && typeof AgentCards.setActive === "function") {
+      AgentCards.setActive(roles || [], opts);
+    } else {
+      var set = {};
+      (roles || []).forEach(function (r) {
+        set[r] = true;
+      });
+      Object.keys(cards).forEach(function (key) {
+        if (cards[key]) cards[key].classList.toggle("active", !!set[key]);
+      });
+    }
     stageDirector.setActiveRoles(roles || []);
   }
 
@@ -645,10 +704,38 @@
   }
 
   function setStatus(role, html, cls) {
+    if (AgentCards && typeof AgentCards.setStatus === "function") {
+      AgentCards.setStatus(role, html, cls);
+      return;
+    }
     var el = statusEls[role];
     if (!el) return;
     el.className = "status" + (cls ? " " + cls : "");
     el.innerHTML = html;
+  }
+
+  function usageGrandTotal(usage) {
+    var t = 0;
+    if (!usage) return 0;
+    Object.keys(usage).forEach(function (key) {
+      if (key === "explorer" || key === "researcher") return;
+      var bucket = usage[key];
+      if (!bucket) return;
+      t += (Number(bucket.in) || 0) + (Number(bucket.out) || 0);
+    });
+    return t;
+  }
+
+  function syncDailyStatsFromUsage() {
+    if (!AgentCards) return;
+    if (mode === "live") {
+      if (typeof AgentCards.syncLiveSubs === "function") AgentCards.syncLiveSubs(state.subs);
+      return;
+    }
+    var total = usageGrandTotal(state.usage);
+    var delta = total - lastDemoUsageTotal;
+    if (delta > 0 && typeof AgentCards.addTokens === "function") AgentCards.addTokens(delta);
+    lastDemoUsageTotal = total;
   }
 
   function formatTokens(n) {
@@ -747,7 +834,8 @@
     setShare(billEls.shareHaiku, costs.haiku);
   }
 
-  function addUsage(usage) {
+  function addUsage(usage, opts) {
+    opts = opts || {};
     if (!usage) return;
     var role = String(usage.role || "").toLowerCase();
     var model = normalizeModel(usage.model, role);
@@ -782,6 +870,12 @@
                     ? "explorer"
                     : "opus";
     stageDirector.tipSpark(sparkRole);
+    if (opts.skipDaily) return;
+    if (mode === "live" && AgentCards && typeof AgentCards.addTokens === "function") {
+      AgentCards.addTokens(inn + out, sparkRole);
+    } else {
+      syncDailyStatsFromUsage();
+    }
   }
 
   function setUsageSnapshot(snap, sparkRole) {
@@ -802,6 +896,7 @@
     if (subOut > state.usage.haiku.out) state.usage.haiku.out = subOut;
     renderBill();
     if (sparkRole) stageDirector.tipSpark(sparkRole);
+    syncDailyStatsFromUsage();
   }
 
   function clearActivity() {
@@ -855,6 +950,10 @@
     state.activity.unshift(entry);
     if (state.activity.length > ACTIVITY_CAP) {
       state.activity.length = ACTIVITY_CAP;
+    }
+    if (AgentCards && typeof AgentCards.noteSensitivePath === "function") {
+      var privacyRole = role === "parent" ? "opus" : role;
+      AgentCards.noteSensitivePath(privacyRole, path);
     }
     renderActivity();
     stageDirector.spawnCrate(entry);
@@ -916,6 +1015,7 @@
     state.subs = n;
     footerSubs.textContent = String(n);
     if (hudSubs) hudSubs.textContent = String(n);
+    syncDailyStatsFromUsage();
   }
 
   function pad2(n) {
@@ -1165,8 +1265,12 @@
     advisorLastEl.textContent = "Last advice: —";
     footerEffort.textContent = mode === "live" ? "live" : "mixed";
     state.usage = emptyUsage();
+    lastDemoUsageTotal = 0;
     renderBill();
     clearActivity();
+    if (AgentCards && typeof AgentCards.reset === "function") {
+      AgentCards.reset({ keepDaily: mode === "live", mode: mode });
+    }
     billEls.illustrative.textContent =
       mode === "live"
         ? "Live estimates from transcript activity · not official usage"
@@ -1179,9 +1283,32 @@
     sessionLog.appendChild(logEmpty);
   }
 
+  function liveProjectScope() {
+    return String(currentProjectId || currentProjectLabel || "_default");
+  }
+
+  function hasSeenLiveEvent(ev) {
+    if (!ev || ev.id == null) return false;
+    var bucket = liveSeenByProject[liveProjectScope()];
+    return !!(bucket && bucket[String(ev.id)]);
+  }
+
+  function markSeenLiveEvent(ev) {
+    if (!ev || ev.id == null) return;
+    var scope = liveProjectScope();
+    if (!liveSeenByProject[scope]) liveSeenByProject[scope] = {};
+    liveSeenByProject[scope][String(ev.id)] = true;
+  }
+
+  function clearLiveSeenEvents() {
+    liveSeenByProject = {};
+  }
+
   function applyLiveEvent(ev) {
-    if (!ev || seenLiveIds[ev.id]) return;
-    seenLiveIds[ev.id] = true;
+    if (!ev) return;
+    var alreadySeen = hasSeenLiveEvent(ev);
+    if (!alreadySeen) markSeenLiveEvent(ev);
+    var usageOpts = { skipDaily: alreadySeen };
 
     var role = ev.role || "parent";
     var cardRole =
@@ -1200,7 +1327,9 @@
     var explicit = Array.isArray(ev.active) ? ev.active : null;
     var active = explicit && explicit.length ? explicit.slice() : [cardRole];
     rememberLiveFocus(explicit, active);
-    setActive(mergeStickyActive(active));
+    setActive(mergeStickyActive(active), {
+      skipTiming: alreadySeen || liveSseBacklogReplay
+    });
 
     var msg = ev.message || "";
     setStatus(cardRole, '<span class="live">' + escapeHtml(msg) + "</span>");
@@ -1216,20 +1345,26 @@
       }
     }
     if (ev.usage) {
-      addUsage({
-        model: ev.usage.model,
-        role: ev.usage.role || role,
-        in: ev.usage.in,
-        out: ev.usage.out
-      });
+      addUsage(
+        {
+          model: ev.usage.model,
+          role: ev.usage.role || role,
+          in: ev.usage.in,
+          out: ev.usage.out
+        },
+        usageOpts
+      );
     } else if (ev.tokensDelta) {
       /* Backward compat: attribute legacy deltas to Haiku reads */
-      addUsage({
-        model: "haiku",
-        role: role === "researcher" ? "researcher" : "explorer",
-        in: Number(ev.tokensDelta) || 0,
-        out: 0
-      });
+      addUsage(
+        {
+          model: "haiku",
+          role: role === "researcher" ? "researcher" : "explorer",
+          in: Number(ev.tokensDelta) || 0,
+          out: 0
+        },
+        usageOpts
+      );
     }
     if (ev.activity) {
       appendActivity(
@@ -1259,13 +1394,13 @@
       clearInterval(livePoll);
       livePoll = null;
     }
+    clearLiveSseBacklogReplay();
     clearStickyActive();
     demoBtn.classList.remove("live-connected");
   }
 
   function startLive() {
     stopLive();
-    seenLiveIds = {};
     resetUI();
     liveHint.hidden = false;
     liveHint.className = "live-hint";
@@ -1312,7 +1447,7 @@
     }
 
     function onReset(meta) {
-      seenLiveIds = {};
+      armLiveSseBacklogReplay();
       if (meta) {
         if (meta.projectLabel) currentProjectLabel = meta.projectLabel;
         if (meta.projectId) currentProjectId = meta.projectId;
@@ -1333,6 +1468,7 @@
     }
 
     try {
+      armLiveSseBacklogReplay();
       es = new EventSource(BRIDGE + "/api/stream");
     } catch (_e) {
       onErr("Cannot open SSE — start the app (npm start)");
@@ -1358,6 +1494,7 @@
     };
     es.onmessage = function (msg) {
       try {
+        touchLiveSseBacklogMessage();
         applyLiveEvent(JSON.parse(msg.data));
       } catch (_) {}
     };
@@ -1450,6 +1587,13 @@
         role: "explorer",
         path: "src/billing/webhooks.ts",
         detail: "lines 1–240"
+      });
+      /* Demo fixture: sensitive path lights privacy meter (path never shown on badge). */
+      appendActivity({
+        kind: "read",
+        role: "explorer",
+        path: "config/.env.example",
+        detail: "pattern scan · no values loaded"
       });
       appendLog("explorer", "searching src/billing/** · Session Bill climbs");
       animateRoute("delegates", "explorer");
@@ -1651,6 +1795,9 @@
     demoBtn.classList.add("playing");
     demoBtn.setAttribute("aria-pressed", "true");
     layoutFlow();
+    if (AgentCards && typeof AgentCards.recordRun === "function") {
+      AgentCards.recordRun({ agent: "opus", tokens: 0, durationMs: STEP_MS * steps.length });
+    }
 
     var delay = prefersReducedMotion() ? 400 : STEP_MS;
     steps.forEach(function (fn, i) {
@@ -1679,6 +1826,11 @@
     modeDemo.classList.toggle("on", mode === "demo");
     modeLive.classList.toggle("on", mode === "live");
     modeLive.classList.toggle("live-on", mode === "live");
+    lastDemoUsageTotal = 0;
+    if (next === "demo") clearLiveSeenEvents();
+    if (AgentCards && typeof AgentCards.onModeChange === "function") {
+      AgentCards.onModeChange(next);
+    }
     stopDemo();
     stopLive();
     if (mode === "demo") {
@@ -1815,4 +1967,37 @@
   if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(location.origin)) {
     setMode("live");
   }
+
+  /* Test hooks for Playwright (localhost dashboard only). */
+  globalThis.__cursorAgentsDashTest = {
+    applyLiveEvent: applyLiveEvent,
+    demoUsageTokenTotal: function () {
+      return usageGrandTotal(state.usage);
+    },
+    measureDemoUsageTokens: function (usage) {
+      return usageGrandTotal(usage || emptyUsage());
+    },
+    setDemoUsageAndSyncDaily: function (usage) {
+      if (mode !== "demo") return;
+      state.usage = usage || emptyUsage();
+      lastDemoUsageTotal = 0;
+      syncDailyStatsFromUsage();
+    },
+    getDailyStats: function () {
+      return AgentCards && typeof AgentCards.getDailyStats === "function"
+        ? AgentCards.getDailyStats()
+        : null;
+    },
+    getHudSessionCost: function () {
+      return hudSessionCost ? hudSessionCost.textContent.trim() : "";
+    },
+    getLogLineCount: function () {
+      return sessionLog ? sessionLog.querySelectorAll(".log-line").length : 0;
+    },
+    liveProjectScope: liveProjectScope,
+    hasSeenLiveEvent: hasSeenLiveEvent,
+    isLiveBacklogReplay: function () {
+      return liveSseBacklogReplay;
+    }
+  };
 })();
