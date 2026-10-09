@@ -11,7 +11,7 @@ A second launch focuses the existing window (single-instance lock); it does not 
 ## Install & start (development)
 
 ```bat
-cd /d "C:\Users\louje\OneDrive\Desktop\Custom TUI"
+cd /d path\to\cursor-agents-model-routing
 npm install
 npm start
 ```
@@ -99,7 +99,7 @@ node live-bridge.js
 
 Then open **http://127.0.0.1:3847/** and click **Live**.
 
-The bridge listens on loopback only and rejects non-localhost `Host` / foreign `Origin` (no `Access-Control-Allow-Origin: *`). Open the dashboard from the bridge URL or Electron — not from another website. Demo via `file://` does not need the bridge.
+The bridge listens on loopback only and rejects non-localhost `Host` / foreign `Origin` (including `Origin: null`; no `Access-Control-Allow-Origin: *`). Open the dashboard from the bridge URL or Electron — not from another website. Demo via `file://` does not need the bridge; clicking **Live** from `file://` explains that you must open `http://127.0.0.1:3847/` instead.
 
 Options:
 
@@ -112,13 +112,13 @@ node live-bridge.js --dir "C:\Users\<you>\.cursor\projects\<project>\agent-trans
 
 ### What Live mode wires
 
-| Source                                              | Use                                                       |
-| --------------------------------------------------- | --------------------------------------------------------- |
-| `~/.cursor/projects/*/agent-transcripts/**/*.jsonl` | Projects listed in the picker; newest selected by default |
-| `GET /api/projects`                                 | Project list + current selection                          |
-| `GET /api/select?id=`                               | Switch transcripts folder + reset watch state             |
-| SSE `GET /api/stream`                               | Events + `reset` when the project changes                 |
-| `GET /api/events`, `GET /api/status`                | Debug / backlog                                           |
+| Source                                              | Use                                                                          |
+| --------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `~/.cursor/projects/*/agent-transcripts/**/*.jsonl` | Projects listed in the picker; newest selected by default                    |
+| `GET /api/projects`                                 | Project list + current selection                                             |
+| `GET /api/select?id=`                               | Switch transcripts folder + reset watch state (same-origin / Sec-Fetch-Site) |
+| SSE `GET /api/stream`                               | Events + `reset` when the project changes                                    |
+| `GET /api/events`, `GET /api/status`                | Debug / backlog                                                              |
 
 Roles are inferred from `Task` / `CallDynamicTool` `subagent_type` and subagent prompt text (`advisor`, `worker`, `explore`→explorer, `researcher`). Unknown types map to parent/generic.
 

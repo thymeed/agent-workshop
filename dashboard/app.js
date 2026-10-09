@@ -1261,6 +1261,18 @@
     resetUI();
     liveHint.hidden = false;
     liveHint.className = "live-hint";
+
+    // file:// cannot use Live (Origin "null" is rejected by the bridge on purpose).
+    if (location.protocol === "file:") {
+      liveHint.className = "live-hint err";
+      liveHint.textContent =
+        "Live needs the bridge — open http://127.0.0.1:3847/ (or run npm start)";
+      demoBtn.classList.remove("live-connected");
+      demoBtn.textContent = "Reconnect";
+      setProjectPickerVisible(false);
+      return;
+    }
+
     liveHint.textContent = "Connecting to " + BRIDGE + "…";
     setProjectPickerVisible(true);
     loadProjects();

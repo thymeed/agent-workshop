@@ -69,4 +69,5 @@ If `package.json` is missing, prefer `node live-bridge.js` / `start-live.cmd` un
 - Near-real file polling, not hook-level realtime.
 - Token deltas are illustrative estimates from transcript activity.
 - Only sees chats that write into the configured transcripts folder.
-- Live bridge is localhost-only (loopback bind + Host/Origin checks; no CORS `*`).
+- Live bridge is localhost-only (loopback bind + Host/Origin checks pinned to bridge port; no CORS `*`; `Origin: null` rejected). Live from `file://` is unsupported — open `http://127.0.0.1:<port>/` or Electron.
+- `/api/select` requires Sec-Fetch-Site `same-origin`/`none`, or a valid localhost Origin (blocks cross-site image/script GETs that omit Origin).

@@ -24,11 +24,8 @@ const path = require("path");
 const os = require("os");
 
 const PROJECTS_ROOT = path.join(os.homedir(), ".cursor", "projects");
-const FALLBACK_DIR = path.join(
-  PROJECTS_ROOT,
-  "c-Users-louje-OneDrive-Desktop-Custom-TUI",
-  "agent-transcripts"
-);
+/** Placeholder watch path when no --dir / env / discovered project exists yet. */
+const EMPTY_TRANSCRIPTS = path.join(PROJECTS_ROOT, "_none", "agent-transcripts");
 const DASHBOARD = path.join(__dirname, "model-routing-dashboard.html");
 const STATIC_ROOT = path.join(__dirname, "dashboard");
 const MAX_EVENTS = 400;
@@ -48,7 +45,7 @@ const MIME = {
 
 let PORT = 3847;
 /** @type {string} */
-let TRANSCRIPTS = FALLBACK_DIR;
+let TRANSCRIPTS = EMPTY_TRANSCRIPTS;
 /** @type {string|null} */
 let currentProjectId = null;
 /** @type {string|null} */
@@ -191,9 +188,10 @@ function resolveDefaultTranscripts(opts) {
     return TRANSCRIPTS;
   }
 
-  TRANSCRIPTS = FALLBACK_DIR;
-  currentProjectId = "c-Users-louje-OneDrive-Desktop-Custom-TUI";
-  currentProjectLabel = humanizeProjectId(currentProjectId);
+  // Runtime placeholder under ~/.cursor/projects — no hardcoded machine/user path
+  TRANSCRIPTS = EMPTY_TRANSCRIPTS;
+  currentProjectId = null;
+  currentProjectLabel = "no Cursor projects found";
   return TRANSCRIPTS;
 }
 
@@ -928,7 +926,7 @@ function isLocalhostHost(hostHeader) {
 
 /**
  * Origin header: absent is OK (navigations, curl, same-origin without CORS).
- * If present, must be http(s) to localhost / 127.0.0.1 / ::1 — not "null" or other sites.
+ * If present, must be http(s) to localhost / 127.0.0.1 / ::1 on this bridge's port.
  */
 function isAllowedOrigin(origin) {
   if (origin == null || origin === "") return true;
@@ -937,15 +935,31 @@ function isAllowedOrigin(origin) {
     const u = new URL(origin);
     if (u.protocol !== "http:" && u.protocol !== "https:") return false;
     const h = u.hostname.replace(/^\[|\]$/g, "");
-    return h === "localhost" || h === "127.0.0.1" || h === "::1";
+    if (!(h === "localhost" || h === "127.0.0.1" || h === "::1")) return false;
+    const originPort = u.port || (u.protocol === "https:" ? "443" : "80");
+    return originPort === String(PORT);
   } catch (_) {
     return false;
   }
 }
 
 /**
+ * /api/select CSRF guard.
+ * Cross-site <img>/<script> GETs omit Origin but send Sec-Fetch-Site: cross-site.
+ * Reject cross-site / same-site; if Sec-Fetch-Site is absent, require a valid Origin
+ * (fetch always sends Origin; simple cross-site loads omit it).
+ */
+function allowProjectSelect(req) {
+  const site = String(req.headers["sec-fetch-site"] || "").toLowerCase();
+  if (site === "cross-site" || site === "same-site") return false;
+  if (site === "same-origin" || site === "none") return true;
+  const origin = req.headers.origin;
+  return !!(origin && isAllowedOrigin(origin));
+}
+
+/**
  * Reject cross-site / non-loopback access so other websites cannot read or drive the bridge.
- * Checks socket remote address, Host, and Origin (when sent).
+ * Checks socket remote address, Host, and Origin (when sent). Origin "null" is never allowed.
  * @returns {boolean} true if the request was rejected
  */
 function rejectIfNotLocal(req, res) {
@@ -984,28 +998,35 @@ function serveDashboard(res) {
  */
 function serveStatic(urlPath, res) {
   if (!urlPath.startsWith("/dashboard/")) return false;
-  const rel = decodeURIComponent(urlPath.slice("/dashboard/".length));
+  let rel;
+  try {
+    rel = decodeURIComponent(urlPath.slice("/dashboard/".length));
+  } catch (_e) {
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("Bad path");
+    return true;
+  }
   if (!rel || rel.includes("\0") || path.isAbsolute(rel)) {
-    res.writeHead(400, { "Content-Type": "text/plain" });
+    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Bad path");
     return true;
   }
   const resolved = path.resolve(STATIC_ROOT, rel);
   const rootResolved = path.resolve(STATIC_ROOT) + path.sep;
   if (resolved !== path.resolve(STATIC_ROOT) && !resolved.startsWith(rootResolved)) {
-    res.writeHead(403, { "Content-Type": "text/plain" });
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Forbidden");
     return true;
   }
   fs.stat(resolved, (statErr, st) => {
     if (statErr || !st.isFile()) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Not found");
       return;
     }
     fs.readFile(resolved, (err, data) => {
       if (err) {
-        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
         res.end("Read error");
         return;
       }
@@ -1024,7 +1045,14 @@ function createServer() {
   return http.createServer((req, res) => {
     if (rejectIfNotLocal(req, res)) return;
 
-    const url = new URL(req.url || "/", `http://127.0.0.1:${PORT}`);
+    let url;
+    try {
+      url = new URL(req.url || "/", `http://127.0.0.1:${PORT}`);
+    } catch (_e) {
+      res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Bad URL");
+      return;
+    }
 
     // No CORS: same-origin Live/Electron only. Reject preflight without ACAO *.
     if (req.method === "OPTIONS") {
@@ -1060,6 +1088,13 @@ function createServer() {
     }
 
     if (url.pathname === "/api/select") {
+      if (!allowProjectSelect(req)) {
+        sendJson(res, 403, {
+          ok: false,
+          error: "Forbidden · same-origin required for project select"
+        });
+        return;
+      }
       const id = url.searchParams.get("id");
       if (!id) {
         sendJson(res, 400, { ok: false, error: "Missing id query param" });
@@ -1166,6 +1201,12 @@ function startBridge(opts) {
 
     const onListening = () => {
       started = true;
+      try {
+        const addr = server && server.address();
+        if (addr && typeof addr === "object" && addr.port) PORT = addr.port;
+      } catch (_e) {
+        /* keep PORT */
+      }
       scan();
       if (pollTimer) clearInterval(pollTimer);
       pollTimer = setInterval(() => {

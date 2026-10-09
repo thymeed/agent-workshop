@@ -1,0 +1,21 @@
+# Default to LF so Prettier/CI match on Windows checkouts
+* text=auto eol=lf
+
+# Windows launchers keep CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.exe binary
+*.dll binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.asar binary
