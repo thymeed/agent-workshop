@@ -26,6 +26,12 @@ yarn-error.log*
 .cache/
 .eslintcache
 
+# Local bridge event history (lives in profile/app-data; never commit)
+.cursor-event-log/
+*.event-log.jsonl
+event-log.jsonl
+**/cursor-agents-model-routing/event-log.jsonl
+
 # Env / secrets
 .env
 .env.*

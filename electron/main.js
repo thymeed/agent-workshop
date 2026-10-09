@@ -2,10 +2,11 @@
  * Electron main process.
  * Starts live-bridge in-process (no cmd.exe / visible node.exe console)
  * and opens the dashboard in a native window.
+ * Desktop alerts: agent finished / error / stalled — name + status only.
  */
 "use strict";
 
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, Notification } = require("electron");
 const path = require("path");
 const { startBridge, stopBridge } = require(path.join(__dirname, "..", "live-bridge.js"));
 
@@ -27,12 +28,35 @@ if (!gotLock) {
   });
 }
 
+/**
+ * Show a desktop notification with ONLY agent name and status.
+ * Never include prompt text or file paths.
+ */
+function showAgentAlert(alert) {
+  if (!alert || typeof alert !== "object") return;
+  const name = String(alert.name || "agent").slice(0, 80);
+  const status = String(alert.status || "").slice(0, 40);
+  if (!status) return;
+  if (!Notification.isSupported()) return;
+  try {
+    const n = new Notification({
+      title: "Cursor Agents",
+      body: name + " · " + status,
+      silent: false
+    });
+    n.show();
+  } catch (_e) {
+    /* ignore notification failures */
+  }
+}
+
 async function bootBridge() {
   // quiet: no bridge console chatter; never spawn cmd/node — require() only
   const result = await startBridge({
     port: PORT,
     quiet: true,
-    reuseExisting: true
+    reuseExisting: true,
+    onAgentAlert: showAgentAlert
   });
   bridgeOwned = !result.reused;
   return result;

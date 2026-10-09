@@ -119,8 +119,43 @@ node live-bridge.js --dir "C:\Users\<you>\.cursor\projects\<project>\agent-trans
 | `POST /api/select` + `X-Cursor-Bridge: 1`           | Switch transcripts folder + reset watch state (JSON `{id}`; Sec-Fetch-Site) |
 | SSE `GET /api/stream`                               | Events + `reset` when the project changes                                   |
 | `GET /api/events`, `GET /api/status`                | Debug / backlog                                                             |
+| `GET /api/history?since=&session=`                  | Persisted history events (JSONL-backed; localhost Host/Origin guards)       |
+| `POST /api/history/clear` + `X-Cursor-Bridge: 1`    | Wipe local history (`{"ok":true}`)                                          |
 
 Roles are inferred from `Task` / `CallDynamicTool` `subagent_type` and subagent prompt text (`advisor`, `worker`, `explore`→explorer, `researcher`). Unknown types map to parent/generic.
+
+### History & desktop alerts
+
+The bridge keeps a **local event log** (JSONL) under the OS app-data profile — not in the git repo:
+
+| Platform | Default path                                                                |
+| -------- | --------------------------------------------------------------------------- |
+| Windows  | `%APPDATA%\cursor-agents-model-routing\event-log.jsonl`                     |
+| macOS    | `~/Library/Application Support/cursor-agents-model-routing/event-log.jsonl` |
+| Linux    | `~/.local/share/cursor-agents-model-routing/event-log.jsonl`                |
+
+Overrides: `CURSOR_EVENT_LOG` (file) or `CURSOR_EVENT_LOG_DIR` (directory). Entries older than **30 days** are pruned when the bridge starts. Values that look like API keys, tokens, passwords, or bearer secrets are **redacted before write**.
+
+History event contract (stable):
+
+```json
+{
+  "ts": "2026-01-01T00:00:00.000Z",
+  "sessionId": "string",
+  "agentId": "string",
+  "parentId": null,
+  "name": "string",
+  "model": "string",
+  "type": "spawn",
+  "inputTokens": 0,
+  "outputTokens": 0,
+  "files": []
+}
+```
+
+`type` is one of `spawn` | `turn` | `done` | `error`.
+
+In the Electron app, desktop notifications fire when an agent **finishes**, **errors**, or **stalls** (no activity for ~2 minutes). Alerts show **only agent name and status** — never prompt text or file paths.
 
 ### Limits
 

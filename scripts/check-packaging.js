@@ -11,6 +11,7 @@ const root = path.resolve(__dirname, "..");
 const required = [
   "model-routing-dashboard.html",
   "live-bridge.js",
+  "lib/event-log.js",
   "electron/main.js",
   "dashboard/styles.css",
   "dashboard/app.js",
@@ -46,7 +47,7 @@ if (/<script(?![^>]*\bsrc=)/i.test(html)) {
 
 const pkg = require(path.join(root, "package.json"));
 const files = (pkg.build && pkg.build.files) || [];
-const needGlobs = ["dashboard/**/*", "model-routing-dashboard.html", "live-bridge.js"];
+const needGlobs = ["dashboard/**/*", "model-routing-dashboard.html", "live-bridge.js", "lib/**/*"];
 for (const g of needGlobs) {
   if (!files.includes(g)) {
     console.error("package.json build.files missing:", g);

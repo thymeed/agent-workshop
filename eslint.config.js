@@ -8,7 +8,13 @@ module.exports = [
     ignores: ["node_modules/**", "dist/**", "coverage/**"]
   },
   {
-    files: ["live-bridge.js", "electron/**/*.js", "eslint.config.js", "scripts/**/*.js"],
+    files: [
+      "live-bridge.js",
+      "lib/**/*.js",
+      "electron/**/*.js",
+      "eslint.config.js",
+      "scripts/**/*.js"
+    ],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "commonjs",

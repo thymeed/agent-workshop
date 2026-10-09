@@ -22,6 +22,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { createEventLog } = require("./lib/event-log");
 
 const PROJECTS_ROOT = path.join(os.homedir(), ".cursor", "projects");
 /** Placeholder watch path when no --dir / env / discovered project exists yet. */
@@ -30,6 +31,24 @@ const DASHBOARD = path.join(__dirname, "model-routing-dashboard.html");
 const STATIC_ROOT = path.join(__dirname, "dashboard");
 const MAX_EVENTS = 400;
 const POLL_MS = 900;
+/** Max transcript JSONL files polled per scan (newest by mtime). */
+const TRANSCRIPT_SCAN_LIMIT = 40;
+const TRANSCRIPT_TAIL_BYTES = 8192;
+/** Max bytes read from a transcript file per scan poll (resume at last newline). */
+const TRANSCRIPT_READ_MAX_PER_POLL = 256 * 1024;
+/** Default agent stall threshold for desktop alerts (no activity). */
+const DEFAULT_STALL_MS = 120000;
+const STALL_CHECK_MS = 15000;
+/** @type {number} */
+let stallMs = DEFAULT_STALL_MS;
+/** When false, transcript handlers skip history persistence and alerts (warm-up tail). */
+let historyIngestRecording = false;
+/** Dedupe keys for persisted transcript history within a bridge session. */
+const seenHistoryKeys = new Set();
+/** @type {string} */
+let currentIngestFile = "";
+/** @type {number} */
+let currentIngestLine = 0;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -55,8 +74,12 @@ let currentProjectLabel = null;
 const events = [];
 /** @type {Set<http.ServerResponse>} */
 const sseClients = new Set();
-/** filePath -> { size, warm } */
+/** filePath -> { size, warm, lineSeq } */
 const fileState = new Map();
+/** Transcript JSONL paths present at last inventory snapshot (startup / project reset). */
+const transcriptFilesAtStart = new Set();
+/** filePath -> byte length at last inventory snapshot */
+const transcriptSnapshotSizes = new Map();
 /** subagent uuid -> role */
 const subagentRoles = new Map();
 let eventSeq = 0;
@@ -66,8 +89,17 @@ let lastScanError = null;
 let server = null;
 /** @type {ReturnType<typeof setInterval>|null} */
 let pollTimer = null;
+/** @type {ReturnType<typeof setInterval>|null} */
+let stallTimer = null;
 let quiet = false;
 let started = false;
+
+/** @type {ReturnType<typeof createEventLog>|null} */
+let eventLog = null;
+/** @type {((alert:{name:string,status:string})=>void)|null} */
+let onAgentAlert = null;
+/** agentId -> { name, lastSeen, terminal, stallAlerted } */
+const agentWatch = new Map();
 
 function flag(name) {
   const i = process.argv.indexOf(name);
@@ -228,12 +260,200 @@ function pushEvent(partial) {
   return ev;
 }
 
+function emitAgentAlert(name, status) {
+  if (typeof onAgentAlert !== "function") return;
+  try {
+    // Alerts carry only agent name + status — never prompts or file paths.
+    onAgentAlert({ name: String(name || "agent"), status: String(status || "") });
+  } catch (_e) {
+    /* ignore alert handler failures */
+  }
+}
+
+function isStallTrackedAgent(agentId) {
+  const id = String(agentId || "");
+  if (!id || id.startsWith("parent:")) return false;
+  return true;
+}
+
+/**
+ * @param {string} agentId
+ * @param {string} name
+ * @param {"finished"|"error"|null} terminalStatus
+ * @param {{stallTrack?:boolean}} [opts]
+ */
+function touchAgentWatch(agentId, name, terminalStatus, opts) {
+  opts = opts || {};
+  const id = String(agentId || "");
+  if (!id) return;
+  const trackStall = opts.stallTrack != null ? opts.stallTrack : isStallTrackedAgent(id);
+  const prev = agentWatch.get(id) || {
+    name: name || id,
+    lastSeen: Date.now(),
+    terminal: null,
+    stallAlerted: false
+  };
+  prev.name = name || prev.name || id;
+
+  if (terminalStatus) {
+    if (prev.terminal) {
+      agentWatch.set(id, prev);
+      return;
+    }
+    prev.terminal = terminalStatus;
+    prev.stallAlerted = true;
+    agentWatch.set(id, prev);
+    emitAgentAlert(prev.name, terminalStatus);
+    return;
+  }
+
+  if (!trackStall) return;
+  prev.lastSeen = Date.now();
+  agentWatch.set(id, prev);
+}
+
+function checkStalledAgents() {
+  const now = Date.now();
+  for (const [id, state] of agentWatch) {
+    if (!state || state.terminal || state.stallAlerted) continue;
+    if (!isStallTrackedAgent(id)) continue;
+    if (now - state.lastSeen >= stallMs) {
+      state.stallAlerted = true;
+      agentWatch.set(id, state);
+      emitAgentAlert(state.name, "stalled");
+    }
+  }
+}
+
+function transcriptTimestamp(obj) {
+  if (!obj || typeof obj !== "object") return nowIso();
+  const candidates = [
+    obj.timestamp,
+    obj.ts,
+    obj.createdAt,
+    obj.created_at,
+    obj.message && obj.message.timestamp
+  ];
+  for (const c of candidates) {
+    if (c != null && !Number.isNaN(Date.parse(String(c)))) {
+      return new Date(c).toISOString();
+    }
+  }
+  return nowIso();
+}
+
+function extractToolResults(obj) {
+  const content = obj && obj.message && obj.message.content;
+  if (!Array.isArray(content)) return [];
+  return content.filter((p) => p && p.type === "tool_result");
+}
+
+/**
+ * Structured terminal signals only — never prose keywords like "error" or "done".
+ * @returns {"error"|"done"|null}
+ */
+function terminalTypeFromTranscript(obj) {
+  if (!obj || !obj.role) return null;
+  if (obj.role === "assistant") {
+    const text = extractText(obj);
+    if (/<\/?error\b/i.test(text)) return "error";
+    if (/<\/?final\b/i.test(text)) return "done";
+  }
+  return null;
+}
+
+function resolveTaskChildAgentId(args, input) {
+  const raw = String(
+    (args && (args.subagent_id || args.subagentId || args.agent_id || args.agentId || args.id)) ||
+      (input && (input.subagent_id || input.subagentId || input.id)) ||
+      ""
+  ).trim();
+  if (!raw) return null;
+  if (/^[0-9a-f-]{36}$/i.test(raw)) return raw;
+  return null;
+}
+
+function sessionIdFromFile(filePath) {
+  try {
+    const rel = path.relative(TRANSCRIPTS, filePath);
+    if (!rel || rel.startsWith("..")) return currentProjectId || "session";
+    const parts = rel.split(path.sep).filter(Boolean);
+    return parts[0] || currentProjectId || "session";
+  } catch (_e) {
+    return currentProjectId || "session";
+  }
+}
+
+function agentIdFromFile(filePath, role) {
+  if (isSubagentFile(filePath)) {
+    return path.basename(filePath, ".jsonl");
+  }
+  return "parent:" + (role || "parent");
+}
+
+function roleDisplayName(role) {
+  if (role === "advisor") return "Advisor";
+  if (role === "worker") return "Worker";
+  if (role === "explorer") return "Explorer";
+  if (role === "researcher") return "Researcher";
+  return "Parent";
+}
+
+/**
+ * Persist a contract-shaped history event (redacted inside event-log).
+ * @param {object} partial
+ * @param {{stallTrack?:boolean, record?:boolean}} [meta]
+ * @returns {object|null}
+ */
+function recordHistoryEvent(partial, meta) {
+  meta = meta || {};
+  if (meta.record === false) return null;
+  if (!eventLog) return null;
+  const ev = eventLog.append(partial);
+  if (!ev) return null;
+  const stallTrack = meta.stallTrack != null ? meta.stallTrack : isStallTrackedAgent(ev.agentId);
+  if (ev.type === "done") touchAgentWatch(ev.agentId, ev.name, "finished", { stallTrack });
+  else if (ev.type === "error") touchAgentWatch(ev.agentId, ev.name, "error", { stallTrack });
+  else touchAgentWatch(ev.agentId, ev.name, null, { stallTrack });
+  return ev;
+}
+
+function historyKeyForIngest(partial) {
+  if (!currentIngestFile || !currentIngestLine) return null;
+  const type = partial && partial.type ? partial.type : "";
+  const agentId = partial && partial.agentId ? partial.agentId : "";
+  const ts = partial && partial.ts ? partial.ts : "";
+  return currentIngestFile + ":" + currentIngestLine + ":" + type + ":" + agentId + ":" + ts;
+}
+
+/** Gate history + alerts to transcript bytes after per-file warm-up. */
+function recordHistoryFromTranscript(partial, meta) {
+  if (!historyIngestRecording) return null;
+  meta = meta || {};
+  const historyKey = meta.historyKey || historyKeyForIngest(partial);
+  if (historyKey && seenHistoryKeys.has(historyKey)) return null;
+  const ev = recordHistoryEvent(partial, meta);
+  if (ev && historyKey) seenHistoryKeys.add(historyKey);
+  return ev;
+}
+
+function filesFromActivity(activity) {
+  if (!activity) return [];
+  if (Array.isArray(activity)) {
+    return activity.map((a) => (a && a.path ? String(a.path) : "")).filter(Boolean);
+  }
+  if (activity.path) return [String(activity.path)];
+  return [];
+}
+
 function resetWatchState() {
   events.length = 0;
   fileState.clear();
   subagentRoles.clear();
+  seenHistoryKeys.clear();
   // Keep eventSeq monotonic so client after= / seenLiveIds stay valid across project switches
   lastScanError = null;
+  snapshotTranscriptInventory();
   broadcastSse("reset", {
     ok: true,
     transcripts: TRANSCRIPTS,
@@ -559,13 +779,26 @@ function handleParentLine(obj, filePath) {
     const q = text.match(/<user_query>([\s\S]*?)<\/user_query>/);
     const body = snippet(q ? q[1] : text, 96);
     if (!body) return;
+    const usage = estimateUsage("parent", obj, { inText: text, outText: "" });
     pushEvent({
       role: "parent",
       kind: "message",
       message: "task / turn · " + body,
       active: ["opus"],
-      usage: estimateUsage("parent", obj, { inText: text, outText: "" }),
+      usage,
       source: src
+    });
+    recordHistoryFromTranscript({
+      ts: transcriptTimestamp(obj),
+      sessionId: sessionIdFromFile(filePath),
+      agentId: agentIdFromFile(filePath, "parent"),
+      parentId: null,
+      name: roleDisplayName("parent"),
+      model: roleToModel("parent"),
+      type: "turn",
+      inputTokens: usage.in,
+      outputTokens: usage.out,
+      files: []
     });
     return;
   }
@@ -577,6 +810,7 @@ function handleParentLine(obj, filePath) {
   let outChars = String(text || "").length;
   for (const t of tools) outChars += toolEstimateChars(t);
   const takeUsage = onceUsage(estimateUsage("parent", obj, { inText: "", outChars }));
+  const parentFiles = [];
 
   for (const tool of tools) {
     const name = tool.name || "";
@@ -593,6 +827,7 @@ function handleParentLine(obj, filePath) {
       const desc = snippet(args.description || args.prompt || subType || "subagent", 72);
       const card = roleToCard(role);
       const delegate = card !== "opus";
+      const usage = takeUsage();
       pushEvent({
         role: delegate ? role : "parent",
         kind: "delegates",
@@ -601,9 +836,24 @@ function handleParentLine(obj, filePath) {
         route: "delegates",
         routeTo: card,
         tokensDelta: role === "explorer" || role === "researcher" ? 24000 : 0,
-        usage: takeUsage(),
+        usage,
         source: src
       });
+      const childId = resolveTaskChildAgentId(args, input);
+      if (childId) {
+        recordHistoryFromTranscript({
+          ts: transcriptTimestamp(obj),
+          sessionId: sessionIdFromFile(filePath),
+          agentId: childId,
+          parentId: agentIdFromFile(filePath, "parent"),
+          name: roleDisplayName(role),
+          model: roleToModel(role),
+          type: "spawn",
+          inputTokens: usage ? usage.in : 0,
+          outputTokens: usage ? usage.out : 0,
+          files: []
+        });
+      }
       continue;
     }
 
@@ -627,6 +877,7 @@ function handleParentLine(obj, filePath) {
 
     const activity = toolActivity(tool);
     if (activity) {
+      if (activity.path) parentFiles.push(activity.path);
       const label =
         activity.kind +
         " · " +
@@ -644,13 +895,26 @@ function handleParentLine(obj, filePath) {
   }
 
   if (text && tools.length === 0) {
+    const usage = takeUsage();
     pushEvent({
       role: "parent",
       kind: "message",
       message: "reply · " + snippet(text, 90),
       active: ["opus"],
-      usage: takeUsage(),
+      usage,
       source: src
+    });
+    recordHistoryFromTranscript({
+      ts: transcriptTimestamp(obj),
+      sessionId: sessionIdFromFile(filePath),
+      agentId: agentIdFromFile(filePath, "parent"),
+      parentId: null,
+      name: roleDisplayName("parent"),
+      model: roleToModel("parent"),
+      type: "turn",
+      inputTokens: usage ? usage.in : 0,
+      outputTokens: usage ? usage.out : 0,
+      files: parentFiles
     });
   } else {
     // Tools emitted nothing (or only non-activity tools) — still bill the turn once.
@@ -665,6 +929,20 @@ function handleParentLine(obj, filePath) {
         source: src
       });
     }
+    if (leftover || parentFiles.length || tools.length) {
+      recordHistoryFromTranscript({
+        ts: transcriptTimestamp(obj),
+        sessionId: sessionIdFromFile(filePath),
+        agentId: agentIdFromFile(filePath, "parent"),
+        parentId: null,
+        name: roleDisplayName("parent"),
+        model: roleToModel("parent"),
+        type: "turn",
+        inputTokens: leftover ? leftover.in : 0,
+        outputTokens: leftover ? leftover.out : 0,
+        files: parentFiles
+      });
+    }
   }
 }
 
@@ -674,7 +952,13 @@ function handleSubagentLine(obj, filePath, roleHint) {
   const src = path.basename(filePath);
 
   if (obj.role === "user") {
+    if (extractToolResults(obj).length) {
+      return;
+    }
+
     const text = extractText(obj);
+    const ts = transcriptTimestamp(obj);
+    const sessionId = sessionIdFromFile(filePath);
     const inferred = inferRoleFromSubagentText(text);
     if (inferred !== "parent") role = inferred;
     const uuid =
@@ -684,6 +968,7 @@ function handleSubagentLine(obj, filePath, roleHint) {
     if (uuid) subagentRoles.set(uuid, role);
     const q = text.match(/<user_query>([\s\S]*?)<\/user_query>/);
     const body = snippet(q ? q[1] : text, 80);
+    const usage = estimateUsage(role, obj, { inText: text, outText: "" });
     pushEvent({
       role,
       kind: "delegates",
@@ -692,8 +977,20 @@ function handleSubagentLine(obj, filePath, roleHint) {
       route: role === "advisor" ? "asks" : "delegates",
       routeTo: roleToCard(role),
       tokensDelta: role === "explorer" || role === "researcher" ? estimateReadTokens(text) : 0,
-      usage: estimateUsage(role, obj, { inText: text, outText: "" }),
+      usage,
       source: src
+    });
+    recordHistoryFromTranscript({
+      ts,
+      sessionId,
+      agentId: agentIdFromFile(filePath, role),
+      parentId: "parent:parent",
+      name: roleDisplayName(role),
+      model: roleToModel(role),
+      type: "spawn",
+      inputTokens: usage.in,
+      outputTokens: usage.out,
+      files: []
     });
     return;
   }
@@ -722,26 +1019,43 @@ function handleSubagentLine(obj, filePath, roleHint) {
       if (activity) activities.push(activity);
     }
 
+    const terminal = terminalTypeFromTranscript(obj);
+    const historyType = terminal === "error" ? "error" : terminal === "done" ? "done" : "turn";
+
     if (activities.length === 0) {
+      const usage = takeUsage();
       pushEvent({
         role,
         kind: "status",
         message: msg,
         active: [roleToCard(role)],
         tokensDelta,
-        usage: takeUsage(),
+        usage,
         source: src
+      });
+      recordHistoryFromTranscript({
+        ts: transcriptTimestamp(obj),
+        sessionId: sessionIdFromFile(filePath),
+        agentId: agentIdFromFile(filePath, role),
+        parentId: "parent:parent",
+        name: roleDisplayName(role),
+        model: roleToModel(role),
+        type: historyType,
+        inputTokens: usage ? usage.in : 0,
+        outputTokens: usage ? usage.out : 0,
+        files: []
       });
       return;
     }
 
+    const usage = takeUsage();
     pushEvent({
       role,
       kind: "status",
       message: msg,
       active: [roleToCard(role)],
       tokensDelta,
-      usage: takeUsage(),
+      usage,
       activity: activities[0],
       source: src
     });
@@ -758,6 +1072,18 @@ function handleSubagentLine(obj, filePath, roleHint) {
         source: src
       });
     }
+    recordHistoryFromTranscript({
+      ts: transcriptTimestamp(obj),
+      sessionId: sessionIdFromFile(filePath),
+      agentId: agentIdFromFile(filePath, role),
+      parentId: "parent:parent",
+      name: roleDisplayName(role),
+      model: roleToModel(role),
+      type: historyType,
+      inputTokens: usage ? usage.in : 0,
+      outputTokens: usage ? usage.out : 0,
+      files: filesFromActivity(activities)
+    });
   }
 }
 
@@ -823,6 +1149,119 @@ function primeSubagentRole(filePath) {
   }
 }
 
+function newlineByteLength(buf, nlIndex) {
+  if (buf[nlIndex] === 0x0a) return 1;
+  if (buf[nlIndex] === 0x0d && nlIndex + 1 < buf.length && buf[nlIndex + 1] === 0x0a) {
+    return 2;
+  }
+  return 1;
+}
+
+function findFirstNewlineByte(buf, fromIndex) {
+  const from = fromIndex || 0;
+  for (let i = from; i < buf.length; i++) {
+    if (buf[i] === 0x0a) return i;
+    if (buf[i] === 0x0d && i + 1 < buf.length && buf[i + 1] === 0x0a) return i;
+  }
+  return -1;
+}
+
+/** Exclusive end offset within buf after the last complete line (includes trailing newline). */
+function completeLinesEndExclusive(buf) {
+  let end = -1;
+  let i = 0;
+  while (i < buf.length) {
+    const nl = findFirstNewlineByte(buf, i);
+    if (nl < 0) break;
+    end = nl + newlineByteLength(buf, nl);
+    i = end;
+  }
+  return end;
+}
+
+function forEachCompleteLine(buf, baseFileOffset, fn) {
+  let i = 0;
+  while (i < buf.length) {
+    const lineStart = i;
+    const nl = findFirstNewlineByte(buf, i);
+    if (nl < 0) break;
+    const lineEnd = nl;
+    const adv = newlineByteLength(buf, nl);
+    const lineStartByte = baseFileOffset + lineStart;
+    const trimmed = buf.subarray(lineStart, lineEnd).toString("utf8").trim();
+    fn(lineStartByte, trimmed);
+    i = nl + adv;
+  }
+}
+
+/**
+ * Scan forward from startOffset in capped chunks until a newline is found.
+ * Does not load a full line into memory. Returns exclusive offset after newline, or -1 at EOF.
+ */
+function findNextNewlineOffset(filePath, startOffset, fileSize) {
+  let pos = startOffset;
+  if (pos >= fileSize) return -1;
+  let fd;
+  const scratch = Buffer.alloc(TRANSCRIPT_READ_MAX_PER_POLL);
+  try {
+    fd = fs.openSync(filePath, "r");
+    while (pos < fileSize) {
+      const len = Math.min(fileSize - pos, TRANSCRIPT_READ_MAX_PER_POLL);
+      const nread = fs.readSync(fd, scratch, 0, len, pos);
+      if (nread <= 0) break;
+      const slice = scratch.subarray(0, nread);
+      const nl = findFirstNewlineByte(slice, 0);
+      if (nl >= 0) {
+        return pos + nl + newlineByteLength(slice, nl);
+      }
+      pos += nread;
+    }
+    return -1;
+  } catch (_) {
+    return -1;
+  } finally {
+    if (fd != null) {
+      try {
+        fs.closeSync(fd);
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+  }
+}
+
+/**
+ * Skip a line with no newline in the first read window; advance offset without parsing body.
+ * Never writes to history or SSE — no placeholder and no substring from the skipped bytes
+ * (partial reads could split secrets past redaction).
+ */
+function skipOversizedLine(filePath, lineStartOffset, fileSize, state) {
+  if (lineStartOffset >= fileSize) return false;
+  if (fileSize <= lineStartOffset) return false;
+  const after = findNextNewlineOffset(filePath, lineStartOffset, fileSize);
+  if (after < 0) return false;
+  historyIngestRecording = false;
+  currentIngestFile = "";
+  currentIngestLine = 0;
+  state.size = after;
+  state.warm = true;
+  return true;
+}
+
+function snapshotTranscriptInventory() {
+  transcriptFilesAtStart.clear();
+  transcriptSnapshotSizes.clear();
+  if (!fs.existsSync(TRANSCRIPTS)) return;
+  for (const f of listJsonlFiles(TRANSCRIPTS)) {
+    transcriptFilesAtStart.add(f);
+    try {
+      transcriptSnapshotSizes.set(f, fs.statSync(f).size);
+    } catch (_e) {
+      transcriptSnapshotSizes.set(f, 0);
+    }
+  }
+}
+
 function ingestNewBytes(filePath) {
   let st;
   try {
@@ -833,20 +1272,33 @@ function ingestNewBytes(filePath) {
   let state = fileState.get(filePath);
   if (!state) {
     if (isSubagentFile(filePath)) primeSubagentRole(filePath);
-    const start = Math.max(0, st.size - 8192);
-    state = { size: start, warm: false };
+    const existedAtStart = transcriptFilesAtStart.has(filePath);
+    const start = existedAtStart ? Math.max(0, st.size - TRANSCRIPT_TAIL_BYTES) : 0;
+    state = {
+      size: start,
+      warm: !existedAtStart,
+      lineSeq: 0,
+      existedAtStart
+    };
     fileState.set(filePath, state);
   }
+  if (state.existedAtStart == null) {
+    state.existedAtStart = transcriptFilesAtStart.has(filePath);
+  }
+  if (state.lineSeq == null) state.lineSeq = 0;
   if (st.size < state.size) {
     state.size = 0;
   }
   if (st.size === state.size) return;
 
   const readFrom = state.size;
+  const remaining = st.size - readFrom;
+  if (remaining <= 0) return;
+
+  const len = Math.min(remaining, TRANSCRIPT_READ_MAX_PER_POLL);
   let buf;
   try {
     const fd = fs.openSync(filePath, "r");
-    const len = st.size - state.size;
     buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, readFrom);
     fs.closeSync(fd);
@@ -854,36 +1306,68 @@ function ingestNewBytes(filePath) {
     lastScanError = String(e.message || e);
     return;
   }
-  state.size = st.size;
 
-  const text = buf.toString("utf8");
-  const lines = text.split(/\r?\n/);
-  // A mid-file tail can start on a partial line. A brand-new file (start === 0)
-  // must keep line 1 so the subagent spawn record is not dropped.
   const startedMidFile = !state.warm && readFrom > 0;
-  if (startedMidFile && lines.length > 1) {
-    lines.shift();
-  }
-  state.warm = true;
+  let work = buf;
+  let workBase = readFrom;
 
+  if (startedMidFile) {
+    const firstNl = findFirstNewlineByte(buf, 0);
+    if (firstNl < 0) {
+      if (
+        st.size > readFrom + buf.length &&
+        skipOversizedLine(filePath, readFrom, st.size, state)
+      ) {
+        ingestNewBytes(filePath);
+      }
+      return;
+    }
+    const skip = firstNl + newlineByteLength(buf, firstNl);
+    work = buf.subarray(skip);
+    workBase = readFrom + skip;
+  }
+
+  const completeEnd = completeLinesEndExclusive(work);
+  if (completeEnd < 0) {
+    if (st.size > workBase + work.length && skipOversizedLine(filePath, workBase, st.size, state)) {
+      ingestNewBytes(filePath);
+    }
+    return;
+  }
+
+  state.size = workBase + completeEnd;
+
+  const snapshotByte = transcriptSnapshotSizes.get(filePath);
+  const existedAtStart = state.existedAtStart;
+  currentIngestFile = filePath;
   const sub = isSubagentFile(filePath);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+  const workComplete = work.subarray(0, completeEnd);
+
+  forEachCompleteLine(workComplete, workBase, (lineStartByte, trimmed) => {
+    if (!trimmed) return;
+    const recordHistory = !existedAtStart || snapshotByte == null || lineStartByte >= snapshotByte;
+    historyIngestRecording = recordHistory;
+    state.lineSeq += 1;
+    currentIngestLine = state.lineSeq;
     let obj;
     try {
       obj = JSON.parse(trimmed);
     } catch (_) {
-      continue;
+      return;
     }
     if (sub) handleSubagentLine(obj, filePath, roleForFile(filePath));
     else handleParentLine(obj, filePath);
-  }
+  });
+
+  historyIngestRecording = false;
+  currentIngestFile = "";
+  currentIngestLine = 0;
+  state.warm = true;
 }
 
 function scan() {
   try {
-    const files = listJsonlFiles(TRANSCRIPTS).slice(0, 40);
+    const files = listJsonlFiles(TRANSCRIPTS).slice(0, TRANSCRIPT_SCAN_LIMIT);
     for (const f of files) ingestNewBytes(f);
     lastScanError = fs.existsSync(TRANSCRIPTS) ? null : "transcripts dir missing";
   } catch (e) {
@@ -1170,6 +1654,43 @@ function createServer() {
       return;
     }
 
+    if (url.pathname === "/api/history") {
+      if (req.method !== "GET") {
+        sendJson(res, 405, { ok: false, error: "GET required" });
+        return;
+      }
+      const since = url.searchParams.get("since") || undefined;
+      const session = url.searchParams.get("session") || undefined;
+      const list = eventLog ? eventLog.query({ since, session }) : [];
+      sendJson(res, 200, { events: list });
+      return;
+    }
+
+    if (url.pathname === "/api/history/clear") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { ok: false, error: "POST required" });
+        return;
+      }
+      if (!allowProjectSelect(req)) {
+        sendJson(res, 403, {
+          ok: false,
+          error: "Forbidden · same-origin required for history clear"
+        });
+        return;
+      }
+      if (String(req.headers["x-cursor-bridge"] || "") !== "1") {
+        sendJson(res, 403, {
+          ok: false,
+          error: "Forbidden · missing X-Cursor-Bridge header"
+        });
+        return;
+      }
+      if (eventLog) eventLog.clear();
+      agentWatch.clear();
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     if (url.pathname === "/api/stream") {
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -1232,7 +1753,7 @@ function probeExistingBridge(port) {
 
 /**
  * Start the bridge HTTP server + transcript poller.
- * @param {{port?:number, dir?:string, quiet?:boolean, reuseExisting?:boolean}} [opts]
+ * @param {{port?:number, dir?:string, quiet?:boolean, reuseExisting?:boolean, onAgentAlert?:Function, eventLogDir?:string, eventLogPath?:string}} [opts]
  * @returns {Promise<{port:number, reused:boolean, transcripts:string}>}
  */
 function startBridge(opts) {
@@ -1247,8 +1768,21 @@ function startBridge(opts) {
   }
 
   quiet = !!opts.quiet;
+  onAgentAlert = typeof opts.onAgentAlert === "function" ? opts.onAgentAlert : null;
+  stallMs = Number(opts.stallMs || process.env.CURSOR_BRIDGE_STALL_MS || DEFAULT_STALL_MS);
   PORT = Number(opts.port || flag("--port") || 3847);
   resolveDefaultTranscripts(opts);
+
+  eventLog = createEventLog({
+    logDir: opts.eventLogDir,
+    logPath: opts.eventLogPath
+  });
+  try {
+    eventLog.ensureStarted();
+    log(`[live-bridge] event log: ${eventLog.getLogPath()}`);
+  } catch (e) {
+    logErr("[live-bridge] event log init:", e && e.message ? e.message : e);
+  }
 
   return new Promise((resolve, reject) => {
     server = createServer();
@@ -1261,6 +1795,7 @@ function startBridge(opts) {
       } catch (_e) {
         /* keep PORT */
       }
+      snapshotTranscriptInventory();
       scan();
       if (pollTimer) clearInterval(pollTimer);
       pollTimer = setInterval(() => {
@@ -1271,6 +1806,15 @@ function startBridge(opts) {
           logErr("[live-bridge] scan error:", lastScanError);
         }
       }, POLL_MS);
+      if (stallTimer) clearInterval(stallTimer);
+      stallTimer = setInterval(() => {
+        try {
+          checkStalledAgents();
+        } catch (_e) {
+          /* ignore */
+        }
+      }, STALL_CHECK_MS);
+      if (typeof stallTimer.unref === "function") stallTimer.unref();
 
       log(`[live-bridge] http://127.0.0.1:${PORT}/`);
       log(`[live-bridge] transcripts: ${TRANSCRIPTS}`);
@@ -1293,7 +1837,8 @@ function startBridge(opts) {
         reused: false,
         transcripts: TRANSCRIPTS,
         projectId: currentProjectId,
-        projectLabel: currentProjectLabel
+        projectLabel: currentProjectLabel,
+        eventLogPath: eventLog ? eventLog.getLogPath() : null
       });
     };
 
@@ -1359,6 +1904,16 @@ function stopBridge() {
       clearInterval(pollTimer);
       pollTimer = null;
     }
+    if (stallTimer) {
+      clearInterval(stallTimer);
+      stallTimer = null;
+    }
+    fileState.clear();
+    seenHistoryKeys.clear();
+    transcriptFilesAtStart.clear();
+    transcriptSnapshotSizes.clear();
+    agentWatch.clear();
+    onAgentAlert = null;
     for (const res of sseClients) {
       try {
         res.end();
@@ -1381,12 +1936,29 @@ function stopBridge() {
   });
 }
 
+/** Clear persisted history (also used by POST /api/history/clear). */
+function clearHistory() {
+  if (!eventLog) {
+    eventLog = createEventLog();
+  }
+  agentWatch.clear();
+  return eventLog.clear();
+}
+
 module.exports = {
   startBridge,
   stopBridge,
   discoverProjects,
   resetWatchState,
-  selectProject
+  selectProject,
+  clearHistory,
+  recordHistoryEvent,
+  scanTranscripts: scan,
+  checkStalledAgents,
+  terminalTypeFromTranscript,
+  TRANSCRIPT_SCAN_LIMIT,
+  TRANSCRIPT_READ_MAX_PER_POLL,
+  STALL_MS: DEFAULT_STALL_MS
 };
 
 if (require.main === module) {
