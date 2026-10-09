@@ -1,5 +1,7 @@
 "use strict";
 
+process.env.BRIDGE_TEST = "1";
+
 const fs = require("fs");
 const net = require("net");
 const os = require("os");
@@ -27,8 +29,10 @@ function getFreePort() {
  */
 async function startBridgeForSmoke(opts) {
   opts = opts || {};
+  const projectsRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-projects-"));
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-smoke-"));
   await fs.promises.mkdir(tempDir, { recursive: true });
+  tempDirs.push(projectsRoot);
   tempDirs.push(tempDir);
   const eventLogDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-eventlog-"));
   tempEventLogDirs.push(eventLogDir);
@@ -38,6 +42,7 @@ async function startBridgeForSmoke(opts) {
     port,
     quiet: true,
     dir: tempDir,
+    projectsRoot,
     eventLogDir,
     reuseExisting: false
   });

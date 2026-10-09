@@ -3,6 +3,8 @@
  */
 "use strict";
 
+process.env.BRIDGE_TEST = "1";
+
 const http = require("http");
 const net = require("net");
 const fs = require("fs");
@@ -117,12 +119,16 @@ async function main() {
 
   const port = await getFreePort();
   const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "history-api-"));
+  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "history-api-projects-"));
+  const transcriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), "history-api-transcripts-"));
   const alerts = [];
 
   await startBridge({
     port,
     quiet: true,
     eventLogDir: logDir,
+    projectsRoot,
+    dir: transcriptsDir,
     onAgentAlert: (a) => alerts.push(a)
   });
 
@@ -315,10 +321,12 @@ async function main() {
     }
   } finally {
     await stopBridge();
-    try {
-      fs.rmSync(logDir, { recursive: true, force: true });
-    } catch (_e) {
-      /* ignore */
+    for (const dir of [logDir, projectsRoot, transcriptsDir]) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch (_e) {
+        /* ignore */
+      }
     }
   }
 
