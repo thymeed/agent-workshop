@@ -19,15 +19,23 @@ function getFreePort() {
   });
 }
 
-function request(port, { path = "/api/status", headers = {}, method = "GET", hang = false } = {}) {
+function request(
+  port,
+  { path = "/api/status", headers = {}, method = "GET", hang = false, body = null } = {}
+) {
   return new Promise((resolve, reject) => {
+    const payload = body == null ? null : Buffer.from(String(body), "utf8");
+    const reqHeaders = { ...headers };
+    if (payload) {
+      reqHeaders["Content-Length"] = String(payload.length);
+    }
     const req = http.request(
       {
         host: "127.0.0.1",
         port,
         path,
         method,
-        headers
+        headers: reqHeaders
       },
       (res) => {
         if (hang) {
@@ -39,15 +47,15 @@ function request(port, { path = "/api/status", headers = {}, method = "GET", han
           req.destroy();
           return;
         }
-        let body = "";
+        let resBody = "";
         res.on("data", (c) => {
-          body += c;
+          resBody += c;
         });
         res.on("end", () => {
           resolve({
             status: res.statusCode,
             headers: res.headers,
-            body
+            body: resBody
           });
         });
       }
@@ -58,7 +66,8 @@ function request(port, { path = "/api/status", headers = {}, method = "GET", han
       }
       reject(err);
     });
-    req.end();
+    if (payload) req.end(payload);
+    else req.end();
   });
 }
 
@@ -109,34 +118,83 @@ async function main() {
     });
     if (badHost.status !== 403) errors.push("foreign Host expected 403, got " + badHost.status);
 
-    // /api/select: cross-site without Origin (img/script style) must fail
+    // /api/select: GET rejected; cross-site / missing header rejected; POST+header OK path
+    const selectGet = await request(port, {
+      path: "/api/select",
+      method: "GET",
+      headers: {
+        ...baseHeaders,
+        Origin: origin,
+        "Sec-Fetch-Site": "same-origin",
+        "X-Cursor-Bridge": "1"
+      }
+    });
+    if (selectGet.status !== 405) {
+      errors.push("select GET expected 405, got " + selectGet.status);
+    }
+
     const selectCross = await request(port, {
-      path: "/api/select?id=any",
-      headers: { ...baseHeaders, "Sec-Fetch-Site": "cross-site" }
+      path: "/api/select",
+      method: "POST",
+      headers: {
+        ...baseHeaders,
+        "Content-Type": "application/json",
+        "Sec-Fetch-Site": "cross-site",
+        "X-Cursor-Bridge": "1"
+      },
+      body: JSON.stringify({ id: "any" })
     });
     if (selectCross.status !== 403) {
       errors.push("select cross-site expected 403, got " + selectCross.status);
     }
 
+    const selectNoHeader = await request(port, {
+      path: "/api/select",
+      method: "POST",
+      headers: {
+        ...baseHeaders,
+        "Content-Type": "application/json",
+        Origin: origin,
+        "Sec-Fetch-Site": "same-origin"
+      },
+      body: JSON.stringify({ id: "any" })
+    });
+    if (selectNoHeader.status !== 403) {
+      errors.push("select without X-Cursor-Bridge expected 403, got " + selectNoHeader.status);
+    }
+
     const selectNoMeta = await request(port, {
-      path: "/api/select?id=any",
-      headers: baseHeaders
+      path: "/api/select",
+      method: "POST",
+      headers: {
+        ...baseHeaders,
+        "Content-Type": "application/json",
+        "X-Cursor-Bridge": "1"
+      },
+      body: JSON.stringify({ id: "any" })
     });
     if (selectNoMeta.status !== 403) {
       errors.push("select without Origin/Sec-Fetch-Site expected 403, got " + selectNoMeta.status);
     }
 
     const selectOk = await request(port, {
-      path: "/api/select?id=any",
+      path: "/api/select",
+      method: "POST",
       headers: {
         ...baseHeaders,
+        "Content-Type": "application/json",
         Origin: origin,
-        "Sec-Fetch-Site": "same-origin"
-      }
+        "Sec-Fetch-Site": "same-origin",
+        "X-Cursor-Bridge": "1"
+      },
+      body: JSON.stringify({ id: "any" })
     });
     // Unknown id → 400, not 403
     if (selectOk.status === 403) {
-      errors.push("select same-origin should not be 403");
+      errors.push("select same-origin POST should not be 403");
+    }
+    if (selectOk.status !== 400) {
+      errors.push("select unknown id expected 400, got " + selectOk.status);
     }
 
     const stream = await request(port, {

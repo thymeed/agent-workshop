@@ -900,6 +900,32 @@ function sendJson(res, code, obj) {
   res.end(body);
 }
 
+/** Read request body (capped) for POST JSON handlers. */
+function readRequestBody(req, limitBytes) {
+  const limit = limitBytes || 65536;
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error("body too large"));
+        try {
+          req.destroy();
+        } catch (_e) {
+          /* ignore */
+        }
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", reject);
+  });
+}
+
 /** True for IPv4/IPv6 loopback (incl. IPv4-mapped). */
 function isLoopbackAddress(addr) {
   if (!addr || typeof addr !== "string") return false;
@@ -1088,6 +1114,10 @@ function createServer() {
     }
 
     if (url.pathname === "/api/select") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { ok: false, error: "POST required" });
+        return;
+      }
       if (!allowProjectSelect(req)) {
         sendJson(res, 403, {
           ok: false,
@@ -1095,13 +1125,37 @@ function createServer() {
         });
         return;
       }
-      const id = url.searchParams.get("id");
-      if (!id) {
-        sendJson(res, 400, { ok: false, error: "Missing id query param" });
+      if (String(req.headers["x-cursor-bridge"] || "") !== "1") {
+        sendJson(res, 403, {
+          ok: false,
+          error: "Forbidden · missing X-Cursor-Bridge header"
+        });
         return;
       }
-      const result = selectProject(id);
-      sendJson(res, result.ok ? 200 : 400, result);
+      readRequestBody(req)
+        .then((raw) => {
+          let id = url.searchParams.get("id");
+          if (raw && String(raw).trim()) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed && parsed.id != null && parsed.id !== "") {
+                id = String(parsed.id);
+              }
+            } catch (_e) {
+              sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+              return;
+            }
+          }
+          if (!id) {
+            sendJson(res, 400, { ok: false, error: "Missing id" });
+            return;
+          }
+          const result = selectProject(id);
+          sendJson(res, result.ok ? 200 : 400, result);
+        })
+        .catch(() => {
+          sendJson(res, 400, { ok: false, error: "Bad request body" });
+        });
       return;
     }
 

@@ -36,7 +36,13 @@ function attachErrorCollectors(page) {
     if (msg.type() === "error") errors.push("console: " + msg.text());
   });
   page.on("requestfailed", (req) => {
-    failedRequests.push(req.url() + " · " + (req.failure() && req.failure().errorText));
+    const url = req.url();
+    const why = (req.failure() && req.failure().errorText) || "";
+    // EventSource reconnects abort the prior /api/stream; that is expected.
+    if (/\/api\/stream(?:\?|$)/.test(url) && /ERR_ABORTED|ns_binding_aborted/i.test(why)) {
+      return;
+    }
+    failedRequests.push(url + " · " + why);
   });
   return { errors, failedRequests };
 }
@@ -92,13 +98,17 @@ async function smokeDemoFile(browser) {
     errors.push("Demo Play did not change session cost or log");
   }
 
-  // file:// Live should explain bridge URL (not pretend the bridge is offline)
+  // file:// Live should explain the default bridge URL (always :3847 from client BRIDGE)
   await page.click("#modeLive");
   await page.waitForFunction(
     () => {
       const hint = document.getElementById("liveHint");
+      const text = (hint && hint.textContent) || "";
       return (
-        hint && !hint.hidden && /open http:\/\/127\.0\.0\.1:3847/i.test(hint.textContent || "")
+        hint &&
+        !hint.hidden &&
+        /Live needs the bridge/i.test(text) &&
+        /http:\/\/127\.0\.0\.1:3847\/?/i.test(text)
       );
     },
     { timeout: 4000 }
@@ -126,16 +136,21 @@ async function smokeLiveHttp(browser) {
     await page.waitForSelector("#workshop", { timeout: 5000 });
     await page.waitForSelector("#modeLive.on", { timeout: 5000 });
 
+    // Must reach a real connected state (not "Connecting…") so a 403/offline fails the test
     await page.waitForFunction(
       () => {
         const btn = document.getElementById("demoBtn");
         const hint = document.getElementById("liveHint");
-        return (
-          (btn && btn.classList.contains("live-connected")) ||
-          (hint && /Streaming|Connecting|Switched/i.test(hint.textContent || ""))
-        );
+        const hintText = ((hint && hint.textContent) || "").trim();
+        if (/Connecting/i.test(hintText)) return false;
+        const connectedBtn =
+          btn &&
+          btn.classList.contains("live-connected") &&
+          /Connected/i.test(btn.textContent || "");
+        const streamingHint = /^Streaming\b/i.test(hintText);
+        return !!(connectedBtn || streamingHint);
       },
-      { timeout: 8000 }
+      { timeout: 10000 }
     );
 
     const cssOk = await page.evaluate(() => {
@@ -149,6 +164,125 @@ async function smokeLiveHttp(browser) {
       return r.headers.get("access-control-allow-origin");
     });
     if (acao != null) errors.push("unexpected ACAO on /api/status: " + acao);
+
+    // Project picker must POST /api/select with X-Cursor-Bridge (browser path).
+    // Fulfill locally so an unknown id does not emit a console 400.
+    let selectSettled = false;
+    let resolveSelect;
+    let rejectSelect;
+    const selectHit = new Promise((resolve, reject) => {
+      resolveSelect = (value) => {
+        if (selectSettled) return;
+        selectSettled = true;
+        resolve(value);
+      };
+      rejectSelect = (err) => {
+        if (selectSettled) return;
+        selectSettled = true;
+        reject(err);
+      };
+    });
+    const selectTimer = setTimeout(
+      () => rejectSelect(new Error("timed out waiting for /api/select")),
+      5000
+    );
+    let projectsReload = null;
+    let selectRouteHit = false;
+    try {
+      await page.route("**/api/select*", async (route) => {
+        const req = route.request();
+        selectRouteHit = true;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json; charset=utf-8",
+          body: JSON.stringify({
+            ok: true,
+            projectId: "smoke-select-probe",
+            projectLabel: "smoke-select-probe",
+            transcripts: "/tmp/smoke-select-probe"
+          })
+        });
+        resolveSelect(req);
+      });
+      // Register before change: only match projects reload after mocked select was hit
+      // (ignore a slow initial /api/projects from the first Live connect).
+      projectsReload = page.waitForResponse(
+        (res) => {
+          if (!selectRouteHit) return false;
+          try {
+            const u = new URL(res.url());
+            return u.pathname === "/api/projects" && res.request().method() === "GET";
+          } catch (_) {
+            return false;
+          }
+        },
+        { timeout: 10000 }
+      );
+      await page.evaluate(() => {
+        const sel = document.getElementById("projectPicker");
+        if (!sel) throw new Error("projectPicker missing");
+        sel.hidden = false;
+        sel.disabled = false;
+        const opt = document.createElement("option");
+        opt.value = "smoke-select-probe";
+        opt.textContent = "smoke-select-probe";
+        sel.appendChild(opt);
+        sel.value = "smoke-select-probe";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      const selectReq = await selectHit;
+      if (selectReq.method() !== "POST") {
+        errors.push("project picker /api/select method expected POST, got " + selectReq.method());
+      }
+      const hdr = selectReq.headers()["x-cursor-bridge"];
+      if (hdr !== "1") {
+        errors.push("project picker POST /api/select missing X-Cursor-Bridge: 1 (got " + hdr + ")");
+      }
+      const post = selectReq.postData() || "";
+      if (!/"id"\s*:\s*"smoke-select-probe"/.test(post)) {
+        errors.push("project picker POST body missing id smoke-select-probe: " + post);
+      }
+
+      try {
+        const projectsRes = await projectsReload;
+        await projectsRes.finished();
+        try {
+          await page.waitForFunction(
+            () => {
+              const btn = document.getElementById("demoBtn");
+              const hint = document.getElementById("liveHint");
+              const hintText = ((hint && hint.textContent) || "").trim();
+              if (/Connecting/i.test(hintText)) return false;
+              const connectedBtn =
+                btn &&
+                btn.classList.contains("live-connected") &&
+                /Connected/i.test(btn.textContent || "");
+              const streamingHint = /^Streaming\b/i.test(hintText);
+              return !!(connectedBtn || streamingHint);
+            },
+            { timeout: 10000 }
+          );
+        } catch (streamErr) {
+          errors.push(
+            "Live reconnect after select did not reach Connected/Streaming: " +
+              (streamErr && streamErr.message ? streamErr.message : streamErr)
+          );
+        }
+      } catch (reconnectErr) {
+        errors.push(
+          "Live reconnect after select timed out waiting for /api/projects: " +
+            (reconnectErr && reconnectErr.message ? reconnectErr.message : reconnectErr)
+        );
+      }
+    } catch (err) {
+      if (projectsReload) projectsReload.catch(() => {});
+      errors.push(
+        "project picker /api/select probe failed: " + (err && err.message ? err.message : err)
+      );
+    } finally {
+      clearTimeout(selectTimer);
+      await page.unroute("**/api/select*").catch(() => {});
+    }
   } finally {
     await page.close();
     await stopBridge();
@@ -174,7 +308,9 @@ async function main() {
     console.error("Smoke failed:\n- " + all.join("\n- "));
     process.exit(1);
   }
-  console.log("Smoke OK · file:// Demo Play advanced UI; Live http://127.0.0.1 path connected");
+  console.log(
+    "Smoke OK · Demo Play; Live Connected; project picker POSTs /api/select with X-Cursor-Bridge"
+  );
 }
 
 main().catch((err) => {

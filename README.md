@@ -27,7 +27,7 @@ npm start
 
 ### Live project picker
 
-In the window, **Live** mode shows a **project** dropdown fed by `~/.cursor/projects/*/agent-transcripts` (newest first by default). Choosing another project calls `/api/select` and the SSE stream emits `reset` so the session view clears and resyncs.
+In the window, **Live** mode shows a **project** dropdown fed by `~/.cursor/projects/*/agent-transcripts` (newest first by default). Choosing another project `POST`s `/api/select` (with `X-Cursor-Bridge`) and the SSE stream emits `reset` so the session view clears and resyncs.
 
 ## Build / run the Windows `.exe` (silent GUI)
 
@@ -99,7 +99,7 @@ node live-bridge.js
 
 Then open **http://127.0.0.1:3847/** and click **Live**.
 
-The bridge listens on loopback only and rejects non-localhost `Host` / foreign `Origin` (including `Origin: null`; no `Access-Control-Allow-Origin: *`). Open the dashboard from the bridge URL or Electron — not from another website. Demo via `file://` does not need the bridge; clicking **Live** from `file://` explains that you must open `http://127.0.0.1:3847/` instead.
+The bridge listens on loopback only and rejects non-localhost `Host` / foreign `Origin` (including `Origin: null`; no `Access-Control-Allow-Origin: *`). Open the dashboard from the bridge URL or Electron — not from another website. Demo via `file://` does not need the bridge; clicking **Live** from `file://` points at the client default `http://127.0.0.1:3847/` (file pages cannot read `CURSOR_BRIDGE_PORT` / `--port`).
 
 Options:
 
@@ -112,13 +112,13 @@ node live-bridge.js --dir "C:\Users\<you>\.cursor\projects\<project>\agent-trans
 
 ### What Live mode wires
 
-| Source                                              | Use                                                                          |
-| --------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `~/.cursor/projects/*/agent-transcripts/**/*.jsonl` | Projects listed in the picker; newest selected by default                    |
-| `GET /api/projects`                                 | Project list + current selection                                             |
-| `GET /api/select?id=`                               | Switch transcripts folder + reset watch state (same-origin / Sec-Fetch-Site) |
-| SSE `GET /api/stream`                               | Events + `reset` when the project changes                                    |
-| `GET /api/events`, `GET /api/status`                | Debug / backlog                                                              |
+| Source                                              | Use                                                                         |
+| --------------------------------------------------- | --------------------------------------------------------------------------- |
+| `~/.cursor/projects/*/agent-transcripts/**/*.jsonl` | Projects listed in the picker; newest selected by default                   |
+| `GET /api/projects`                                 | Project list + current selection                                            |
+| `POST /api/select` + `X-Cursor-Bridge: 1`           | Switch transcripts folder + reset watch state (JSON `{id}`; Sec-Fetch-Site) |
+| SSE `GET /api/stream`                               | Events + `reset` when the project changes                                   |
+| `GET /api/events`, `GET /api/status`                | Debug / backlog                                                             |
 
 Roles are inferred from `Task` / `CallDynamicTool` `subagent_type` and subagent prompt text (`advisor`, `worker`, `explore`→explorer, `researcher`). Unknown types map to parent/generic.
 

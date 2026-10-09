@@ -30,7 +30,7 @@
   "build": {
     "appId": "com.cursor.agents.model-routing",
     "productName": "Cursor Agents Model Routing",
-    "copyright": "Copyright © Tai",
+    "copyright": "Copyright © thymeed",
     "directories": {
       "output": "dist"
     },

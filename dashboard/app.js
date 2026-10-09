@@ -1090,7 +1090,15 @@
   function selectProject(id) {
     if (!id || selectingProject) return Promise.resolve(null);
     selectingProject = true;
-    return fetch(BRIDGE + "/api/select?id=" + encodeURIComponent(id), { cache: "no-store" })
+    return fetch(BRIDGE + "/api/select", {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Cursor-Bridge": "1"
+      },
+      body: JSON.stringify({ id: id })
+    })
       .then(function (r) {
         return r
           .json()
@@ -1266,7 +1274,7 @@
     if (location.protocol === "file:") {
       liveHint.className = "live-hint err";
       liveHint.textContent =
-        "Live needs the bridge — open http://127.0.0.1:3847/ (or run npm start)";
+        "Live needs the bridge — open " + BRIDGE.replace(/\/$/, "") + "/ (or run npm start)";
       demoBtn.classList.remove("live-connected");
       demoBtn.textContent = "Reconnect";
       setProjectPickerVisible(false);
