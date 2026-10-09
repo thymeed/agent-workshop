@@ -69,6 +69,8 @@ function line(role, text, extra) {
 async function withBridge(dir, fn, opts) {
   opts = opts || {};
   const logDir = opts.logDir || fs.mkdtempSync(path.join(os.tmpdir(), "transcript-log-"));
+  const projectsRoot =
+    opts.projectsRoot || fs.mkdtempSync(path.join(os.tmpdir(), "transcript-projects-"));
   const alerts = [];
   const port = await getFreePort();
   await startBridge(
@@ -77,6 +79,7 @@ async function withBridge(dir, fn, opts) {
         port,
         quiet: true,
         dir,
+        projectsRoot,
         eventLogDir: logDir,
         stallMs: 50,
         onAgentAlert: (a) => alerts.push(a)

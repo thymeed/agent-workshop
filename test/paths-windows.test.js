@@ -60,10 +60,18 @@ async function testCrlfSnapshotResume() {
     }) + "\r\n";
 
   const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "crlf-log-"));
+  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "crlf-projects-"));
   const { createEventLog } = require("../lib/event-log");
 
   const port = await getFreePort();
-  await startBridge({ port, quiet: true, dir: root, eventLogDir: logDir, reuseExisting: false });
+  await startBridge({
+    port,
+    quiet: true,
+    dir: root,
+    projectsRoot,
+    eventLogDir: logDir,
+    reuseExisting: false
+  });
   try {
     scanTranscripts();
     fs.appendFileSync(parent, newLine, "utf8");
@@ -106,10 +114,18 @@ async function testSubagentIngestWithWindowsPath() {
   assert.strictEqual(subagentUuidFromTranscriptPath(winStylePath), subId);
 
   const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "win-path-log-"));
+  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "win-path-projects-"));
   const { createEventLog } = require("../lib/event-log");
 
   const port = await getFreePort();
-  await startBridge({ port, quiet: true, dir: root, eventLogDir: logDir, reuseExisting: false });
+  await startBridge({
+    port,
+    quiet: true,
+    dir: root,
+    projectsRoot,
+    eventLogDir: logDir,
+    reuseExisting: false
+  });
   try {
     scanTranscripts();
     fs.appendFileSync(subFile, line("assistant", "<final>done</final>"), "utf8");

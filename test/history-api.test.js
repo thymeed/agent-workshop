@@ -117,12 +117,16 @@ async function main() {
 
   const port = await getFreePort();
   const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "history-api-"));
+  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "history-api-projects-"));
+  const transcriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), "history-api-transcripts-"));
   const alerts = [];
 
   await startBridge({
     port,
     quiet: true,
     eventLogDir: logDir,
+    projectsRoot,
+    dir: transcriptsDir,
     onAgentAlert: (a) => alerts.push(a)
   });
 

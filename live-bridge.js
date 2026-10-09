@@ -26,10 +26,36 @@ const { createEventLog } = require("./lib/event-log");
 const { isSubagentTranscriptPath, subagentUuidFromTranscriptPath } = require("./lib/path-segments");
 
 const PROJECTS_ROOT = path.join(os.homedir(), ".cursor", "projects");
+/** @type {string|null} */
+let projectsRootOpt = null;
 
 function projectsRootPath() {
+  if (projectsRootOpt) return projectsRootOpt;
   const override = process.env.CURSOR_PROJECTS_ROOT;
   return override ? path.resolve(override) : PROJECTS_ROOT;
+}
+
+/**
+ * When BRIDGE_TEST=1, refuse to start unless tests pass isolated dirs/port (never relaxes other checks).
+ * @param {object} opts
+ */
+function assertBridgeTestOpts(opts) {
+  if (process.env.BRIDGE_TEST !== "1") return;
+  opts = opts || {};
+  const missing = [];
+  if (!opts.eventLogDir) missing.push("eventLogDir");
+  if (!opts.projectsRoot && !process.env.CURSOR_PROJECTS_ROOT) {
+    missing.push("projectsRoot (opts) or CURSOR_PROJECTS_ROOT");
+  }
+  const port = opts.port;
+  if (port == null || !Number.isFinite(Number(port)) || Number(port) <= 0) {
+    missing.push("explicit nonzero port (opts.port)");
+  }
+  if (missing.length) {
+    throw new Error(
+      "BRIDGE_TEST=1: startBridge requires isolated test paths — missing " + missing.join(", ")
+    );
+  }
 }
 
 /** Placeholder watch path when no --dir / env / discovered project exists yet. */
@@ -1816,11 +1842,12 @@ function probeExistingBridge(port) {
 
 /**
  * Start the bridge HTTP server + transcript poller.
- * @param {{port?:number, dir?:string, quiet?:boolean, reuseExisting?:boolean, onAgentAlert?:Function, eventLogDir?:string, eventLogPath?:string}} [opts]
+ * @param {{port?:number, dir?:string, quiet?:boolean, reuseExisting?:boolean, onAgentAlert?:Function, eventLogDir?:string, eventLogPath?:string, projectsRoot?:string}} [opts]
  * @returns {Promise<{port:number, reused:boolean, transcripts:string}>}
  */
 function startBridge(opts) {
   opts = opts || {};
+  assertBridgeTestOpts(opts);
   if (started && server) {
     return Promise.resolve({
       port: PORT,
@@ -1833,6 +1860,9 @@ function startBridge(opts) {
   quiet = !!opts.quiet;
   onAgentAlert = typeof opts.onAgentAlert === "function" ? opts.onAgentAlert : null;
   stallMs = Number(opts.stallMs || process.env.CURSOR_BRIDGE_STALL_MS || DEFAULT_STALL_MS);
+  if (opts.projectsRoot) {
+    projectsRootOpt = path.resolve(opts.projectsRoot);
+  }
   PORT = Number(opts.port || flag("--port") || 3847);
   resolveDefaultTranscripts(opts);
 
@@ -1960,6 +1990,7 @@ function stopBridge() {
     const finish = () => {
       if (finished) return;
       finished = true;
+      projectsRootOpt = null;
       resolve();
     };
 
