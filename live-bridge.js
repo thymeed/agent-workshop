@@ -23,6 +23,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { createEventLog } = require("./lib/event-log");
+const { isSubagentTranscriptPath, subagentUuidFromTranscriptPath } = require("./lib/path-segments");
 
 const PROJECTS_ROOT = path.join(os.homedir(), ".cursor", "projects");
 
@@ -972,10 +973,7 @@ function handleSubagentLine(obj, filePath, roleHint) {
     const sessionId = sessionIdFromFile(filePath);
     const inferred = inferRoleFromSubagentText(text);
     if (inferred !== "parent") role = inferred;
-    const uuid =
-      path.basename(path.dirname(filePath)) === "subagents"
-        ? path.basename(filePath, ".jsonl")
-        : null;
+    const uuid = subagentUuidFromTranscriptPath(filePath);
     if (uuid) subagentRoles.set(uuid, role);
     const q = text.match(/<user_query>([\s\S]*?)<\/user_query>/);
     const body = snippet(q ? q[1] : text, 80);
@@ -1127,7 +1125,7 @@ function listJsonlFiles(root) {
 }
 
 function isSubagentFile(filePath) {
-  return filePath.split(path.sep).includes("subagents");
+  return isSubagentTranscriptPath(filePath);
 }
 
 function roleForFile(filePath) {
@@ -1141,11 +1139,9 @@ function primeSubagentRole(filePath) {
   const uuid = path.basename(filePath, ".jsonl");
   if (subagentRoles.has(uuid)) return;
   try {
-    const fd = fs.openSync(filePath, "r");
-    const headLen = Math.min(12000, fs.fstatSync(fd).size);
-    const buf = Buffer.alloc(headLen);
-    fs.readSync(fd, buf, 0, headLen, 0);
-    fs.closeSync(fd);
+    const size = fs.statSync(filePath).size;
+    const headLen = Math.min(12000, size);
+    const buf = readBytesAtSync(filePath, 0, headLen);
     const firstLine = buf
       .toString("utf8")
       .split(/\r?\n/)
@@ -1158,6 +1154,44 @@ function primeSubagentRole(filePath) {
   } catch (_) {
     /* ignore priming failures */
   }
+}
+
+function isTransientReadError(err) {
+  const code = err && err.code;
+  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
+}
+
+function sleepMsSync(ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    /* sync ingest path — short backoff for Windows shared reads */
+  }
+}
+
+function readBytesAtSync(filePath, readFrom, len, maxAttempts = 6) {
+  let lastErr;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let fd;
+    try {
+      fd = fs.openSync(filePath, "r");
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, readFrom);
+      fs.closeSync(fd);
+      return buf;
+    } catch (e) {
+      lastErr = e;
+      if (fd != null) {
+        try {
+          fs.closeSync(fd);
+        } catch (_e) {
+          /* ignore */
+        }
+      }
+      if (!isTransientReadError(e) || attempt === maxAttempts - 1) throw e;
+      sleepMsSync(25 * (attempt + 1));
+    }
+  }
+  throw lastErr;
 }
 
 function newlineByteLength(buf, nlIndex) {
@@ -1320,10 +1354,7 @@ function ingestNewBytes(filePath) {
   const len = Math.min(remaining, TRANSCRIPT_READ_MAX_PER_POLL);
   let buf;
   try {
-    const fd = fs.openSync(filePath, "r");
-    buf = Buffer.alloc(len);
-    fs.readSync(fd, buf, 0, len, readFrom);
-    fs.closeSync(fd);
+    buf = readBytesAtSync(filePath, readFrom, len);
   } catch (e) {
     lastScanError = String(e.message || e);
     return;

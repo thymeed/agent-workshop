@@ -103,7 +103,7 @@
     var base = p.split("/").pop() || p;
 
     if (base === ".env" || /^\.env\./.test(base)) return 3;
-    if (/credentials\.json$/.test(base) || /(^|[\\/])credentials([\\/]|$)/.test(p)) return 3;
+    if (/credentials\.json$/.test(base) || /(^|\/)credentials(\/|$)/.test(p)) return 3;
     if (/id_rsa/.test(p) && !/id_rsa\.pub/.test(p)) return 3;
     if (/id_ed25519/.test(p) && !/id_ed25519\.pub/.test(p)) return 3;
     if (/secrets?/.test(p) || /keychain/.test(p) || /oauth/.test(p) || /token\.json/.test(p)) {

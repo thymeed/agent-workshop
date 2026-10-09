@@ -441,7 +441,10 @@ async function smokeCardsDemo(browser) {
       ["keys/id_rsa", "high"],
       ["keys/id_ed25519", "high"],
       [".npmrc", "med"],
-      [".netrc", "med"]
+      [".netrc", "med"],
+      ["C:\\Users\\x\\.ssh\\id_rsa", "high"],
+      ["C:\\Users\\x\\.aws\\credentials", "high"],
+      [".aws\\credentials", "high"]
     ];
     const excluded = [
       "config/.env.example",
