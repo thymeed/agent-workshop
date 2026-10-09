@@ -77,9 +77,7 @@ async function main() {
     }
     const resolvedLogDir = path.resolve(logDir);
     if (bridgeLog !== path.join(resolvedLogDir, "event-log.jsonl")) {
-      throw new Error(
-        "event log path must be under explicit eventLogDir, got " + bridgeLog
-      );
+      throw new Error("event log path must be under explicit eventLogDir, got " + bridgeLog);
     }
   } finally {
     if (bridgeStarted) await stopBridge();
