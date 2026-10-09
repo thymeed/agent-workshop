@@ -80,6 +80,10 @@ const fileState = new Map();
 const transcriptFilesAtStart = new Set();
 /** filePath -> byte length at last inventory snapshot */
 const transcriptSnapshotSizes = new Map();
+/** Files in the first scan slice after inventory — use 8 KB tail warm-up, not snapshot offset. */
+const transcriptStartupWarmFiles = new Set();
+/** True until the first scan() pass marks warm-up files after snapshotTranscriptInventory(). */
+let warmScanAfterInventory = false;
 /** subagent uuid -> role */
 const subagentRoles = new Map();
 let eventSeq = 0;
@@ -1251,6 +1255,8 @@ function skipOversizedLine(filePath, lineStartOffset, fileSize, state) {
 function snapshotTranscriptInventory() {
   transcriptFilesAtStart.clear();
   transcriptSnapshotSizes.clear();
+  transcriptStartupWarmFiles.clear();
+  warmScanAfterInventory = true;
   if (!fs.existsSync(TRANSCRIPTS)) return;
   for (const f of listJsonlFiles(TRANSCRIPTS)) {
     transcriptFilesAtStart.add(f);
@@ -1273,7 +1279,16 @@ function ingestNewBytes(filePath) {
   if (!state) {
     if (isSubagentFile(filePath)) primeSubagentRole(filePath);
     const existedAtStart = transcriptFilesAtStart.has(filePath);
-    const start = existedAtStart ? Math.max(0, st.size - TRANSCRIPT_TAIL_BYTES) : 0;
+    let start = 0;
+    if (existedAtStart) {
+      if (transcriptStartupWarmFiles.has(filePath)) {
+        start = Math.max(0, st.size - TRANSCRIPT_TAIL_BYTES);
+      } else if (transcriptSnapshotSizes.has(filePath)) {
+        start = Math.max(0, transcriptSnapshotSizes.get(filePath));
+      } else {
+        start = Math.max(0, st.size - TRANSCRIPT_TAIL_BYTES);
+      }
+    }
     state = {
       size: start,
       warm: !existedAtStart,
@@ -1307,7 +1322,9 @@ function ingestNewBytes(filePath) {
     return;
   }
 
-  const startedMidFile = !state.warm && readFrom > 0;
+  const snapshotByteAtRead = transcriptSnapshotSizes.get(filePath);
+  const resumeFromSnapshot = snapshotByteAtRead != null && readFrom === snapshotByteAtRead;
+  const startedMidFile = !state.warm && readFrom > 0 && !resumeFromSnapshot;
   let work = buf;
   let workBase = readFrom;
 
@@ -1368,6 +1385,14 @@ function ingestNewBytes(filePath) {
 function scan() {
   try {
     const files = listJsonlFiles(TRANSCRIPTS).slice(0, TRANSCRIPT_SCAN_LIMIT);
+    if (warmScanAfterInventory) {
+      for (const f of files) {
+        if (transcriptFilesAtStart.has(f)) {
+          transcriptStartupWarmFiles.add(f);
+        }
+      }
+      warmScanAfterInventory = false;
+    }
     for (const f of files) ingestNewBytes(f);
     lastScanError = fs.existsSync(TRANSCRIPTS) ? null : "transcripts dir missing";
   } catch (e) {
@@ -1912,6 +1937,8 @@ function stopBridge() {
     seenHistoryKeys.clear();
     transcriptFilesAtStart.clear();
     transcriptSnapshotSizes.clear();
+    transcriptStartupWarmFiles.clear();
+    warmScanAfterInventory = false;
     agentWatch.clear();
     onAgentAlert = null;
     for (const res of sseClients) {

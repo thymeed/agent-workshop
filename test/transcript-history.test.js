@@ -4,6 +4,7 @@
 "use strict";
 
 const fs = require("fs");
+const http = require("http");
 const net = require("net");
 const os = require("os");
 const path = require("path");
@@ -12,6 +13,7 @@ const {
   stopBridge,
   scanTranscripts,
   checkStalledAgents,
+  selectProject,
   terminalTypeFromTranscript,
   TRANSCRIPT_SCAN_LIMIT,
   TRANSCRIPT_READ_MAX_PER_POLL
@@ -99,6 +101,53 @@ async function withBridge(dir, fn, opts) {
 function historyEvents(logDir) {
   const { createEventLog } = require("../lib/event-log");
   return createEventLog({ logDir, retentionMs: 365 * 24 * 60 * 60 * 1000 }).query();
+}
+
+function fetchLiveEvents(port) {
+  return new Promise((resolve, reject) => {
+    http
+      .get(`http://127.0.0.1:${port}/api/events`, (res) => {
+        let data = "";
+        res.on("data", (c) => {
+          data += c;
+        });
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(data).events || []);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      })
+      .on("error", reject);
+  });
+}
+
+function transcriptLiveEvents(liveEvents) {
+  return liveEvents.filter(
+    (e) => e && e.source !== "bridge" && String(e.message || "").includes("warm-tail-")
+  );
+}
+
+function seedParentTranscriptForWarmTail(parentFile, lineCount) {
+  for (let i = 0; i < lineCount; i++) {
+    appendLine(
+      parentFile,
+      line("user", `<user_query>warm-tail-${i} ${"p".repeat(500)}</user_query>`, {
+        tsOffsetMs: -200000 + i * 1000
+      })
+    );
+    appendLine(
+      parentFile,
+      line("assistant", `reply warm-tail-${i} ${"q".repeat(500)}`, {
+        tsOffsetMs: -199000 + i * 1000
+      })
+    );
+  }
+  assert(
+    fs.statSync(parentFile).size > 8 * 1024,
+    "warm-tail fixture must exceed 8 KB for tail ingest"
+  );
 }
 
 async function testRestartDedupeAndTimestamps() {
@@ -346,6 +395,114 @@ async function testResumedOldTranscriptBeyondScanLimit() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+async function testStartupWarmPushesLiveEvents() {
+  const { root, parent } = tmpTranscripts();
+  seedParentTranscriptForWarmTail(parent, 24);
+
+  await withBridge(root, async ({ port }) => {
+    const live = await fetchLiveEvents(port);
+    const fromTranscript = transcriptLiveEvents(live);
+    assert(
+      fromTranscript.length >= 2,
+      "startup warm-up must push live transcript events from 8 KB tail, got " +
+        fromTranscript.length
+    );
+  });
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+async function testProjectSwitchWarmPushesLiveEvents() {
+  const stamp = String(Date.now());
+  const idA = "cursor-warm-live-a-" + stamp;
+  const idB = "cursor-warm-live-b-" + stamp;
+  const projectsRoot = path.join(os.homedir(), ".cursor", "projects");
+  const dirA = path.join(projectsRoot, idA, "agent-transcripts");
+  const dirB = path.join(projectsRoot, idB, "agent-transcripts");
+  fs.mkdirSync(dirA, { recursive: true });
+  fs.mkdirSync(dirB, { recursive: true });
+  const parentA = path.join(dirA, "parent.jsonl");
+  const parentB = path.join(dirB, "parent.jsonl");
+  seedParentTranscriptForWarmTail(parentA, 20);
+  seedParentTranscriptForWarmTail(parentB, 20);
+
+  const port = await getFreePort();
+  try {
+    await startBridge({ port, quiet: true, dir: dirA });
+    let live = transcriptLiveEvents(await fetchLiveEvents(port));
+    assert(live.length >= 2, "project A startup must warm live feed, got " + live.length);
+
+    const switched = selectProject(idB);
+    assert(switched.ok, "select project B: " + (switched.error || ""));
+    live = transcriptLiveEvents(await fetchLiveEvents(port));
+    assert(live.length >= 2, "project switch must warm live feed, got " + live.length);
+  } finally {
+    await stopBridge();
+    fs.rmSync(path.join(projectsRoot, idA), { recursive: true, force: true });
+    fs.rmSync(path.join(projectsRoot, idB), { recursive: true, force: true });
+  }
+}
+
+async function testResumedOldFileLargeAppendBeforeFirstPoll() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-resume-bulk-"));
+  const now = Date.now() / 1000;
+  const oldFile = path.join(root, "chat-040.jsonl");
+  assert(TRANSCRIPT_SCAN_LIMIT === 40, "test assumes scan limit 40");
+
+  for (let i = 0; i < TRANSCRIPT_SCAN_LIMIT; i++) {
+    const f = path.join(root, `chat-${String(i).padStart(3, "0")}.jsonl`);
+    appendLine(f, line("user", `<user_query>chat ${i}</user_query>`));
+    fs.utimesSync(f, now, now);
+  }
+  appendLine(
+    oldFile,
+    line("user", "<user_query>old session baseline</user_query>", { tsOffsetMs: -200000 })
+  );
+  fs.utimesSync(oldFile, now - 7200, now - 7200);
+
+  const resumeTimestamps = [];
+  for (let i = 0; i < 6; i++) {
+    resumeTimestamps.push(`2030-02-${String(i + 1).padStart(2, "0")}T08:00:00.000Z`);
+  }
+
+  await withBridge(root, async ({ logDir }) => {
+    scanTranscripts();
+    assert(historyEvents(logDir).length === 0, "warm-up must not log history");
+
+    const bytesBeforeAppend = fs.statSync(oldFile).size;
+    for (let i = 0; i < resumeTimestamps.length; i++) {
+      const pad = "z".repeat(1800);
+      appendLine(
+        oldFile,
+        line("user", `<user_query>resume-bulk-${i} ${pad}</user_query>`, {
+          timestamp: resumeTimestamps[i]
+        })
+      );
+    }
+    assert(
+      fs.statSync(oldFile).size - bytesBeforeAppend > 8 * 1024,
+      "appended payload must exceed 8 KB before first poll on resumed file"
+    );
+
+    fs.utimesSync(oldFile, now + 120, now + 120);
+    scanTranscripts();
+
+    const events = historyEvents(logDir);
+    assert(
+      events.length === resumeTimestamps.length,
+      "all post-snapshot bytes must reach history in one poll, got " + events.length
+    );
+    for (const ts of resumeTimestamps) {
+      assert(
+        events.some((e) => e.ts === ts && e.type === "turn"),
+        "missing history for resumed bulk line at " + ts
+      );
+    }
+  });
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 function appendBigUserLine(file, marker, padBytes) {
   const pad = "a".repeat(Math.max(0, padBytes));
   appendLine(file, line("user", `<user_query>${marker} ${pad}</user_query>`));
@@ -553,7 +710,10 @@ async function main() {
   await testNewFileReadFromOffsetZero();
   await testToolErrorNotTerminal();
   await testStructuredTerminalErrorAlert();
+  await testStartupWarmPushesLiveEvents();
+  await testProjectSwitchWarmPushesLiveEvents();
   await testResumedOldTranscriptBeyondScanLimit();
+  await testResumedOldFileLargeAppendBeforeFirstPoll();
   await testResumedLargeFileNonAscii();
   await testOversizedLineSkippedNoStall();
   await testChunkedReadCappedPerPoll();
