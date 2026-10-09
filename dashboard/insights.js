@@ -633,9 +633,15 @@
     return urls;
   }
 
+  function useInlinedDemoHistory() {
+    if (typeof location === "undefined") return false;
+    if (location.protocol === "file:") return true;
+    return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(location.origin || "");
+  }
+
   async function loadDemoEvents() {
-    /* file:// cannot fetch local JSON in most browsers — use inlined copy */
-    if (typeof location !== "undefined" && location.protocol === "file:") {
+    /* file:// and the live bridge do not ship test/fixtures — use inlined copy */
+    if (useInlinedDemoHistory()) {
       return DEMO_HISTORY.events.slice();
     }
     var urls = demoFixtureUrls();
@@ -1010,6 +1016,13 @@
 
     load();
 
+    function setDemoMode(isDemo) {
+      demo = !!isDemo;
+      modePill.textContent = demo ? "Demo" : "Live";
+      modePill.classList.toggle("demo", demo);
+      return load();
+    }
+
     return {
       destroy: function () {
         if (destroyed) return;
@@ -1017,6 +1030,7 @@
         if (root.parentNode) root.parentNode.removeChild(root);
       },
       reload: load,
+      setDemoMode: setDemoMode,
       getConfig: function () {
         return CONFIG;
       },

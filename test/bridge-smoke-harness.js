@@ -4,9 +4,10 @@ const fs = require("fs");
 const net = require("net");
 const os = require("os");
 const path = require("path");
-const { startBridge, stopBridge } = require("../live-bridge.js");
+const { startBridge, stopBridge, resetWatchState } = require("../live-bridge.js");
 
 const tempDirs = [];
+const tempEventLogDirs = [];
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -29,19 +30,31 @@ async function startBridgeForSmoke(opts) {
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-smoke-"));
   await fs.promises.mkdir(tempDir, { recursive: true });
   tempDirs.push(tempDir);
+  const eventLogDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-eventlog-"));
+  tempEventLogDirs.push(eventLogDir);
   const port = opts.port != null ? opts.port : await getFreePort();
   const info = await startBridge({
     ...opts,
     port,
     quiet: true,
     dir: tempDir,
+    eventLogDir,
     reuseExisting: false
   });
-  return { ...info, port, transcriptsDir: tempDir };
+  return { ...info, port, transcriptsDir: tempDir, eventLogDir };
 }
 
 async function stopBridgeForSmoke() {
+  try {
+    resetWatchState();
+  } catch (_) {
+    /* ignore */
+  }
   await stopBridge();
+  while (tempEventLogDirs.length) {
+    const dir = tempEventLogDirs.pop();
+    await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
   while (tempDirs.length) {
     const dir = tempDirs.pop();
     await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});

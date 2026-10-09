@@ -325,6 +325,24 @@ function testRetentionAndClear() {
   assert(fs.readFileSync(p, "utf8").trim() === "", "log emptied");
 }
 
+function testExistingLogDirChmodOnStart() {
+  if (process.platform === "win32") {
+    return;
+  }
+
+  const base = tmpDir("dir-chmod");
+  const logDir = path.join(base, "preexisting");
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.chmodSync(logDir, 0o755);
+  const log = createEventLog({ logDir });
+  log.ensureStarted();
+  const dirMode = fs.statSync(logDir).mode & 0o777;
+  assert(
+    dirMode === LOG_DIR_MODE,
+    "existing dir chmod expected 0o700, got 0o" + dirMode.toString(8)
+  );
+}
+
 function testFilePermissions() {
   if (process.platform === "win32") {
     return;
@@ -386,6 +404,7 @@ async function main() {
   testPemFullBlockRedaction();
   testContractShape();
   testRetentionAndClear();
+  testExistingLogDirChmodOnStart();
   testFilePermissions();
   console.log("event-log tests OK · redaction, retention, clear, contract, permissions");
 }

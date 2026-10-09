@@ -88,7 +88,33 @@ function assertContractEvent(ev, errors, label) {
   if (!Array.isArray(ev.files)) errors.push(label + " files");
 }
 
+function testClearHistoryNoOpWithoutStartedLog() {
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "clear-history-noop-"));
+  const logPath = path.join(logDir, "event-log.jsonl");
+  const sentinel =
+    '{"ts":"2020-01-01T00:00:00.000Z","sessionId":"keep","agentId":"a","parentId":null,"name":"n","model":"opus","type":"turn","inputTokens":1,"outputTokens":0,"files":[]}\n';
+  fs.writeFileSync(logPath, sentinel, "utf8");
+  const prev = process.env.CURSOR_EVENT_LOG_DIR;
+  process.env.CURSOR_EVENT_LOG_DIR = logDir;
+  try {
+    const { clearHistory } = require("../live-bridge.js");
+    const result = clearHistory();
+    if (!result || result.ok !== true || result.cleared !== false) {
+      throw new Error("clearHistory without bridge expected noop, got " + JSON.stringify(result));
+    }
+    if (fs.readFileSync(logPath, "utf8") !== sentinel) {
+      throw new Error("clearHistory without bridge must not touch default event log path");
+    }
+  } finally {
+    if (prev === undefined) delete process.env.CURSOR_EVENT_LOG_DIR;
+    else process.env.CURSOR_EVENT_LOG_DIR = prev;
+    fs.rmSync(logDir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
+  testClearHistoryNoOpWithoutStartedLog();
+
   const port = await getFreePort();
   const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "history-api-"));
   const alerts = [];

@@ -118,19 +118,20 @@
     };
   }
 
+  var mode = "demo"; /* demo | live */
+  var insightsPanel = null;
+
   /* Lane C insights panel — guarded until dashboard/insights.js defines window.Insights. */
   if (window.Insights && typeof window.Insights.init === "function") {
     try {
-      window.Insights.init(
+      insightsPanel = window.Insights.init(
         document.getElementById("insightsMount") ||
           document.getElementById("drawers") ||
           document.body,
-        { demo: !isBridgeOrigin }
+        { demo: mode === "demo" }
       );
     } catch (_insightsErr) {}
   }
-
-  var mode = "demo"; /* demo | live */
   var lastDemoUsageTotal = 0;
   var playing = false;
   var timers = [];
@@ -1830,6 +1831,9 @@
     if (next === "demo") clearLiveSeenEvents();
     if (AgentCards && typeof AgentCards.onModeChange === "function") {
       AgentCards.onModeChange(next);
+    }
+    if (insightsPanel && typeof insightsPanel.setDemoMode === "function" && isBridgeOrigin) {
+      insightsPanel.setDemoMode(mode === "demo");
     }
     stopDemo();
     stopLive();

@@ -416,7 +416,7 @@ async function testProjectSwitchWarmPushesLiveEvents() {
   const stamp = String(Date.now());
   const idA = "cursor-warm-live-a-" + stamp;
   const idB = "cursor-warm-live-b-" + stamp;
-  const projectsRoot = path.join(os.homedir(), ".cursor", "projects");
+  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-projects-root-"));
   const dirA = path.join(projectsRoot, idA, "agent-transcripts");
   const dirB = path.join(projectsRoot, idB, "agent-transcripts");
   fs.mkdirSync(dirA, { recursive: true });
@@ -427,8 +427,11 @@ async function testProjectSwitchWarmPushesLiveEvents() {
   seedParentTranscriptForWarmTail(parentB, 20);
 
   const port = await getFreePort();
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-project-switch-log-"));
+  const prevProjectsRoot = process.env.CURSOR_PROJECTS_ROOT;
+  process.env.CURSOR_PROJECTS_ROOT = projectsRoot;
   try {
-    await startBridge({ port, quiet: true, dir: dirA });
+    await startBridge({ port, quiet: true, dir: dirA, eventLogDir: logDir });
     let live = transcriptLiveEvents(await fetchLiveEvents(port));
     assert(live.length >= 2, "project A startup must warm live feed, got " + live.length);
 
@@ -438,8 +441,10 @@ async function testProjectSwitchWarmPushesLiveEvents() {
     assert(live.length >= 2, "project switch must warm live feed, got " + live.length);
   } finally {
     await stopBridge();
-    fs.rmSync(path.join(projectsRoot, idA), { recursive: true, force: true });
-    fs.rmSync(path.join(projectsRoot, idB), { recursive: true, force: true });
+    if (prevProjectsRoot === undefined) delete process.env.CURSOR_PROJECTS_ROOT;
+    else process.env.CURSOR_PROJECTS_ROOT = prevProjectsRoot;
+    fs.rmSync(logDir, { recursive: true, force: true });
+    fs.rmSync(projectsRoot, { recursive: true, force: true });
   }
 }
 

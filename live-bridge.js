@@ -25,6 +25,12 @@ const os = require("os");
 const { createEventLog } = require("./lib/event-log");
 
 const PROJECTS_ROOT = path.join(os.homedir(), ".cursor", "projects");
+
+function projectsRootPath() {
+  const override = process.env.CURSOR_PROJECTS_ROOT;
+  return override ? path.resolve(override) : PROJECTS_ROOT;
+}
+
 /** Placeholder watch path when no --dir / env / discovered project exists yet. */
 const EMPTY_TRANSCRIPTS = path.join(PROJECTS_ROOT, "_none", "agent-transcripts");
 const DASHBOARD = path.join(__dirname, "model-routing-dashboard.html");
@@ -144,17 +150,18 @@ function humanizeProjectId(id) {
  */
 function discoverProjects() {
   const out = [];
-  if (!fs.existsSync(PROJECTS_ROOT)) return out;
+  const root = projectsRootPath();
+  if (!fs.existsSync(root)) return out;
   let entries;
   try {
-    entries = fs.readdirSync(PROJECTS_ROOT, { withFileTypes: true });
+    entries = fs.readdirSync(root, { withFileTypes: true });
   } catch (_) {
     return out;
   }
   for (const ent of entries) {
     if (!ent.isDirectory()) continue;
     const id = ent.name;
-    const transcriptsPath = path.join(PROJECTS_ROOT, id, "agent-transcripts");
+    const transcriptsPath = path.join(root, id, "agent-transcripts");
     if (!fs.existsSync(transcriptsPath)) continue;
     let mtime = 0;
     try {
@@ -190,7 +197,7 @@ function projectById(id) {
 
 function isPathUnderProjectsRoot(absPath) {
   const resolved = path.resolve(absPath);
-  const root = path.resolve(PROJECTS_ROOT);
+  const root = path.resolve(projectsRootPath());
   const rel = path.relative(root, resolved);
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
@@ -203,7 +210,7 @@ function resolveDefaultTranscripts(opts) {
     TRANSCRIPTS = abs;
     // Try to map back to a known project id
     if (isPathUnderProjectsRoot(abs)) {
-      const parts = path.relative(path.resolve(PROJECTS_ROOT), abs).split(path.sep);
+      const parts = path.relative(path.resolve(projectsRootPath()), abs).split(path.sep);
       if (parts.length >= 1) {
         currentProjectId = parts[0];
         currentProjectLabel = humanizeProjectId(parts[0]);
@@ -1966,10 +1973,11 @@ function stopBridge() {
 /** Clear persisted history (also used by POST /api/history/clear). */
 function clearHistory() {
   if (!eventLog) {
-    eventLog = createEventLog();
+    return { ok: true, cleared: false };
   }
   agentWatch.clear();
-  return eventLog.clear();
+  const result = eventLog.clear();
+  return Object.assign({}, result, { cleared: true });
 }
 
 module.exports = {

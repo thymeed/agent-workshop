@@ -126,6 +126,39 @@ async function smokeLiveHttp(browser) {
     });
     if (!cssOk) errors.push("Live http:// styles.css did not load");
 
+    await page.click("#modeDemo");
+    await page.waitForSelector("#modeDemo.on", { timeout: 5000 });
+    const insightsDemoOk = await page
+      .waitForFunction(
+        () => {
+          const pill = document.querySelector(".insights-mode-pill");
+          const status = document.querySelector(".insights-status");
+          const session = document.querySelector(".insights-session");
+          if (!pill || !status || !session) return false;
+          const pillText = (pill.textContent || "").trim();
+          const statusText = (status.textContent || "").trim();
+          const sessionText = (session.options[session.selectedIndex] || {}).text || "";
+          const demoPill = /^Demo$/i.test(pillText);
+          const demoStatus = /^Demo ·/i.test(statusText);
+          const eventMatch = /(\d+)\s+events/i.exec(statusText);
+          const eventCount = eventMatch ? Number(eventMatch[1]) : 0;
+          const liveEmpty =
+            /^Live ·/i.test(statusText) && /No sessions/i.test(sessionText || statusText);
+          return demoPill && demoStatus && eventCount > 0 && !liveEmpty;
+        },
+        { timeout: 12000 }
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (!insightsDemoOk) {
+      errors.push(
+        "Insights must follow Demo toggle on localhost (demo pill, demo events, not LIVE · No sessions)"
+      );
+    }
+
+    await page.click("#modeLive");
+    await page.waitForSelector("#modeLive.on", { timeout: 5000 });
+
     const acao = await page.evaluate(async () => {
       const r = await fetch("/api/status");
       return r.headers.get("access-control-allow-origin");
