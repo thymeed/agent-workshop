@@ -5,6 +5,8 @@
  */
 "use strict";
 
+process.env.BRIDGE_TEST = "1";
+
 const path = require("path");
 const { pathToFileURL } = require("url");
 const { chromium } = require("playwright");

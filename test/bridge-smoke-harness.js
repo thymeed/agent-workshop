@@ -1,5 +1,7 @@
 "use strict";
 
+process.env.BRIDGE_TEST = "1";
+
 const fs = require("fs");
 const net = require("net");
 const os = require("os");

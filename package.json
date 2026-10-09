@@ -15,7 +15,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "BRIDGE_TEST=1 node test/demo-smoke.test.js && BRIDGE_TEST=1 node test/bridge-localhost.test.js && BRIDGE_TEST=1 node test/insights-smoke.test.js && BRIDGE_TEST=1 node test/event-log.test.js && BRIDGE_TEST=1 node test/history-api.test.js && BRIDGE_TEST=1 node test/transcript-history.test.js && BRIDGE_TEST=1 node test/cards-smoke.test.js && BRIDGE_TEST=1 node test/paths-windows.test.js",
+    "test": "node test/demo-smoke.test.js && node test/bridge-localhost.test.js && node test/insights-smoke.test.js && node test/event-log.test.js && node test/history-api.test.js && node test/transcript-history.test.js && node test/cards-smoke.test.js && node test/paths-windows.test.js && node test/bridge-test-guard.test.js",
     "ci": "npm run lint && npm run format:check && npm test && npm run build:check"
   },
   "devDependencies": {

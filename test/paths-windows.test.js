@@ -1,5 +1,7 @@
 "use strict";
 
+process.env.BRIDGE_TEST = "1";
+
 const assert = require("assert");
 const net = require("net");
 
@@ -83,8 +85,9 @@ async function testCrlfSnapshotResume() {
     );
   } finally {
     await stopBridge();
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(logDir, { recursive: true, force: true });
+    for (const dir of [root, logDir, projectsRoot]) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 }
 
@@ -137,8 +140,9 @@ async function testSubagentIngestWithWindowsPath() {
     );
   } finally {
     await stopBridge();
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(logDir, { recursive: true, force: true });
+    for (const dir of [root, logDir, projectsRoot]) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 }
 

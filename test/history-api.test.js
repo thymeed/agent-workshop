@@ -3,6 +3,8 @@
  */
 "use strict";
 
+process.env.BRIDGE_TEST = "1";
+
 const http = require("http");
 const net = require("net");
 const fs = require("fs");
@@ -319,10 +321,12 @@ async function main() {
     }
   } finally {
     await stopBridge();
-    try {
-      fs.rmSync(logDir, { recursive: true, force: true });
-    } catch (_e) {
-      /* ignore */
+    for (const dir of [logDir, projectsRoot, transcriptsDir]) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch (_e) {
+        /* ignore */
+      }
     }
   }
 

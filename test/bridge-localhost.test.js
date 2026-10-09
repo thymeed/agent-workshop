@@ -3,6 +3,8 @@
  */
 "use strict";
 
+process.env.BRIDGE_TEST = "1";
+
 const http = require("http");
 const { startBridgeForSmoke, stopBridgeForSmoke } = require("./bridge-smoke-harness.js");
 

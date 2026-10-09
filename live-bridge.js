@@ -1866,10 +1866,18 @@ function startBridge(opts) {
   PORT = Number(opts.port || flag("--port") || 3847);
   resolveDefaultTranscripts(opts);
 
-  eventLog = createEventLog({
+  const eventLogCreateOpts = {
     logDir: opts.eventLogDir,
     logPath: opts.eventLogPath
-  });
+  };
+  if (process.env.BRIDGE_TEST === "1" && opts.eventLogDir) {
+    const resolvedLogDir = path.resolve(opts.eventLogDir);
+    eventLogCreateOpts.logDir = resolvedLogDir;
+    if (!eventLogCreateOpts.logPath) {
+      eventLogCreateOpts.logPath = path.join(resolvedLogDir, "event-log.jsonl");
+    }
+  }
+  eventLog = createEventLog(eventLogCreateOpts);
   try {
     eventLog.ensureStarted();
     log(`[live-bridge] event log: ${eventLog.getLogPath()}`);

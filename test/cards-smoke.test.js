@@ -4,6 +4,8 @@
  */
 "use strict";
 
+process.env.BRIDGE_TEST = "1";
+
 const fs = require("fs");
 const path = require("path");
 const { pathToFileURL } = require("url");
