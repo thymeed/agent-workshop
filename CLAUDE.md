@@ -69,3 +69,4 @@ If `package.json` is missing, prefer `node live-bridge.js` / `start-live.cmd` un
 - Near-real file polling, not hook-level realtime.
 - Token deltas are illustrative estimates from transcript activity.
 - Only sees chats that write into the configured transcripts folder.
+- Live bridge is localhost-only (loopback bind + Host/Origin checks; no CORS `*`).

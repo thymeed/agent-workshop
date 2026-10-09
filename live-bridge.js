@@ -897,10 +897,70 @@ function sendJson(res, code, obj) {
   const body = JSON.stringify(obj, null, 2);
   res.writeHead(code, {
     "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
-    "Access-Control-Allow-Origin": "*"
+    "Cache-Control": "no-store"
   });
   res.end(body);
+}
+
+/** True for IPv4/IPv6 loopback (incl. IPv4-mapped). */
+function isLoopbackAddress(addr) {
+  if (!addr || typeof addr !== "string") return false;
+  if (addr === "127.0.0.1" || addr === "::1" || addr === "localhost") return true;
+  if (addr.startsWith("::ffff:")) {
+    return isLoopbackAddress(addr.slice("::ffff:".length));
+  }
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(addr);
+}
+
+/** Host header must name localhost / loopback (optional port). */
+function isLocalhostHost(hostHeader) {
+  if (!hostHeader || typeof hostHeader !== "string") return false;
+  const host = hostHeader.trim().toLowerCase();
+  if (host.startsWith("[")) {
+    const end = host.indexOf("]");
+    if (end < 0) return false;
+    const name = host.slice(1, end);
+    return name === "::1" || name === "127.0.0.1";
+  }
+  const name = host.split(":")[0];
+  return name === "localhost" || name === "127.0.0.1";
+}
+
+/**
+ * Origin header: absent is OK (navigations, curl, same-origin without CORS).
+ * If present, must be http(s) to localhost / 127.0.0.1 / ::1 — not "null" or other sites.
+ */
+function isAllowedOrigin(origin) {
+  if (origin == null || origin === "") return true;
+  if (origin === "null") return false;
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    const h = u.hostname.replace(/^\[|\]$/g, "");
+    return h === "localhost" || h === "127.0.0.1" || h === "::1";
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Reject cross-site / non-loopback access so other websites cannot read or drive the bridge.
+ * Checks socket remote address, Host, and Origin (when sent).
+ * @returns {boolean} true if the request was rejected
+ */
+function rejectIfNotLocal(req, res) {
+  const remote = (req.socket && req.socket.remoteAddress) || "";
+  const host = req.headers.host;
+  const origin = req.headers.origin;
+  if (!isLoopbackAddress(remote) || !isLocalhostHost(host) || !isAllowedOrigin(origin)) {
+    res.writeHead(403, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store"
+    });
+    res.end("Forbidden · localhost only");
+    return true;
+  }
+  return false;
 }
 
 function serveDashboard(res) {
@@ -962,14 +1022,13 @@ function serveStatic(urlPath, res) {
 
 function createServer() {
   return http.createServer((req, res) => {
+    if (rejectIfNotLocal(req, res)) return;
+
     const url = new URL(req.url || "/", `http://127.0.0.1:${PORT}`);
 
+    // No CORS: same-origin Live/Electron only. Reject preflight without ACAO *.
     if (req.method === "OPTIONS") {
-      res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
-      });
+      res.writeHead(204, { "Cache-Control": "no-store" });
       res.end();
       return;
     }
@@ -1026,8 +1085,7 @@ function createServer() {
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-        "Access-Control-Allow-Origin": "*"
+        Connection: "keep-alive"
       });
       res.write(
         `event: hello\ndata: ${JSON.stringify({

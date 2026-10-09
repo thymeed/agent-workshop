@@ -99,6 +99,8 @@ node live-bridge.js
 
 Then open **http://127.0.0.1:3847/** and click **Live**.
 
+The bridge listens on loopback only and rejects non-localhost `Host` / foreign `Origin` (no `Access-Control-Allow-Origin: *`). Open the dashboard from the bridge URL or Electron — not from another website. Demo via `file://` does not need the bridge.
+
 Options:
 
 ```bat
