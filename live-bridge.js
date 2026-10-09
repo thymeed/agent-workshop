@@ -30,8 +30,21 @@ const FALLBACK_DIR = path.join(
   "agent-transcripts"
 );
 const DASHBOARD = path.join(__dirname, "model-routing-dashboard.html");
+const STATIC_ROOT = path.join(__dirname, "dashboard");
 const MAX_EVENTS = 400;
 const POLL_MS = 900;
+
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".webp": "image/webp",
+  ".map": "application/json; charset=utf-8"
+};
 
 let PORT = 3847;
 /** @type {string} */
@@ -84,10 +97,12 @@ function clock() {
 }
 
 function humanizeProjectId(id) {
-  return String(id || "")
-    .replace(/^c-Users-[^-]+-/i, "")
-    .replace(/-/g, " ")
-    .trim() || id;
+  return (
+    String(id || "")
+      .replace(/^c-Users-[^-]+-/i, "")
+      .replace(/-/g, " ")
+      .trim() || id
+  );
 }
 
 /**
@@ -115,10 +130,7 @@ function discoverProjects() {
       const kids = fs.readdirSync(transcriptsPath, { withFileTypes: true });
       for (const kid of kids) {
         try {
-          mtime = Math.max(
-            mtime,
-            fs.statSync(path.join(transcriptsPath, kid.name)).mtimeMs
-          );
+          mtime = Math.max(mtime, fs.statSync(path.join(transcriptsPath, kid.name)).mtimeMs);
         } catch (_) {
           /* ignore */
         }
@@ -186,9 +198,7 @@ function resolveDefaultTranscripts(opts) {
 }
 
 function broadcastSse(eventName, data) {
-  const payload =
-    (eventName ? `event: ${eventName}\n` : "") +
-    `data: ${JSON.stringify(data)}\n\n`;
+  const payload = (eventName ? `event: ${eventName}\n` : "") + `data: ${JSON.stringify(data)}\n\n`;
   for (const res of sseClients) {
     try {
       res.write(payload);
@@ -290,7 +300,9 @@ function snippet(text, max) {
 }
 
 function mapSubagentType(type) {
-  const t = String(type || "").toLowerCase().trim();
+  const t = String(type || "")
+    .toLowerCase()
+    .trim();
   if (!t) return "parent";
   if (t === "advisor") return "advisor";
   if (t === "explore" || t === "explorer") return "explorer";
@@ -347,10 +359,7 @@ function estimateUsage(role, obj, opts) {
   const r = role || "parent";
   const model = roleToModel(r);
   const msg = obj && obj.message;
-  const raw =
-    (msg && msg.usage) ||
-    (obj && obj.usage) ||
-    null;
+  const raw = (msg && msg.usage) || (obj && obj.usage) || null;
   if (raw && typeof raw === "object") {
     const inn = clampTokens(
       raw.input_tokens != null
@@ -374,10 +383,8 @@ function estimateUsage(role, obj, opts) {
       return { model, role: r, in: inn, out };
     }
   }
-  const inn =
-    opts.inChars != null ? clampTokens(opts.inChars / 4) : charsToTokens(opts.inText);
-  const out =
-    opts.outChars != null ? clampTokens(opts.outChars / 4) : charsToTokens(opts.outText);
+  const inn = opts.inChars != null ? clampTokens(opts.inChars / 4) : charsToTokens(opts.inText);
+  const out = opts.outChars != null ? clampTokens(opts.outChars / 4) : charsToTokens(opts.outText);
   return { model, role: r, in: inn, out };
 }
 
@@ -467,12 +474,7 @@ function toolEstimateChars(tool) {
   const args = toolArgs(tool);
   if (/^(Write|StrReplace|Edit|EditNotebook)$/i.test(name)) {
     const body =
-      args.contents ||
-      args.new_string ||
-      args.newString ||
-      args.old_string ||
-      args.oldString ||
-      "";
+      args.contents || args.new_string || args.newString || args.old_string || args.oldString || "";
     return Math.min(480000, String(body).length);
   }
   try {
@@ -576,9 +578,7 @@ function handleParentLine(obj, filePath) {
   const tools = extractToolUses(obj);
   let outChars = String(text || "").length;
   for (const t of tools) outChars += toolEstimateChars(t);
-  const takeUsage = onceUsage(
-    estimateUsage("parent", obj, { inText: "", outChars })
-  );
+  const takeUsage = onceUsage(estimateUsage("parent", obj, { inText: "", outChars }));
 
   for (const tool of tools) {
     const name = tool.name || "";
@@ -587,8 +587,7 @@ function handleParentLine(obj, filePath) {
 
     const isTask =
       name === "Task" ||
-      (name === "CallDynamicTool" &&
-        (input.toolName === "Task" || (args && args.subagent_type)));
+      (name === "CallDynamicTool" && (input.toolName === "Task" || (args && args.subagent_type)));
 
     if (isTask) {
       const subType = args.subagent_type || input.subagent_type || "";
@@ -610,7 +609,10 @@ function handleParentLine(obj, filePath) {
       continue;
     }
 
-    if (name === "UpdateCurrentStep" || (name === "CallDynamicTool" && input.toolName === "UpdateCurrentStep")) {
+    if (
+      name === "UpdateCurrentStep" ||
+      (name === "CallDynamicTool" && input.toolName === "UpdateCurrentStep")
+    ) {
       const step = args.current_step || input.current_step;
       if (step) {
         pushEvent({
@@ -677,9 +679,10 @@ function handleSubagentLine(obj, filePath, roleHint) {
     const text = extractText(obj);
     const inferred = inferRoleFromSubagentText(text);
     if (inferred !== "parent") role = inferred;
-    const uuid = path.basename(path.dirname(filePath)) === "subagents"
-      ? path.basename(filePath, ".jsonl")
-      : null;
+    const uuid =
+      path.basename(path.dirname(filePath)) === "subagents"
+        ? path.basename(filePath, ".jsonl")
+        : null;
     if (uuid) subagentRoles.set(uuid, role);
     const q = text.match(/<user_query>([\s\S]*?)<\/user_query>/);
     const body = snippet(q ? q[1] : text, 80);
@@ -709,9 +712,7 @@ function handleSubagentLine(obj, filePath, roleHint) {
     );
     let outChars = String(text || "").length;
     for (const t of tools) outChars += toolEstimateChars(t);
-    const takeUsage = onceUsage(
-      estimateUsage(role, obj, { inText: "", outChars })
-    );
+    const takeUsage = onceUsage(estimateUsage(role, obj, { inText: "", outChars }));
     const tokensDelta =
       (role === "explorer" || role === "researcher") && readish
         ? 18000 + Math.min(40000, toolNames.length * 4000)
@@ -751,8 +752,7 @@ function handleSubagentLine(obj, filePath, roleHint) {
       pushEvent({
         role,
         kind: "status",
-        message:
-          a.kind + " · " + snippet(a.path || a.detail || "", 72),
+        message: a.kind + " · " + snippet(a.path || a.detail || "", 72),
         active: [roleToCard(role)],
         tokensDelta: 0,
         usage: null,
@@ -811,7 +811,10 @@ function primeSubagentRole(filePath) {
     const buf = Buffer.alloc(headLen);
     fs.readSync(fd, buf, 0, headLen, 0);
     fs.closeSync(fd);
-    const firstLine = buf.toString("utf8").split(/\r?\n/).find((l) => l.trim());
+    const firstLine = buf
+      .toString("utf8")
+      .split(/\r?\n/)
+      .find((l) => l.trim());
     if (!firstLine) return;
     const obj = JSON.parse(firstLine);
     const text = extractText(obj);
@@ -915,6 +918,48 @@ function serveDashboard(res) {
   });
 }
 
+/**
+ * Serve files under /dashboard/* from the dashboard/ folder (CSS/JS split).
+ * Rejects path traversal; only GET-friendly static assets.
+ */
+function serveStatic(urlPath, res) {
+  if (!urlPath.startsWith("/dashboard/")) return false;
+  const rel = decodeURIComponent(urlPath.slice("/dashboard/".length));
+  if (!rel || rel.includes("\0") || path.isAbsolute(rel)) {
+    res.writeHead(400, { "Content-Type": "text/plain" });
+    res.end("Bad path");
+    return true;
+  }
+  const resolved = path.resolve(STATIC_ROOT, rel);
+  const rootResolved = path.resolve(STATIC_ROOT) + path.sep;
+  if (resolved !== path.resolve(STATIC_ROOT) && !resolved.startsWith(rootResolved)) {
+    res.writeHead(403, { "Content-Type": "text/plain" });
+    res.end("Forbidden");
+    return true;
+  }
+  fs.stat(resolved, (statErr, st) => {
+    if (statErr || !st.isFile()) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not found");
+      return;
+    }
+    fs.readFile(resolved, (err, data) => {
+      if (err) {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Read error");
+        return;
+      }
+      const ext = path.extname(resolved).toLowerCase();
+      res.writeHead(200, {
+        "Content-Type": MIME[ext] || "application/octet-stream",
+        "Cache-Control": "no-store"
+      });
+      res.end(data);
+    });
+  });
+  return true;
+}
+
 function createServer() {
   return http.createServer((req, res) => {
     const url = new URL(req.url || "/", `http://127.0.0.1:${PORT}`);
@@ -931,6 +976,10 @@ function createServer() {
 
     if (url.pathname === "/" || url.pathname === "/index.html") {
       serveDashboard(res);
+      return;
+    }
+
+    if (serveStatic(url.pathname, res)) {
       return;
     }
 
@@ -1072,7 +1121,9 @@ function startBridge(opts) {
 
       log(`[live-bridge] http://127.0.0.1:${PORT}/`);
       log(`[live-bridge] transcripts: ${TRANSCRIPTS}`);
-      log(`[live-bridge] project: ${currentProjectLabel || "(custom)"} (${currentProjectId || "n/a"})`);
+      log(
+        `[live-bridge] project: ${currentProjectLabel || "(custom)"} (${currentProjectId || "n/a"})`
+      );
       log(`[live-bridge] exists: ${fs.existsSync(TRANSCRIPTS)}`);
       if (!quiet) log("[live-bridge] Leave this window open. Ctrl+C to stop.");
       if (!events.length) {

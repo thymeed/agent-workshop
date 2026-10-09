@@ -16,14 +16,18 @@ This is **Cursor Agents** branding/product framing, not Claude Code product UI.
 
 ## Key files
 
-| File | Role |
-| --- | --- |
-| `model-routing-dashboard.html` | Dashboard UI (Demo playbook + Live SSE client) |
-| `live-bridge.js` | Headless bridge: serves HTML + `/api/stream`, `/api/events`, `/api/status` |
-| `start-live.cmd` | Windows CLI fallback to start the bridge with a visible console |
-| `package.json` | Electron/desktop scripts (add when scaffold exists) |
-| Electron main (e.g. `main.js` / `electron/main.js`) | Desktop window; start bridge in-process |
-| `README.md` | User-facing run instructions and Live-mode limits |
+| File                           | Role                                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------------------- |
+| `model-routing-dashboard.html` | Dashboard markup shell (Demo + Live)                                                        |
+| `dashboard/styles.css`         | Dashboard styles (extracted from the former monolith)                                       |
+| `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage                                            |
+| `live-bridge.js`               | Headless bridge: serves HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status` |
+| `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                             |
+| `package.json`                 | Electron/desktop scripts + lint/test/ci                                                     |
+| `electron/main.js`             | Desktop window; start bridge in-process                                                     |
+| `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                |
+| `.github/workflows/ci.yml`     | Lint, format check, smoke test, packaging check                                             |
+| `README.md`                    | User-facing run instructions and Live-mode limits                                           |
 
 ## How to run
 

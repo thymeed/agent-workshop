@@ -37,10 +37,10 @@ npm run build
 
 Artifacts in `dist\`:
 
-| File | Use |
-| --- | --- |
-| `CursorAgentsModelRouting-Portable.exe` | Portable GUI app — double-click, no install |
-| `Cursor Agents Model Routing Setup x.x.x.exe` | Optional NSIS installer |
+| File                                          | Use                                         |
+| --------------------------------------------- | ------------------------------------------- |
+| `CursorAgentsModelRouting-Portable.exe`       | Portable GUI app — double-click, no install |
+| `Cursor Agents Model Routing Setup x.x.x.exe` | Optional NSIS installer                     |
 
 Packaged apps use the Windows GUI subsystem: **no console window** on launch. There is no `.cmd` wrapper.
 
@@ -52,13 +52,36 @@ npm run pack
 
 Then run `dist\win-unpacked\Cursor Agents Model Routing.exe`.
 
+## Project layout
+
+| Path                           | Role                                                    |
+| ------------------------------ | ------------------------------------------------------- |
+| `model-routing-dashboard.html` | Markup shell (Demo + Live UI)                           |
+| `dashboard/styles.css`         | Dashboard styles                                        |
+| `dashboard/app.js`             | Demo playbook, Live SSE client, workshop stage          |
+| `live-bridge.js`               | Headless/Electron bridge (HTML + `/dashboard/*` + APIs) |
+| `electron/main.js`             | Desktop window; starts bridge in-process                |
+| `test/demo-smoke.test.js`      | Demo-mode Playwright smoke test                         |
+
 ## Demo mode (static HTML fallback)
 
 No server required:
 
-1. Open `model-routing-dashboard.html` in a browser (`file://`).
+1. Open `model-routing-dashboard.html` in a browser (`file://`). Relative links load `dashboard/styles.css` and `dashboard/app.js`.
 2. Leave **Demo** selected and click **Play** — watch the workshop narrative (asks → explore/research → worker edit → advisor → ship).
 3. Click a character to filter Activity; click the Merge portal to open Activity; use **Panels** for Bill & Log; unmute with 🔊 for soft blips.
+
+## Lint, format, test
+
+```bat
+npm install
+npm run lint
+npm run format:check
+npm test
+npm run build:check
+```
+
+Or `npm run ci` for the same sequence. `npm test` needs Playwright Chromium once: `npx playwright install chromium`.
 
 ## Headless bridge (optional)
 
@@ -87,13 +110,13 @@ node live-bridge.js --dir "C:\Users\<you>\.cursor\projects\<project>\agent-trans
 
 ### What Live mode wires
 
-| Source | Use |
-| --- | --- |
+| Source                                              | Use                                                       |
+| --------------------------------------------------- | --------------------------------------------------------- |
 | `~/.cursor/projects/*/agent-transcripts/**/*.jsonl` | Projects listed in the picker; newest selected by default |
-| `GET /api/projects` | Project list + current selection |
-| `GET /api/select?id=` | Switch transcripts folder + reset watch state |
-| SSE `GET /api/stream` | Events + `reset` when the project changes |
-| `GET /api/events`, `GET /api/status` | Debug / backlog |
+| `GET /api/projects`                                 | Project list + current selection                          |
+| `GET /api/select?id=`                               | Switch transcripts folder + reset watch state             |
+| SSE `GET /api/stream`                               | Events + `reset` when the project changes                 |
+| `GET /api/events`, `GET /api/status`                | Debug / backlog                                           |
 
 Roles are inferred from `Task` / `CallDynamicTool` `subagent_type` and subagent prompt text (`advisor`, `worker`, `explore`→explorer, `researcher`). Unknown types map to parent/generic.
 
