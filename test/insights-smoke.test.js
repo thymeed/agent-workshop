@@ -176,6 +176,80 @@ async function assertInsightsUi(page, label, errors) {
   });
   if (!scrubOk) errors.push(label + ": replay scrubber did not change rendered state");
 
+  /* Replay transport API: scrub notifies, play advances index */
+  const transportOk = await page.evaluate(async () => {
+    const handle = window.__insightsHandle;
+    if (
+      !handle ||
+      typeof handle.play !== "function" ||
+      typeof handle.pause !== "function" ||
+      typeof handle.setSpeed !== "function" ||
+      typeof handle.getTransportState !== "function" ||
+      typeof handle.onReplayIndex !== "function" ||
+      typeof handle.setReplayIndex !== "function" ||
+      typeof handle.showTab !== "function" ||
+      typeof handle.mountReplay !== "function" ||
+      typeof handle.getReplayController !== "function"
+    ) {
+      return { ok: false, reason: "api" };
+    }
+
+    const seen = [];
+    const off = handle.onReplayIndex(function (payload) {
+      if (payload && typeof payload.index === "number") {
+        seen.push({ index: payload.index, source: payload.source });
+      }
+    });
+
+    handle.showTab("replay");
+    handle.setReplayIndex(0, { source: "test", forceNotify: true });
+    const scrubber = document.querySelector(".insights-scrubber");
+    if (!scrubber) return { ok: false, reason: "scrubber" };
+    const max = Number(scrubber.max || 0);
+    if (max < 2) return { ok: false, reason: "short" };
+
+    scrubber.value = String(Math.min(2, max));
+    scrubber.dispatchEvent(new Event("input", { bubbles: true }));
+    const afterScrub = handle.getTransportState();
+    const scrubNotified = seen.some(function (s) {
+      return s.source === "scrub" && s.index === afterScrub.index;
+    });
+
+    handle.setReplayIndex(0, { source: "test" });
+    const start = handle.getTransportState().index;
+    handle.setSpeed(2);
+    handle.play();
+    await new Promise(function (r) {
+      setTimeout(r, 700);
+    });
+    const mid = handle.getTransportState();
+    handle.pause();
+    const afterPause = handle.getTransportState();
+    const ctrl = handle.getReplayController();
+    const ctrlOk =
+      ctrl &&
+      typeof ctrl.play === "function" &&
+      typeof ctrl.getTransportState === "function" &&
+      ctrl.getTransportState().playing === false;
+    if (typeof off === "function") off();
+
+    if (!scrubNotified) return { ok: false, reason: "scrub-notify" };
+    if (!mid || !(mid.index > start)) return { ok: false, reason: "play" };
+    if (mid.speed !== 2) return { ok: false, reason: "speed" };
+    if (afterPause.playing) return { ok: false, reason: "still-playing" };
+    if (seen.length < 2) return { ok: false, reason: "callbacks" };
+    if (!ctrlOk) return { ok: false, reason: "controller" };
+    return { ok: true, reason: "ok" };
+  });
+  if (!transportOk || !transportOk.ok) {
+    errors.push(
+      label +
+        ": replay transport API failed (" +
+        ((transportOk && transportOk.reason) || "unknown") +
+        ")"
+    );
+  }
+
   /* What-if */
   await page.click('.insights-tab[data-tab="whatif"]');
   await page.waitForSelector('[data-panel="whatif"].on', { timeout: 3000 });

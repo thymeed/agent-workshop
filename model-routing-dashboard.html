@@ -27,7 +27,7 @@
     <link rel="stylesheet" href="dashboard/insights.css" />
   </head>
   <body>
-    <div class="wrap">
+    <div class="wrap" id="app" data-view-mode="stage">
       <header>
         <div class="header-top">
           <div class="title-row">
@@ -35,9 +35,20 @@
             <span class="pill-new">NEW · HAIKU 5.5</span>
           </div>
           <div class="mode-bar">
-            <div class="seg" role="group" aria-label="Mode">
+            <div class="seg" role="group" aria-label="Source">
               <button type="button" id="modeDemo" class="on">Demo</button>
               <button type="button" id="modeLive">Live</button>
+            </div>
+            <div class="seg view-mode-seg" id="viewMode" role="group" aria-label="View">
+              <button type="button" id="viewStage" class="on" aria-pressed="true" data-view="stage">
+                Stage
+              </button>
+              <button type="button" id="viewInsights" aria-pressed="false" data-view="insights">
+                Insights
+              </button>
+              <button type="button" id="viewHistory" aria-pressed="false" data-view="history">
+                History
+              </button>
             </div>
             <button type="button" class="action-btn" id="demoBtn" aria-pressed="false">Play</button>
             <select
@@ -51,7 +62,8 @@
               class="panels-btn"
               id="panelsBtn"
               aria-pressed="false"
-              title="Open Bill &amp; Log drawers"
+              title="Open panels"
+              aria-label="Open panels"
             >
               Panels
             </button>
@@ -430,6 +442,8 @@
               <span class="hud-chip cost">session <strong id="hudSessionCost">$0.00</strong></span>
               <span class="hud-chip active-role">active <strong id="hudActiveRole">—</strong></span>
               <span class="hud-chip">subs <strong id="hudSubs">0</strong></span>
+              <span class="hud-chip">effort <strong id="hudEffort">mixed</strong></span>
+              <span class="hud-chip">haiku <strong id="hudTokens">0</strong></span>
             </div>
           </div>
         </div>
@@ -690,25 +704,35 @@
             </section>
           </div>
         </details>
-      </div>
 
-      <div id="insightsMount" class="insights-mount" aria-label="Insights panel mount"></div>
+        <details class="drawer" data-panel="insights" id="drawerInsights">
+          <summary>Insights</summary>
+          <div class="drawer-body" id="insightsDrawerBody" aria-label="Insights panel"></div>
+        </details>
+
+        <details class="drawer" data-panel="history" id="drawerHistory">
+          <summary>History</summary>
+          <div class="drawer-body">
+            <p class="history-hint" id="historyHint" role="status">Replay driving stage</p>
+            <div
+              id="historyReplayHost"
+              class="history-replay-host"
+              aria-label="Session replay"
+            ></div>
+          </div>
+        </details>
+      </div>
 
       <footer class="footer">
         <div class="cli">
           <span class="prompt">project $</span>
           <span class="cmd" id="footerProject">cursor --model opus --advisor fable</span>
         </div>
-        <div class="footer-badges">
-          <span class="fbadge">session <strong id="footerSessionCost">$0.00</strong></span>
-          <span class="fbadge">effort <strong id="footerEffort">mixed</strong></span>
-          <span class="fbadge">subagents <strong id="footerSubs">0</strong></span>
-          <span class="fbadge">haiku tokens <strong id="footerTokens">0</strong></span>
-        </div>
       </footer>
     </div>
     <script src="dashboard/cards.js"></script>
     <script src="dashboard/insights.js"></script>
+    <script src="dashboard/replay-stage.js"></script>
     <script src="dashboard/app.js"></script>
   </body>
 </html>

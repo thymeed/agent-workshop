@@ -61,27 +61,36 @@
     shareSonnet: document.getElementById("shareSonnet"),
     shareHaiku: document.getElementById("shareHaiku")
   };
-  var footerSubs = document.getElementById("footerSubs");
-  var footerTokens = document.getElementById("footerTokens");
-  var footerSessionCost = document.getElementById("footerSessionCost");
-  var footerEffort = document.getElementById("footerEffort");
   var workshop = document.getElementById("workshop");
   var asksLabel = document.getElementById("asksLabel");
   var delegatesLabel = document.getElementById("delegatesLabel");
   var hudSessionCost = document.getElementById("hudSessionCost");
   var hudActiveRole = document.getElementById("hudActiveRole");
   var hudSubs = document.getElementById("hudSubs");
+  var hudEffort = document.getElementById("hudEffort");
+  var hudTokens = document.getElementById("hudTokens");
   var crateTooltip = document.getElementById("crateTooltip");
   var stageToast = document.getElementById("stageToast");
+  var appEl = document.getElementById("app");
   var drawersEl = document.getElementById("drawers");
   var drawerActivity = document.getElementById("drawerActivity");
   var drawerBill = document.getElementById("drawerBill");
   var drawerLog = document.getElementById("drawerLog");
   var drawerStations = document.getElementById("drawerStations");
+  var drawerInsights = document.getElementById("drawerInsights");
+  var drawerHistory = document.getElementById("drawerHistory");
   var panelsBtn = document.getElementById("panelsBtn");
   var soundBtn = document.getElementById("soundBtn");
+  var viewStageBtn = document.getElementById("viewStage");
+  var viewInsightsBtn = document.getElementById("viewInsights");
+  var viewHistoryBtn = document.getElementById("viewHistory");
   var activityFilterRole = null;
   var toastTimer = null;
+  var viewMode = "stage";
+  var VIEW_MODE_KEY = "cursorAgents.viewMode";
+  var replaySessionActive = false;
+  var lastReplayIndex = -1;
+  var ReplayStage = window.ReplayStage || null;
 
   /* Move station cards into Stations drawer (keep same card/status IDs). */
   (function relocateStations() {
@@ -121,17 +130,18 @@
   var mode = "demo"; /* demo | live */
   var insightsPanel = null;
 
-  /* Lane C insights panel — guarded until dashboard/insights.js defines window.Insights. */
+  /* Insights sheet — mount inside #drawerInsights (not a stacked sibling under drawers). */
   if (window.Insights && typeof window.Insights.init === "function") {
     try {
       insightsPanel = window.Insights.init(
-        document.getElementById("insightsMount") ||
-          document.getElementById("drawers") ||
+        document.getElementById("insightsDrawerBody") ||
+          document.getElementById("drawerInsights") ||
           document.body,
         { demo: mode === "demo" }
       );
     } catch (_insightsErr) {}
   }
+  /* Replay → stage wiring is registered after onReplayIndexChange is defined (below). */
   var lastDemoUsageTotal = 0;
   var playing = false;
   var timers = [];
@@ -539,21 +549,96 @@
     sound.play("click");
   }
 
+  function normalizeViewMode(mode) {
+    var m = String(mode || "").toLowerCase();
+    if (m === "insights" || m === "history") return m;
+    return "stage";
+  }
+
+  function syncViewModeButtons(mode) {
+    var buttons = [
+      { el: viewStageBtn, mode: "stage" },
+      { el: viewInsightsBtn, mode: "insights" },
+      { el: viewHistoryBtn, mode: "history" }
+    ];
+    buttons.forEach(function (b) {
+      if (!b.el) return;
+      var on = b.mode === mode;
+      b.el.classList.toggle("on", on);
+      b.el.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+
+  /**
+   * Primary nav: Stage | Insights | History.
+   * Slice 1: shell only (data-view-mode + persist). Drawer open/close lands in later slices.
+   */
+  function setViewMode(mode, opts) {
+    opts = opts || {};
+    viewMode = normalizeViewMode(mode);
+    if (appEl) appEl.setAttribute("data-view-mode", viewMode);
+    syncViewModeButtons(viewMode);
+    if (!opts.skipPersist) {
+      try {
+        sessionStorage.setItem(VIEW_MODE_KEY, viewMode);
+      } catch (_) {}
+    }
+
+    /* Drawer focus — no-ops until Insights/History drawers exist */
+    if (viewMode === "stage") {
+      if (drawerInsights) drawerInsights.open = false;
+      if (drawerHistory) drawerHistory.open = false;
+      if (drawerActivity) drawerActivity.open = true;
+      endReplaySession();
+    } else if (viewMode === "insights") {
+      if (drawerHistory) drawerHistory.open = false;
+      if (drawerActivity) drawerActivity.open = false;
+      if (drawerInsights) drawerInsights.open = true;
+      if (insightsPanel && typeof insightsPanel.showTab === "function") {
+        insightsPanel.showTab("forecast");
+      }
+      if (insightsPanel && typeof insightsPanel.pause === "function") insightsPanel.pause();
+    } else if (viewMode === "history") {
+      if (drawerInsights) drawerInsights.open = false;
+      if (drawerActivity) drawerActivity.open = false;
+      if (drawerHistory) drawerHistory.open = true;
+      if (insightsPanel) {
+        if (typeof insightsPanel.showTab === "function") insightsPanel.showTab("replay");
+        if (typeof insightsPanel.mountReplay === "function") {
+          insightsPanel.mountReplay(document.getElementById("historyReplayHost"));
+        }
+        /* Do not auto-play — user hits Play in History transport. */
+        if (typeof insightsPanel.pause === "function") insightsPanel.pause();
+      }
+    }
+
+    if (viewMode !== "history" && insightsPanel && typeof insightsPanel.pause === "function") {
+      insightsPanel.pause();
+    }
+  }
+
   function openPanels() {
     if (drawerBill) drawerBill.open = true;
     if (drawerLog) drawerLog.open = true;
+    if (drawerInsights) drawerInsights.open = true;
     if (drawersEl) drawersEl.classList.add("panels-open");
     if (panelsBtn) {
       panelsBtn.classList.add("on");
       panelsBtn.setAttribute("aria-pressed", "true");
+      panelsBtn.setAttribute("title", "Open panels");
+      panelsBtn.setAttribute("aria-label", "Open panels");
     }
   }
 
   function togglePanels() {
-    var anyOpen = (drawerBill && drawerBill.open) || (drawerLog && drawerLog.open);
+    var anyOpen =
+      (drawerBill && drawerBill.open) ||
+      (drawerLog && drawerLog.open) ||
+      (drawerInsights && drawerInsights.open && viewMode === "stage");
     if (anyOpen) {
       if (drawerBill) drawerBill.open = false;
       if (drawerLog) drawerLog.open = false;
+      if (viewMode === "stage" && drawerInsights) drawerInsights.open = false;
       if (drawersEl) drawersEl.classList.remove("panels-open");
       if (panelsBtn) {
         panelsBtn.classList.remove("on");
@@ -806,9 +891,8 @@
 
     billEls.sessionTotal.textContent = formatMoney(sessionTotal);
     billEls.allOpus.textContent = formatMoney(allOpus);
-    footerSessionCost.textContent = formatMoney(sessionTotal);
     if (hudSessionCost) hudSessionCost.textContent = formatMoney(sessionTotal);
-    footerTokens.textContent = formatTokens(u.haiku.in + u.haiku.out);
+    if (hudTokens) hudTokens.textContent = formatTokens(u.haiku.in + u.haiku.out);
 
     if (sessionTotal > 0 && allOpus > sessionTotal) {
       var mult = allOpus / Math.max(sessionTotal, 0.0001);
@@ -1014,9 +1098,12 @@
 
   function setSubs(n) {
     state.subs = n;
-    footerSubs.textContent = String(n);
     if (hudSubs) hudSubs.textContent = String(n);
     syncDailyStatsFromUsage();
+  }
+
+  function setEffort(label) {
+    if (hudEffort) hudEffort.textContent = label || "mixed";
   }
 
   function pad2(n) {
@@ -1264,7 +1351,7 @@
     setCalls(0);
     setSubs(0);
     advisorLastEl.textContent = "Last advice: —";
-    footerEffort.textContent = mode === "live" ? "live" : "mixed";
+    setEffort(mode === "live" ? "live" : "mixed");
     state.usage = emptyUsage();
     lastDemoUsageTotal = 0;
     renderBill();
@@ -1305,11 +1392,21 @@
     liveSeenByProject = {};
   }
 
-  function applyLiveEvent(ev) {
+  function applyLiveEvent(ev, opts) {
     if (!ev) return;
-    var alreadySeen = hasSeenLiveEvent(ev);
-    if (!alreadySeen) markSeenLiveEvent(ev);
-    var usageOpts = { skipDaily: alreadySeen };
+    opts = opts || {};
+    var isReplay = !!opts.replay;
+    /* History replay owns the stage — ignore Live/Demo ingress until Stage resumes. */
+    if (replaySessionActive && !isReplay) return;
+
+    var alreadySeen = false;
+    if (!isReplay) {
+      alreadySeen = hasSeenLiveEvent(ev);
+      if (!alreadySeen) markSeenLiveEvent(ev);
+    }
+    var usageOpts = { skipDaily: alreadySeen || isReplay };
+    var skipTiming = !!opts.skipTiming || alreadySeen || liveSseBacklogReplay;
+    var skipMotion = !!opts.skipMotion || (isReplay && prefersReducedMotion());
 
     var role = ev.role || "parent";
     var cardRole =
@@ -1327,14 +1424,18 @@
 
     var explicit = Array.isArray(ev.active) ? ev.active : null;
     var active = explicit && explicit.length ? explicit.slice() : [cardRole];
-    rememberLiveFocus(explicit, active);
-    setActive(mergeStickyActive(active), {
-      skipTiming: alreadySeen || liveSseBacklogReplay
+    if (!isReplay) rememberLiveFocus(explicit, active);
+    setActive(isReplay ? active : mergeStickyActive(active), {
+      skipTiming: skipTiming
     });
 
     var msg = ev.message || "";
-    setStatus(cardRole, '<span class="live">' + escapeHtml(msg) + "</span>");
-    if (role === "advisor" || ev.kind === "asks") {
+    var statusCls = ev.replayError ? "err" : "live";
+    setStatus(cardRole, '<span class="' + statusCls + '">' + escapeHtml(msg) + "</span>");
+    if (!isReplay && (role === "advisor" || ev.kind === "asks")) {
+      setCalls(state.calls + 1);
+      advisorLastEl.textContent = "Last advice: " + msg;
+    } else if (isReplay && (role === "advisor" || ev.kind === "asks")) {
       setCalls(state.calls + 1);
       advisorLastEl.textContent = "Last advice: " + msg;
     }
@@ -1378,10 +1479,83 @@
         ev.ts
       );
     }
-    if (ev.route) animateRoute(ev.route, ev.routeTo || cardRole);
+    if (ev.route && !skipMotion) animateRoute(ev.route, ev.routeTo || cardRole);
 
     var logRole = role === "parent" ? "parent" : role;
-    appendLog(logRole, msg, null, ev.ts);
+    appendLog(logRole, msg, ev.replayError ? "err" : null, ev.ts);
+  }
+
+  function resetReplaySession() {
+    replaySessionActive = true;
+    lastReplayIndex = -1;
+    clearStickyActive();
+    clearTimers();
+    if (playing) stopDemo();
+    stageDirector.reset();
+    setActive([]);
+    setStatus("opus", '<span class="live">Replay · idle</span>');
+    setStatus("advisor", '<span class="live">Quiet</span>');
+    setStatus("worker", '<span class="live">Standby</span>');
+    setStatus("explorer", '<span class="live">Standby</span>');
+    setStatus("researcher", '<span class="live">Standby</span>');
+    setCalls(0);
+    setSubs(0);
+    advisorLastEl.textContent = "Last advice: —";
+    state.usage = emptyUsage();
+    state.liveSubs = {};
+    renderBill();
+    clearActivity();
+    sessionLog.innerHTML = "";
+    logEmpty = document.createElement("div");
+    logEmpty.className = "log-empty";
+    logEmpty.id = "logEmpty";
+    logEmpty.textContent = "Replay session…";
+    sessionLog.appendChild(logEmpty);
+  }
+
+  function endReplaySession() {
+    if (insightsPanel && typeof insightsPanel.pause === "function") insightsPanel.pause();
+    replaySessionActive = false;
+    lastReplayIndex = -1;
+  }
+
+  var replayStageApi = {
+    applyLiveEvent: applyLiveEvent,
+    resetReplay: resetReplaySession,
+    prefersReducedMotion: prefersReducedMotion
+  };
+
+  function onReplayIndexChange(payload) {
+    if (!ReplayStage || !payload) return;
+    var events = payload.events || [];
+    var index = Number(payload.index);
+    if (!isFinite(index)) return;
+    var source = payload.source || "scrub";
+
+    if (playing) stopDemo();
+    replaySessionActive = true;
+
+    if (source === "play" && index === lastReplayIndex + 1 && lastReplayIndex >= 0) {
+      var stepEv = events[index];
+      if (stepEv) {
+        ReplayStage.applyOne(replayStageApi, stepEv, {
+          skipTiming: false,
+          skipMotion: prefersReducedMotion()
+        });
+      }
+      lastReplayIndex = index;
+      return;
+    }
+
+    /* scrub / play-start / session / test — rebuild [0..index] */
+    ReplayStage.seek(replayStageApi, events, index, {
+      prefersReducedMotion: prefersReducedMotion()
+    });
+    lastReplayIndex = index;
+  }
+
+  if (insightsPanel && typeof insightsPanel.onReplayIndex === "function") {
+    insightsPanel.onReplayIndex(onReplayIndexChange);
   }
 
   function stopLive() {
@@ -1522,7 +1696,7 @@
         },
         "opus"
       );
-      footerEffort.textContent = "high";
+      setEffort("high");
     },
     function () {
       setActive(["opus", "advisor"]);
@@ -1774,7 +1948,7 @@
         "parent",
         "reviewed · shipped · Session Bill shows multi-model savings vs all-Opus"
       );
-      footerEffort.textContent = "done";
+      setEffort("done");
       playing = false;
       demoBtn.textContent = "Play";
       demoBtn.classList.remove("playing");
@@ -1894,7 +2068,20 @@
     panelsBtn.addEventListener("click", function () {
       togglePanels();
     });
+    panelsBtn.setAttribute("title", "Open panels");
+    panelsBtn.setAttribute("aria-label", "Open panels");
   }
+
+  function bindViewModeButton(btn, mode) {
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      setViewMode(mode);
+      sound.play("click");
+    });
+  }
+  bindViewModeButton(viewStageBtn, "stage");
+  bindViewModeButton(viewInsightsBtn, "insights");
+  bindViewModeButton(viewHistoryBtn, "history");
 
   Object.keys(stageDirector.chars).forEach(function (role) {
     var el = stageDirector.chars[role];
@@ -1963,6 +2150,13 @@
   clearActivity();
   updateFooterProject();
   sound.syncBtn();
+  (function restoreViewMode() {
+    var stored = null;
+    try {
+      stored = sessionStorage.getItem(VIEW_MODE_KEY);
+    } catch (_) {}
+    setViewMode(normalizeViewMode(stored || "stage"), { skipPersist: true });
+  })();
   requestAnimationFrame(function () {
     layoutFlow();
   });
@@ -1975,6 +2169,21 @@
   /* Test hooks for Playwright (localhost dashboard only). */
   globalThis.__cursorAgentsDashTest = {
     applyLiveEvent: applyLiveEvent,
+    setViewMode: setViewMode,
+    getViewMode: function () {
+      return viewMode;
+    },
+    replaySeek: function (events, index) {
+      if (!ReplayStage) return;
+      onReplayIndexChange({
+        events: events || [],
+        index: index,
+        source: "test"
+      });
+    },
+    isReplaySessionActive: function () {
+      return replaySessionActive;
+    },
     demoUsageTokenTotal: function () {
       return usageGrandTotal(state.usage);
     },
