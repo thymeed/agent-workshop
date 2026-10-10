@@ -2,7 +2,7 @@
 
 Desktop dashboard for visualizing how a Cursor Agents session routes work across Opus (parent), Fable (advisor), Worker (Sonnet), Explorer / Researcher (Haiku).
 
-The first viewport is an **agent workshop**: five station characters (Opus desk, Fable consult, Sonnet build, Explore / Research shelves) walk paths and carry code crates into a central **Merge portal**. Demo Play and Live SSE drive the stage; Session Bill, Activity, and Session Log live in drawers under the stage (HUD chips show session $, active role, and subagent count). Optional cute Web Audio blips are **muted by default** — toggle 🔊/🔇 in the header (persisted in `localStorage`).
+The first viewport is an **agent workshop**: five station characters (Opus desk, Fable consult, Sonnet build, Explore / Research shelves) walk paths and carry code crates into a central **Merge portal**. Demo Play and Live SSE drive the stage; Session Bill, Activity, Insights, History/Replay, and Session Log live as **drawer sheets** under the stage. Header **Stage | Insights | History** switches which sheet owns the lower chrome (workshop stays visible). HUD chips are the single status strip (session $, active role, subs, effort, haiku tokens). **History** Replay play/pause/speed drives the same workshop engine (crates/characters); leaving History stops transport and leaves the last replay frame until Demo/Live runs again. Estimates remain illustrative · not official usage. Optional cute Web Audio blips are **muted by default** — toggle 🔊/🔇 in the header (persisted in `localStorage`).
 
 **Primary product:** double-click the Windows GUI `.exe`, or run `npm start`. Window title: **Cursor Agents · Model Routing**. The live bridge runs **in-process** inside Electron — no CMD popup, no separate `node.exe` console.
 
@@ -69,7 +69,7 @@ No server required:
 
 1. Open `model-routing-dashboard.html` in a browser (`file://`). Relative links load `dashboard/styles.css` and `dashboard/app.js`.
 2. Leave **Demo** selected and click **Play** — watch the workshop narrative (asks → explore/research → worker edit → advisor → ship).
-3. Click a character to filter Activity; click the Merge portal to open Activity; use **Panels** for Bill & Log; unmute with 🔊 for soft blips.
+3. Click a character to filter Activity; click the Merge portal to open Activity; use **Panels** for Bill, Log & Insights sheets (stays on Stage); switch **Insights** / **History** for forecast or replay transport; unmute with 🔊 for soft blips.
 
 ## Lint, format, test
 

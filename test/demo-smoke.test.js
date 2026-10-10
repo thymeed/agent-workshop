@@ -23,6 +23,7 @@ async function smokeDemoFile(browser) {
   await page.goto(FILE_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
   await page.waitForSelector("#workshop", { timeout: 5000 });
   await page.waitForSelector("#modeDemo.on", { timeout: 5000 });
+  await page.waitForSelector("#viewStage.on", { timeout: 5000 });
 
   const title = await page.title();
   if (!/Model Routing/i.test(title)) errors.push("unexpected title: " + title);
@@ -37,6 +38,78 @@ async function smokeDemoFile(browser) {
     }
   });
   if (!cssOk) errors.push("styles.css did not load");
+
+  const chromeOk = await page.evaluate(() => {
+    const app = document.getElementById("app");
+    const viewMode = app && app.getAttribute("data-view-mode");
+    const stageOn = !!(
+      document.getElementById("viewStage") &&
+      document.getElementById("viewStage").classList.contains("on")
+    );
+    const insightsBtn = document.getElementById("viewInsights");
+    const historyBtn = document.getElementById("viewHistory");
+    const noMount = !document.getElementById("insightsMount");
+    const insightsInDrawers = !!document.querySelector("#drawers #drawerInsights");
+    const historyInDrawers = !!document.querySelector("#drawers #drawerHistory");
+    const hud = document.getElementById("hudSessionCost");
+    const noFooterCost = !document.getElementById("footerSessionCost");
+    const noFooterSubs = !document.getElementById("footerSubs");
+    return (
+      viewMode === "stage" &&
+      stageOn &&
+      !!insightsBtn &&
+      !!historyBtn &&
+      noMount &&
+      insightsInDrawers &&
+      historyInDrawers &&
+      !!hud &&
+      noFooterCost &&
+      noFooterSubs
+    );
+  });
+  if (!chromeOk) {
+    errors.push(
+      "chrome unify missing: Stage|Insights|History modes, drawers host Insights/History, HUD-only session/subs"
+    );
+  }
+
+  const replaySeekOk = await page.evaluate(() => {
+    const t = window.__cursorAgentsDashTest;
+    if (!t || typeof t.replaySeek !== "function" || !window.ReplayStage) return false;
+    const events = [
+      {
+        ts: "2026-10-09T14:00:00.000Z",
+        sessionId: "smoke",
+        agentId: "agent-parent",
+        parentId: null,
+        name: "Parent",
+        model: "opus",
+        type: "spawn",
+        inputTokens: 0,
+        outputTokens: 0,
+        files: []
+      },
+      {
+        ts: "2026-10-09T14:00:05.000Z",
+        sessionId: "smoke",
+        agentId: "agent-worker",
+        parentId: "agent-parent",
+        name: "Worker",
+        model: "sonnet",
+        type: "spawn",
+        inputTokens: 0,
+        outputTokens: 0,
+        files: []
+      }
+    ];
+    t.setViewMode("history");
+    t.replaySeek(events, 1);
+    const hud = ((document.getElementById("hudActiveRole") || {}).textContent || "").trim();
+    const active = t.isReplaySessionActive && t.isReplaySessionActive();
+    t.setViewMode("stage");
+    return active && /Sonnet/i.test(hud);
+  });
+  if (!replaySeekOk) errors.push("replaySeek did not drive stage HUD active role");
 
   const costBefore = (await page.textContent("#hudSessionCost")) || "";
 

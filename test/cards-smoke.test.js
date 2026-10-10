@@ -416,6 +416,7 @@ async function smokeCardsDemo(browser) {
     const cardsJs = document.querySelector('script[src*="cards.js"]');
     const cardsCss = document.querySelector('link[href*="cards.css"]');
     const insightsJs = document.querySelector('script[src*="insights.js"]');
+    const replayJs = document.querySelector('script[src*="replay-stage.js"]');
     const insightsCss = document.querySelector('link[href*="insights.css"]');
     return {
       hasAgentCards: !!(window.AgentCards && typeof window.AgentCards.init === "function"),
@@ -424,11 +425,17 @@ async function smokeCardsDemo(browser) {
       insightsJsTag: !!(
         insightsJs && /dashboard\/insights\.js/i.test(insightsJs.getAttribute("src") || "")
       ),
+      replayJsTag: !!(
+        replayJs && /dashboard\/replay-stage\.js/i.test(replayJs.getAttribute("src") || "")
+      ),
       insightsCssTag: !!(
         insightsCss && /dashboard\/insights\.css/i.test(insightsCss.getAttribute("href") || "")
       ),
       insightsGuarded:
-        typeof window.Insights === "undefined" || typeof window.Insights.init === "function"
+        typeof window.Insights === "undefined" || typeof window.Insights.init === "function",
+      replayStage:
+        typeof window.ReplayStage === "undefined" ||
+        typeof window.ReplayStage.mapHistoryEvent === "function"
     };
   });
 
@@ -436,8 +443,10 @@ async function smokeCardsDemo(browser) {
   if (!assets.cardsJs) errors.push("cards.js script tag missing");
   if (!assets.cardsCss) errors.push("cards.css did not load");
   if (!assets.insightsJsTag) errors.push("HTML missing dashboard/insights.js script tag");
+  if (!assets.replayJsTag) errors.push("HTML missing dashboard/replay-stage.js script tag");
   if (!assets.insightsCssTag) errors.push("HTML missing dashboard/insights.css link tag");
   if (!assets.insightsGuarded) errors.push("Insights.init guard broken");
+  if (!assets.replayStage) errors.push("ReplayStage API missing");
 
   const privacy = await page.evaluate(() => {
     const ac = window.AgentCards;
