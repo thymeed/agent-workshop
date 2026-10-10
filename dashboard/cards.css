@@ -151,21 +151,26 @@
 .avatar-eyes {
   top: 13px;
   width: 20px;
+  min-width: 20px;
   height: 8px;
   display: flex;
+  flex-direction: row;
+  gap: 10px;
+  justify-content: center;
   align-items: center;
-  justify-content: space-between;
   background: none;
   opacity: 1;
 }
 
 .avatar-eye {
   display: block;
+  box-sizing: border-box;
   width: 5px;
   height: 5px;
+  min-width: 5px;
+  min-height: 5px;
   border-radius: 50%;
   background: var(--avatar-ink);
-  flex: 0 0 auto;
 }
 
 .avatar-mouth {
@@ -238,19 +243,26 @@
 .agent-avatar.avatar-sm[data-avatar="researcher"] .avatar-chrome::after {
   right: 4px;
 }
-.agent-avatar.avatar-sm[data-avatar].state-idle .avatar-mouth,
+.agent-avatar.avatar-sm[data-avatar]:not(.state-done):not(.state-celebrating):not(.state-error)
+  .avatar-mouth,
 .agent-avatar.avatar-sm[data-avatar] .avatar-mouth {
   top: 12px;
   width: 6px !important;
   height: 3px !important;
   border-bottom-width: 1.5px;
 }
-.agent-avatar.avatar-sm[data-avatar="worker"].state-idle .avatar-mouth {
+.agent-avatar.avatar-sm[data-avatar="worker"]:not(.state-done):not(.state-celebrating):not(
+    .state-error
+  )
+  .avatar-mouth {
   background: var(--avatar-ink);
   border-bottom: none;
   border-radius: 1px;
 }
-.agent-avatar.avatar-sm[data-avatar="researcher"].state-idle .avatar-mouth {
+.agent-avatar.avatar-sm[data-avatar="researcher"]:not(.state-done):not(.state-celebrating):not(
+    .state-error
+  )
+  .avatar-mouth {
   width: 3px !important;
   height: 3px !important;
   border-radius: 50%;
@@ -389,22 +401,24 @@
 }
 
 /*
- * Per-role idle mouths — structurally different shapes (not one smile + tint).
+ * Per-role mouths (all non-done states) — structurally different shapes.
  * Must stay readable on Stations cards + match stage SVG cast:
  * Opus flat wide · Fable deep grin · Worker straight dash · Explore open U · Research o
  */
-.agent-avatar[data-avatar="opus"].state-idle .avatar-mouth {
+.agent-avatar[data-avatar="opus"]:not(.state-done):not(.state-celebrating):not(.state-error)
+  .avatar-mouth {
   width: 13px;
-  height: 3px;
+  height: 2.4px;
   top: 26px;
   border: none;
-  border-radius: 0 0 14px 14px;
-  border-bottom: 2.4px solid var(--avatar-ink);
-  background: transparent;
+  border-radius: 1px;
+  border-bottom: none;
+  background: var(--avatar-ink);
   opacity: 0.9;
 }
 
-.agent-avatar[data-avatar="advisor"].state-idle .avatar-mouth {
+.agent-avatar[data-avatar="advisor"]:not(.state-done):not(.state-celebrating):not(.state-error)
+  .avatar-mouth {
   width: 11px;
   height: 7px;
   top: 22px;
@@ -415,7 +429,8 @@
   opacity: 0.95;
 }
 
-.agent-avatar[data-avatar="worker"].state-idle .avatar-mouth {
+.agent-avatar[data-avatar="worker"]:not(.state-done):not(.state-celebrating):not(.state-error)
+  .avatar-mouth {
   width: 8px;
   height: 2.4px;
   top: 27px;
@@ -426,7 +441,8 @@
   opacity: 0.88;
 }
 
-.agent-avatar[data-avatar="explorer"].state-idle .avatar-mouth {
+.agent-avatar[data-avatar="explorer"]:not(.state-done):not(.state-celebrating):not(.state-error)
+  .avatar-mouth {
   width: 9px;
   height: 6.5px;
   top: 23px;
@@ -436,8 +452,29 @@
   background: rgba(40, 52, 8, 0.14);
   opacity: 0.92;
 }
+.agent-avatar[data-avatar="explorer"]:not(.state-done):not(.state-celebrating):not(.state-error)
+  .avatar-mouth::before,
+.agent-avatar[data-avatar="explorer"]:not(.state-done):not(.state-celebrating):not(.state-error)
+  .avatar-mouth::after {
+  content: "";
+  position: absolute;
+  bottom: -0.5px;
+  width: 1.6px;
+  height: 3px;
+  background: var(--avatar-ink);
+  border-radius: 0.5px;
+}
+.agent-avatar[data-avatar="explorer"]:not(.state-done):not(.state-celebrating):not(.state-error)
+  .avatar-mouth::before {
+  left: -0.5px;
+}
+.agent-avatar[data-avatar="explorer"]:not(.state-done):not(.state-celebrating):not(.state-error)
+  .avatar-mouth::after {
+  right: -0.5px;
+}
 
-.agent-avatar[data-avatar="researcher"].state-idle .avatar-mouth {
+.agent-avatar[data-avatar="researcher"]:not(.state-done):not(.state-celebrating):not(.state-error)
+  .avatar-mouth {
   width: 5px;
   height: 5px;
   top: 25px;
@@ -447,74 +484,15 @@
   opacity: 0.62;
 }
 
-/* Idle fallback (unknown avatar) — gentle smile */
-.agent-avatar.state-idle .avatar-mouth {
+/* Fallback mouth (unknown avatar, non-done) — gentle smile */
+.agent-avatar:not(.state-done):not(.state-celebrating):not(.state-error) .avatar-mouth {
   width: 8px;
   border-bottom-width: 2px;
 }
 
-/* Working — chatty mouth */
-.agent-avatar.state-typing .avatar-eyes {
-  top: 12px;
-}
-.agent-avatar.state-typing .avatar-mouth {
-  width: 7px;
-  height: 6px;
-  top: 23px;
-  border: none;
-  border-radius: 50%;
-  background: var(--avatar-ink);
-  opacity: 0.75;
-}
-
-/* Thinking — soft squint + tiny o mouth */
-.agent-avatar.state-thinking .avatar-face {
-  box-shadow:
-    0 3px 0 rgba(0, 0, 0, 0.12),
-    0 6px 14px rgba(0, 0, 0, 0.18),
-    inset 0 -6px 10px rgba(0, 0, 0, 0.08),
-    inset 0 4px 8px rgba(255, 255, 255, 0.35),
-    0 0 0 3px rgba(255, 255, 255, 0.12);
-}
-.agent-avatar.state-thinking .avatar-eyes {
-  top: 15px;
-}
-.agent-avatar.state-thinking .avatar-eye {
-  height: 2px;
-  width: 6px;
-  border-radius: 2px;
-}
-.agent-avatar.state-thinking .avatar-mouth {
-  width: 5px;
-  height: 5px;
-  top: 24px;
-  border: none;
-  border-radius: 50%;
-  background: var(--avatar-ink);
-  opacity: 0.55;
-}
-
-/* Blocked — pause-bar eyes */
+/* Working — bounce face + chatty mouth animation (eyes stay awake dots) */
 .agent-avatar.state-blocked .avatar-face {
   filter: saturate(0.85);
-}
-.agent-avatar.state-blocked .avatar-eyes {
-  top: 13px;
-  width: 16px;
-}
-.agent-avatar.state-blocked .avatar-eye {
-  width: 3px;
-  height: 7px;
-  border-radius: 1.5px;
-}
-.agent-avatar.state-blocked .avatar-mouth {
-  width: 6px;
-  height: 2px;
-  top: 26px;
-  border: none;
-  border-radius: 2px;
-  background: var(--avatar-ink);
-  opacity: 0.55;
 }
 
 /* Done — happy closed smile arcs */
@@ -603,12 +581,6 @@
   .agent-avatar.state-typing .avatar-mouth {
     animation: avatar-mouth-chat 0.35s steps(2, end) infinite;
   }
-  .agent-avatar.state-thinking .avatar-eyes {
-    animation: avatar-think-blink 2.2s ease-in-out infinite;
-  }
-  .agent-avatar.state-thinking .avatar-face {
-    animation: avatar-think-glow 2.4s ease-in-out infinite;
-  }
   .agent-avatar.state-blocked .avatar-eyes {
     animation: avatar-blocked-pulse 1.4s ease-in-out infinite;
   }
@@ -646,28 +618,6 @@
   }
   50% {
     transform: translateX(-50%) scaleY(0.45);
-  }
-}
-
-@keyframes avatar-think-blink {
-  0%,
-  40%,
-  100% {
-    opacity: 1;
-  }
-  45%,
-  55% {
-    opacity: 0.15;
-  }
-}
-
-@keyframes avatar-think-glow {
-  0%,
-  100% {
-    filter: brightness(1);
-  }
-  50% {
-    filter: brightness(1.06);
   }
 }
 

@@ -570,10 +570,21 @@ async function smokeCardsDemo(browser) {
       const eyes = el.querySelectorAll(".avatar-eye").length;
       const mouth = !!el.querySelector(".avatar-mouth");
       const chrome = !!el.querySelector(".avatar-chrome");
+      const eyesOpen =
+        !el.classList.contains("state-done") &&
+        !el.classList.contains("state-celebrating") &&
+        Array.from(el.querySelectorAll(".avatar-eye")).every((eye) => {
+          const st = getComputedStyle(eye);
+          const w = Math.max(parseFloat(st.width) || 0, parseFloat(st.minWidth) || 0);
+          const h = Math.max(parseFloat(st.height) || 0, parseFloat(st.minHeight) || 0);
+          return w >= 4 && h >= 4;
+        });
+      const idleAwake = el.classList.contains("state-idle") && eyesOpen;
       if (!blush) return { role, ok: false, reason: "no blush" };
       if (eyes < 2) return { role, ok: false, reason: "need 2 eye dots, got " + eyes };
       if (!mouth) return { role, ok: false, reason: "no mouth" };
       if (!chrome) return { role, ok: false, reason: "no chrome props" };
+      if (!idleAwake) return { role, ok: false, reason: "idle must use open eye dots" };
       return { role, ok: true };
     });
     const faceMarkup =
@@ -724,16 +735,64 @@ async function smokeCardsDemo(browser) {
 
   await page.waitForFunction(
     () => {
-      const typing = document.querySelector(
-        ".agent-avatar.state-typing, .agent-avatar.state-thinking"
-      );
+      const typing = document.querySelector(".agent-avatar.state-typing");
       const active = document.querySelector(".card.active");
       return !!(typing || active);
     },
     { timeout: 8000 }
   );
 
+  await page.waitForFunction(
+    () => document.getElementById("card-worker")?.classList.contains("active"),
+    { timeout: 15000 }
+  );
+  await page.waitForFunction(
+    () => !document.getElementById("card-worker")?.classList.contains("active"),
+    { timeout: 25000 }
+  );
+  const avatarPolicy = await page.evaluate(() => {
+    const ac = window.AgentCards;
+    if (!ac || typeof ac.setStatus !== "function")
+      return { ok: false, reason: "missing setStatus" };
+    ac.setStatus("advisor", "Reviewing plan", "");
+    const av = document.querySelector('.agent-avatar[data-avatar="advisor"]');
+    const avatars = Array.from(document.querySelectorAll(".agent-avatar"));
+    const thinkingClass = avatars.some((el) => el.classList.contains("state-thinking"));
+    const typingAvatars = avatars.filter((el) => el.classList.contains("state-typing"));
+    const awakeWhileTyping =
+      typingAvatars.length === 0 ||
+      typingAvatars.every((el) =>
+        Array.from(el.querySelectorAll(".avatar-eye")).every((eye) => {
+          const st = getComputedStyle(eye);
+          const w = Math.max(parseFloat(st.width) || 0, parseFloat(st.minWidth) || 0);
+          const h = Math.max(parseFloat(st.height) || 0, parseFloat(st.minHeight) || 0);
+          return w >= 4 && h >= 4;
+        })
+      );
+    return {
+      ok: true,
+      reviewingIsTyping: !!(av && av.classList.contains("state-typing")),
+      thinkingClass,
+      awakeWhileTyping
+    };
+  });
+  if (!avatarPolicy.ok) errors.push(avatarPolicy.reason);
+  else {
+    if (!avatarPolicy.reviewingIsTyping) {
+      errors.push("Reviewing/Analyzing status should set advisor avatar to state-typing");
+    }
+    if (avatarPolicy.thinkingClass) {
+      errors.push("state-thinking must not appear on station avatars");
+    }
+    if (!avatarPolicy.awakeWhileTyping) {
+      errors.push("state-typing avatars must keep open eye dots");
+    }
+  }
+
   const cardsCssSource = fs.readFileSync(CARDS_CSS, "utf8");
+  if (/\.state-thinking/.test(cardsCssSource)) {
+    errors.push("cards.css must not define .state-thinking squint rules");
+  }
   if (!/prefers-reduced-motion:\s*reduce/.test(cardsCssSource)) {
     errors.push("cards.css missing prefers-reduced-motion rules");
   }

@@ -536,21 +536,10 @@
     if (!card || avatarEls[role]) return;
     var head = card.querySelector(".card-head");
     if (!head) return;
-    var wrap = document.createElement("div");
-    wrap.className = "agent-avatar state-idle";
-    wrap.setAttribute("data-avatar", role);
+    head.insertAdjacentHTML("afterbegin", faceMarkup(role));
+    var wrap = head.querySelector('.agent-avatar[data-avatar="' + role + '"]');
+    if (!wrap) return;
     wrap.setAttribute("role", "img");
-    wrap.innerHTML =
-      '<span class="avatar-chrome" aria-hidden="true"></span>' +
-      '<span class="avatar-face">' +
-      '<span class="avatar-blush" aria-hidden="true"></span>' +
-      '<span class="avatar-eyes" aria-hidden="true">' +
-      '<span class="avatar-eye"></span>' +
-      '<span class="avatar-eye"></span>' +
-      "</span>" +
-      '<span class="avatar-mouth" aria-hidden="true"></span>' +
-      "</span>";
-    head.insertBefore(wrap, head.firstChild);
     avatarEls[role] = wrap;
     avatarState[role] = "idle";
     syncAvatarTip(role);
@@ -645,31 +634,52 @@
       void el.offsetWidth;
     }
     el.className = cls;
+    el.setAttribute("data-avatar", role);
     syncAvatarTip(role);
   }
 
+  /**
+   * Map card status copy → avatar expression. Awake open eye dots everywhere except
+   * done / celebrating (closed arcs). Per-role mouths from CSS; typing animates mouth only.
+   */
   function inferAvatarFromStatus(role, html, cls) {
     var text = String(html || "").replace(/<[^>]+>/g, " ");
     var fail = cls === "fail" || /\bFAIL\b/i.test(text);
     var blocked = /\b(Blocked|Stalled|Stall|stuck)\b/i.test(text);
     var celebrating = /\b(shipped|ship|merge[d]?)\b/i.test(text);
-    var done =
-      cls === "pass" ||
-      /\b(Done|PASS|complete|Quiet)\b/i.test(text) ||
-      /Idle · waiting/i.test(text);
-    var thinking = /Reviewing|Analyzing|Awaiting|waiting|Standby|Quiet/i.test(text);
-    var typing = /Editing|Searching|Pulling|Calling|Task received|Plan approved|Fix applied/i.test(
-      text
-    );
+    var idle =
+      /\b(Standby|Quiet|idle|Turn|turn)\b/i.test(text) ||
+      /Idle · waiting/i.test(text) ||
+      /Replay · idle/i.test(text);
+    var done = cls === "pass" || /\b(Done|PASS|complete)\b/i.test(text);
+    var typing =
+      /Editing|Searching|Pulling|Calling|Task received|Plan approved|Fix applied|Reviewing|Analyzing/i.test(
+        text
+      );
 
     if (fail) return "error";
     if (blocked) return "blocked";
     if (celebrating) return "celebrating";
     if (typing) return "typing";
-    if (thinking && !done) return "thinking";
-    if (/\b(Done|PASS)\b/i.test(text) || cls === "pass") return "done";
-    if (done) return "idle";
-    return "thinking";
+    if (done) return "done";
+    if (idle) return "idle";
+    return "idle";
+  }
+
+  function statusClassFromEl(el) {
+    if (!el) return "";
+    var parts = String(el.className || "")
+      .split(/\s+/)
+      .filter(Boolean);
+    if (parts[0] === "status" && parts.length > 1) return parts.slice(1).join(" ");
+    return "";
+  }
+
+  /** Re-apply avatar expression from the card's current status copy. */
+  function syncAvatarFromStatus(role) {
+    var el = statusEls[role];
+    if (!el) return;
+    setAvatarState(role, inferAvatarFromStatus(role, el.innerHTML, statusClassFromEl(el)));
   }
 
   /**
@@ -746,14 +756,6 @@
       cards[key].classList.toggle("active", on);
       if (on) {
         if (!skipTiming && !dayStats.roleActiveStarted[key]) dayStats.roleActiveStarted[key] = now;
-        if (
-          avatarState[key] !== "error" &&
-          avatarState[key] !== "done" &&
-          avatarState[key] !== "celebrating" &&
-          avatarState[key] !== "blocked"
-        ) {
-          setAvatarState(key, "typing");
-        }
       } else if (!skipTiming && dayStats.roleActiveStarted[key]) {
         var started = dayStats.roleActiveStarted[key];
         delete dayStats.roleActiveStarted[key];
@@ -762,10 +764,32 @@
           dayStats.fastestMs = dur;
           dayStats.fastestAgent = key;
         }
-        if (avatarState[key] === "typing") setAvatarState(key, "thinking");
+        if (
+          avatarState[key] !== "error" &&
+          avatarState[key] !== "done" &&
+          avatarState[key] !== "celebrating" &&
+          avatarState[key] !== "blocked"
+        ) {
+          syncAvatarFromStatus(key);
+        }
       } else if (skipTiming && dayStats.roleActiveStarted[key]) {
         delete dayStats.roleActiveStarted[key];
-        if (avatarState[key] === "typing") setAvatarState(key, "thinking");
+        if (
+          avatarState[key] !== "error" &&
+          avatarState[key] !== "done" &&
+          avatarState[key] !== "celebrating" &&
+          avatarState[key] !== "blocked"
+        ) {
+          syncAvatarFromStatus(key);
+        }
+      } else if (
+        !on &&
+        avatarState[key] !== "error" &&
+        avatarState[key] !== "done" &&
+        avatarState[key] !== "celebrating" &&
+        avatarState[key] !== "blocked"
+      ) {
+        syncAvatarFromStatus(key);
       }
     });
     ensureTestHooks();

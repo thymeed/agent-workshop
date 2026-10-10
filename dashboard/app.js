@@ -113,6 +113,7 @@
   var drawerStations = document.getElementById("drawerStations");
   var drawerInsights = document.getElementById("drawerInsights");
   var drawerHistory = document.getElementById("drawerHistory");
+  var historyHint = document.getElementById("historyHint");
   var panelsBtn = document.getElementById("panelsBtn");
   var soundBtn = document.getElementById("soundBtn");
   var viewStageBtn = document.getElementById("viewStage");
@@ -1051,6 +1052,13 @@
    * Primary nav: Stage | Insights | History.
    * Slice 1: shell only (data-view-mode + persist). Drawer open/close lands in later slices.
    */
+  function updateHistoryHint(driving) {
+    if (!historyHint) return;
+    historyHint.textContent = driving
+      ? "Replay driving stage"
+      : "Play or scrub to drive the workshop stage.";
+  }
+
   function setViewMode(mode, opts) {
     opts = opts || {};
     viewMode = normalizeViewMode(mode);
@@ -1079,7 +1087,16 @@
     } else if (viewMode === "history") {
       if (drawerInsights) drawerInsights.open = false;
       if (drawerActivity) drawerActivity.open = false;
-      if (drawerHistory) drawerHistory.open = true;
+      if (drawerStations) drawerStations.open = false;
+      if (drawerBill) drawerBill.open = false;
+      if (drawerLog) drawerLog.open = false;
+      if (drawerHistory) {
+        drawerHistory.open = true;
+        try {
+          drawerHistory.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        } catch (_) {}
+      }
+      updateHistoryHint(false);
       if (insightsPanel) {
         if (typeof insightsPanel.showTab === "function") insightsPanel.showTab("replay");
         if (typeof insightsPanel.mountReplay === "function") {
@@ -2080,6 +2097,7 @@
         });
       }
       lastReplayIndex = index;
+      if (viewMode === "history") updateHistoryHint(true);
       return;
     }
 
@@ -2088,6 +2106,7 @@
       prefersReducedMotion: prefersReducedMotion()
     });
     lastReplayIndex = index;
+    if (viewMode === "history") updateHistoryHint(true);
   }
 
   if (insightsPanel && typeof insightsPanel.onReplayIndex === "function") {

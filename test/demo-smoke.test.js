@@ -106,6 +106,32 @@ async function smokeDemoFile(browser) {
     errors.push("estimatesDisclaimer trust wording missing");
   }
 
+  await page.click("#viewHistory");
+  await page.waitForSelector("#historyReplayHost [data-transport]", { timeout: 5000 });
+  const historyReplayUiOk = await page.evaluate(() => {
+    const app = document.getElementById("app");
+    if (!app || app.getAttribute("data-view-mode") !== "history") return false;
+    const host = document.getElementById("historyReplayHost");
+    const historyDrawer = document.querySelector('.drawer[data-panel="history"]');
+    const stationsDrawer = document.querySelector('.drawer[data-panel="stations"]');
+    if (!host || !historyDrawer || !historyDrawer.open) return false;
+    if (!host.querySelector("[data-transport]") || !host.querySelector("[data-scrubber]")) {
+      return false;
+    }
+    const ink = getComputedStyle(host).getPropertyValue("--insights-ink").trim();
+    if (ink !== "#f2f6f4") return false;
+    const btn = host.querySelector(".insights-transport-btn");
+    const btnBg = btn ? getComputedStyle(btn).backgroundColor : "";
+    if (!btnBg || btnBg === "rgba(0, 0, 0, 0)") return false;
+    if (!stationsDrawer) return true;
+    return historyDrawer.getBoundingClientRect().top <= stationsDrawer.getBoundingClientRect().top;
+  });
+  if (!historyReplayUiOk) {
+    errors.push(
+      "History view: replay host missing transport/scrubber, insights tokens, or History drawer not focused above Stations"
+    );
+  }
+
   const replaySeekOk = await page.evaluate(() => {
     const t = window.__cursorAgentsDashTest;
     if (!t || typeof t.replaySeek !== "function" || !window.ReplayStage) return false;
