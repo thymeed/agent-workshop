@@ -738,6 +738,7 @@
     opts = opts || {};
     var demo = !!opts.demo;
     var destroyed = false;
+    var loadGeneration = 0;
     var allEvents = [];
     var sessionId = "";
     var replayIndex = 0;
@@ -800,7 +801,7 @@
     }
 
     function pickLatestSessionId(ids, hint) {
-      if (hint && ids.indexOf(hint) >= 0) return hint;
+      if (hint) return hint;
       var fromEvents = latestSessionIdFromEvents(allEvents);
       if (fromEvents && ids.indexOf(fromEvents) >= 0) return fromEvents;
       return ids.length ? ids[ids.length - 1] : "";
@@ -814,6 +815,13 @@
         })
         .join("");
       if (!ids.length) {
+        if (hint) {
+          sessionSelect.innerHTML =
+            '<option value="' + escapeHtml(hint) + '">' + escapeHtml(hint) + "</option>";
+          sessionId = hint;
+          sessionSelect.value = hint;
+          return;
+        }
         sessionSelect.innerHTML = '<option value="">No sessions</option>';
         sessionId = "";
         return;
@@ -1455,6 +1463,7 @@
 
     async function load(loadOpts) {
       loadOpts = loadOpts || {};
+      var gen = ++loadGeneration;
       setStatus(demo ? "Loading demo history…" : "Loading /api/history…");
       try {
         var latestHint = loadOpts.latestSessionId || "";
@@ -1468,6 +1477,7 @@
             latestHint = livePayload.latestSessionId;
           }
         }
+        if (destroyed || gen !== loadGeneration) return;
         allEvents = sortEvents(allEvents);
         fillSessions(latestHint);
         pauseTransport();
@@ -1483,6 +1493,7 @@
             (sessionId ? " · " + sessionId : "")
         );
       } catch (err) {
+        if (destroyed || gen !== loadGeneration) return;
         allEvents = demo ? DEMO_HISTORY.events.slice() : [];
         fillSessions(loadOpts.latestSessionId || "");
         renderAll();

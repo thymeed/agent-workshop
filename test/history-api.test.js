@@ -181,11 +181,56 @@ async function main() {
     if (!parsed || !Array.isArray(parsed.events)) {
       errors.push('history response must be {"events":[...]}');
     } else {
-      if (parsed.events.length < 2) {
-        errors.push("expected seeded events, got " + parsed.events.length);
+      if (parsed.events.length !== 0) {
+        errors.push(
+          "empty transcripts must not leak foreign history events, got " + parsed.events.length
+        );
       }
-      for (let i = 0; i < parsed.events.length; i++) {
-        assertContractEvent(parsed.events[i], errors, "events[" + i + "]");
+      if (parsed.latestSessionId != null) {
+        errors.push(
+          "empty transcripts expected latestSessionId null, got " + parsed.latestSessionId
+        );
+      }
+    }
+
+    const sessADir = path.join(transcriptsDir, "sess-a");
+    fs.mkdirSync(sessADir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessADir, "parent.jsonl"),
+      '{"role":"user","message":"hi"}\n',
+      "utf8"
+    );
+
+    const scoped = await request(port, { headers: baseHeaders });
+    if (scoped.status !== 200) {
+      errors.push("GET /api/history with transcripts expected 200, got " + scoped.status);
+    } else {
+      let scopedJson;
+      try {
+        scopedJson = JSON.parse(scoped.body);
+      } catch (_e) {
+        errors.push("scoped history body not JSON");
+        scopedJson = { events: [] };
+      }
+      if (typeof scopedJson.latestSessionId !== "string" || !scopedJson.latestSessionId) {
+        errors.push(
+          "expected latestSessionId string when transcripts exist, got " +
+            JSON.stringify(scopedJson.latestSessionId)
+        );
+      }
+      if (scopedJson.latestSessionId !== "sess-a") {
+        errors.push("latestSessionId expected sess-a, got " + scopedJson.latestSessionId);
+      }
+      if (!Array.isArray(scopedJson.events) || scopedJson.events.length !== 1) {
+        errors.push(
+          "scoped history expected 1 sess-a event, got " +
+            (scopedJson.events && scopedJson.events.length)
+        );
+      } else {
+        assertContractEvent(scopedJson.events[0], errors, "scoped events[0]");
+        if (scopedJson.events[0].sessionId !== "sess-a") {
+          errors.push("scoped event sessionId expected sess-a");
+        }
       }
     }
 

@@ -347,7 +347,8 @@ async function smokeLiveHttp(browser) {
             ok: true,
             projectId: "smoke-select-probe",
             projectLabel: "smoke-select-probe",
-            transcripts: "/tmp/smoke-select-probe"
+            transcripts: "/tmp/smoke-select-probe",
+            latestSessionId: "smoke-latest-session"
           })
         });
         resolveSelect(req);
@@ -389,6 +390,18 @@ async function smokeLiveHttp(browser) {
       const post = selectReq.postData() || "";
       if (!/"id"\s*:\s*"smoke-select-probe"/.test(post)) {
         errors.push("project picker POST body missing id smoke-select-probe: " + post);
+      }
+
+      try {
+        await page.waitForFunction(
+          () => document.getElementById("app")?.getAttribute("data-view-mode") === "history",
+          { timeout: 5000 }
+        );
+      } catch (historyModeErr) {
+        errors.push(
+          "project picker should switch to History view: " +
+            (historyModeErr && historyModeErr.message ? historyModeErr.message : historyModeErr)
+        );
       }
 
       try {

@@ -485,7 +485,7 @@ function latestSessionIdForTranscripts(root) {
 
 function filterHistoryToCurrentProject(events) {
   const allowed = sessionIdsInTranscripts(TRANSCRIPTS);
-  if (!allowed.size) return events || [];
+  if (!allowed.size) return [];
   return (events || []).filter((ev) => allowed.has(String(ev.sessionId || "")));
 }
 
@@ -563,7 +563,8 @@ function resetWatchState() {
     ok: true,
     transcripts: TRANSCRIPTS,
     projectId: currentProjectId,
-    projectLabel: currentProjectLabel
+    projectLabel: currentProjectLabel,
+    latestSessionId: latestSessionIdForTranscripts(TRANSCRIPTS)
   });
   scan();
   if (!events.length) {
@@ -2146,6 +2147,7 @@ module.exports = {
   resetWatchState,
   selectProject,
   latestSessionIdForTranscripts,
+  filterHistoryToCurrentProject,
   sessionIdsInTranscripts,
   clearHistory,
   recordHistoryEvent,

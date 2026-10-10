@@ -102,6 +102,7 @@ async function smokeLiveReconnectDedupe(browser) {
         const btn = document.getElementById("demoBtn");
         return btn && btn.classList.contains("live-connected");
       },
+      undefined,
       { timeout: 12000 }
     );
 
@@ -118,6 +119,7 @@ async function smokeLiveReconnectDedupe(browser) {
         const cost = h.getHudSessionCost();
         return cost && cost !== "$0.00" && h.getDailyStats().tokens >= 6000;
       },
+      undefined,
       { timeout: 10000 }
     );
 
@@ -136,6 +138,7 @@ async function smokeLiveReconnectDedupe(browser) {
         const btn = document.getElementById("demoBtn");
         return btn && btn.classList.contains("live-connected");
       },
+      undefined,
       { timeout: 12000 }
     );
 
@@ -206,6 +209,7 @@ async function smokeLiveDailyEventDedupe(browser) {
     errors.push(...(await assertHermeticTranscripts(page, transcriptsDir)));
     await page.waitForFunction(
       () => document.getElementById("demoBtn")?.classList.contains("live-connected"),
+      undefined,
       { timeout: 12000 }
     );
     const dup = await page.evaluate(() => {
@@ -247,6 +251,7 @@ async function smokeLiveDailyEventDedupe(browser) {
 
 async function smokeLiveReplaySkipsFastestTiming(browser) {
   const { port, transcriptsDir } = await startBridgeForSmoke();
+  const liveWaitTimeout = process.platform === "win32" ? 20000 : 15000;
   pushEvent({
     role: "explorer",
     message: "backlog · explore on",
@@ -267,14 +272,16 @@ async function smokeLiveReplaySkipsFastestTiming(browser) {
     errors.push(...(await assertHermeticTranscripts(page, transcriptsDir)));
     await page.waitForFunction(
       () => document.getElementById("demoBtn")?.classList.contains("live-connected"),
-      { timeout: 12000 }
+      undefined,
+      { timeout: liveWaitTimeout }
     );
     await page.waitForFunction(
       () =>
         window.__cursorAgentsDashTest &&
         typeof window.__cursorAgentsDashTest.isLiveBacklogReplay === "function" &&
         !window.__cursorAgentsDashTest.isLiveBacklogReplay(),
-      { timeout: 5000 }
+      undefined,
+      { timeout: liveWaitTimeout }
     );
     const stats = await page.evaluate(() => {
       const ac = window.AgentCards;
@@ -309,7 +316,8 @@ async function smokeLiveReplaySkipsFastestTiming(browser) {
         }
         return document.getElementById("card-worker")?.classList.contains("active");
       },
-      { timeout: 15000 }
+      undefined,
+      { timeout: liveWaitTimeout }
     );
     // Wait on the app's active-start clock (same Date.now used by setActive), not a
     // separate wall-clock probe — Windows timer/poll jitter made a 55ms+≥40 SLA flaky.
@@ -326,7 +334,7 @@ async function smokeLiveReplaySkipsFastestTiming(browser) {
         return start != null && Date.now() - start >= minMs;
       },
       minActiveMs,
-      { timeout: 10000 }
+      { timeout: liveWaitTimeout }
     );
     pushEvent({
       role: "parent",
@@ -335,13 +343,45 @@ async function smokeLiveReplaySkipsFastestTiming(browser) {
     });
     await page.waitForFunction(
       () => {
-        const ac = window.AgentCards;
-        if (!ac) return false;
-        const s = ac.getDailyStats();
-        return s.fastestAgent === "worker" && s.fastestMs != null && s.fastestMs > 0;
+        const card = document.getElementById("card-worker");
+        return !!card && !card.classList.contains("active");
       },
-      { timeout: 15000 }
+      undefined,
+      { timeout: liveWaitTimeout }
     );
+    try {
+      await page.waitForFunction(
+        () => {
+          const ac = window.AgentCards;
+          if (!ac) return false;
+          const s = ac.getDailyStats();
+          return s.fastestAgent === "worker" && s.fastestMs != null && s.fastestMs > 0;
+        },
+        undefined,
+        { timeout: liveWaitTimeout }
+      );
+    } catch (waitErr) {
+      const dump = await page.evaluate(() => {
+        const h = window.__cursorAgentsDashTest;
+        const ac = window.AgentCards;
+        return {
+          daily: ac ? ac.getDailyStats() : null,
+          backlog:
+            h && typeof h.isLiveBacklogReplay === "function" ? h.isLiveBacklogReplay() : null,
+          workerActive: !!document.getElementById("card-worker")?.classList.contains("active")
+        };
+      });
+      errors.push(
+        "waitFor fastest worker timed out: " +
+          (waitErr.message || waitErr) +
+          "; dump getDailyStats()=" +
+          JSON.stringify(dump.daily) +
+          " isLiveBacklogReplay()=" +
+          dump.backlog +
+          " #card-worker.active=" +
+          dump.workerActive
+      );
+    }
     const liveStats = await page.evaluate(() => {
       const h = window.__cursorAgentsDashTest;
       const ac = window.AgentCards;
@@ -385,6 +425,7 @@ async function smokeDemoUsageGrandTotal(browser) {
     await page.goto(FILE_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
     await page.waitForFunction(
       () => window.AgentCards && window.AgentCards.isReady && window.AgentCards.isReady(),
+      undefined,
       { timeout: 8000 }
     );
     const usage = {
@@ -437,6 +478,7 @@ async function smokeCardsDemo(browser) {
   await page.waitForSelector("#card-opus", { state: "attached", timeout: 5000 });
   await page.waitForFunction(
     () => window.AgentCards && window.AgentCards.isReady && window.AgentCards.isReady(),
+    undefined,
     { timeout: 5000 }
   );
 
@@ -665,6 +707,7 @@ async function smokeCardsDemo(browser) {
       const hint = document.getElementById("liveHint");
       return hint && !hint.hidden && /Live needs the bridge/i.test(hint.textContent || "");
     },
+    undefined,
     { timeout: 4000 }
   );
 
@@ -713,6 +756,7 @@ async function smokeCardsDemo(browser) {
       const btn = document.getElementById("demoBtn");
       return btn && (btn.classList.contains("playing") || btn.textContent === "Stop");
     },
+    undefined,
     { timeout: 3000 }
   );
 
@@ -722,15 +766,18 @@ async function smokeCardsDemo(browser) {
       const active = document.querySelector(".card.active");
       return !!(typing || active);
     },
+    undefined,
     { timeout: 8000 }
   );
 
   await page.waitForFunction(
     () => document.getElementById("card-worker")?.classList.contains("active"),
+    undefined,
     { timeout: 15000 }
   );
   await page.waitForFunction(
     () => !document.getElementById("card-worker")?.classList.contains("active"),
+    undefined,
     { timeout: 25000 }
   );
   const avatarPolicy = await page.evaluate(() => {
@@ -744,14 +791,19 @@ async function smokeCardsDemo(browser) {
     const typingAvatars = avatars.filter((el) => el.classList.contains("state-typing"));
     const awakeWhileTyping =
       typingAvatars.length === 0 ||
-      typingAvatars.every((el) =>
-        Array.from(el.querySelectorAll(".avatar-eye")).every((eye) => {
+      typingAvatars.every((el) => {
+        const eyes = el.querySelectorAll(".block-agent-eye");
+        if (eyes.length < 2) return false;
+        return Array.from(eyes).every((eye) => {
+          const attrW = parseFloat(eye.getAttribute("width") || "");
+          const attrH = parseFloat(eye.getAttribute("height") || "");
+          if (attrW >= 3 && attrH >= 3) return true;
           const st = getComputedStyle(eye);
           const w = Math.max(parseFloat(st.width) || 0, parseFloat(st.minWidth) || 0);
           const h = Math.max(parseFloat(st.height) || 0, parseFloat(st.minHeight) || 0);
           return w >= 4 && h >= 4;
-        })
-      );
+        });
+      });
     return {
       ok: true,
       reviewingIsTyping: !!(av && av.classList.contains("state-typing")),

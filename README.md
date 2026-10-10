@@ -35,7 +35,7 @@ npm start
 
 ### Live project picker
 
-In the window, **Live** mode shows a **project** dropdown fed by `~/.cursor/projects/*/agent-transcripts` (newest first by default). Choosing another project `POST`s `/api/select` (with `X-Cursor-Bridge`) and the SSE stream emits `reset` so the session view clears and resyncs.
+In the window, **Live** mode shows a **project** dropdown fed by `~/.cursor/projects/*/agent-transcripts` (newest first by default). Choosing another project `POST`s `/api/select` (with `X-Cursor-Bridge`), switches the header to **History**, reloads Insights onto the **latest non-empty transcript session** for that project (`latestSessionId` from the bridge), remounts the History replay transport, and restarts the Live SSE stream (`reset` resyncs the workshop — it does not reset History scrubber position on its own).
 
 ## Build / run the Windows `.exe` (silent GUI)
 

@@ -2308,7 +2308,6 @@
       updateFooterProject();
       setLivePresence("quiet-healthy");
       loadProjects();
-      onLiveProjectScopeChange(meta, { navigateHistory: false });
       if (window.AlertCenter && typeof window.AlertCenter.hydrate === "function") {
         window.AlertCenter.hydrate(BRIDGE);
       }
