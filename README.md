@@ -4,17 +4,29 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.0.0-informational)](CHANGELOG.md)
 
-Desktop dashboard for visualizing how a Cursor Agents session routes work across Opus (parent), Fable (advisor), Worker (Sonnet), Explorer / Researcher (Haiku).
+Desktop dashboard for visualizing how a **Cursor Agents** session routes work across Opus (parent), Fable (advisor), Worker (Sonnet), and Explorer / Researcher (Haiku).
 
-![Demo workshop stage — station characters, merge portal, and session HUD](docs/preview.png)
+![Demo workshop stage — block agents at stations, merge portal, and session HUD](docs/preview.png)
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
-The first viewport is a soft **agent workshop**: five **pixel-cast block agents** at the stations (Opus desk, Fable consult, Sonnet build, Explore / Research shelves) — **Cursor Agents** branding — walk paths and carry code crates into a central **Merge portal**. On ask/delegate, a small **inbound route token** (mini block sprite) flies along the pulse path into the target station. Demo Play and Live SSE drive the stage; Session Bill, Activity, Insights, History/Replay, Session Log, and **Stations** live as **drawer sheets** under the stage. Header **Stage | Insights | History** switches which sheet owns the lower chrome (workshop stays visible). Station cards share the same **block-agent** cast (rect body, square eyes; role = fill color only). HUD chips are the single status strip (session $, active role, subs, effort, haiku tokens). **History** Replay play/pause/scrub/speed drives the same workshop engine (crates/characters); leaving History stops transport and leaves the last replay frame until Demo/Live runs again. Estimates remain illustrative · not official usage. Optional Web Audio blips are **muted by default** — toggle 🔊/🔇 in the header (persisted in `localStorage`).
+### Workshop overview
 
-**Primary launch:** double-click repo-root **`AgentWorkshop.exe`** (produced by `npm run build` / `npm run pack` via `scripts/copy-exe.js` from `dist\`; gitignored `*.exe`), or run `npm start` while developing. Window title: **Cursor Agents · Model Routing**. The live bridge runs **in-process** inside Electron — no CMD popup, no separate `node.exe` console.
+The main viewport is an **agent workshop**: five **pixel-cast block agents** at fixed stations (Opus desk, Fable consult, Sonnet build, Explore / Research shelves). Agents walk paths and carry code crates into a central **Merge portal**. On ask or delegate, a small **inbound route token** (mini block sprite) travels along the pulse path into the target station.
 
-A second launch focuses the existing window (single-instance lock); it does not start another bridge on the same port.
+- **Avatars** — rect body and square eyes; **role is fill color only** (no mouths, round faces, or letter initials).
+- **Chrome** — header **Stage | Insights | History** selects which drawer sheet owns the lower panel; the workshop stage stays visible.
+- **Drawers** — Session Bill, Activity, Insights, History/Replay, Session Log, and **Stations** under the stage.
+- **HUD** — session cost, active role, subagents, effort, and Haiku token chips.
+- **Demo** scripted Play and **Live** SSE both drive the stage. History replay (play / pause / scrub / speed) uses the same workshop engine; leaving History stops transport and leaves the last replay frame until Demo or Live runs again.
+- **Estimates** — token and session figures are illustrative, not official Cursor billing.
+- **Sound** — optional Web Audio cues are **muted by default**; use the header sound toggle (stored in `localStorage`).
+
+### Primary launch
+
+Double-click repo-root **`AgentWorkshop.exe`** (from `npm run pack` or `npm run build` via `scripts/copy-exe.js`; gitignored `*.exe`), or run `npm start` while developing. Window title: **Cursor Agents · Model Routing**. The live bridge runs **in-process** in Electron — no CMD window and no separate `node.exe` console.
+
+A second launch focuses the existing window (single-instance lock) and does not bind another bridge on the same port.
 
 ## Install & start (development)
 
@@ -35,7 +47,15 @@ npm start
 
 ### Live project picker
 
-In the window, **Live** mode shows a **project** dropdown fed by `~/.cursor/projects/*/agent-transcripts` (newest first by default). Choosing another project `POST`s `/api/select` (with `X-Cursor-Bridge`), switches the header to **History**, reloads Insights onto the **latest non-empty transcript session** for that project (`latestSessionId` from the bridge), remounts the History replay transport, and restarts the Live SSE stream (`reset` resyncs the workshop — it does not reset History scrubber position on its own).
+In **Live** mode, a **project** dropdown lists Cursor projects that have `~/.cursor/projects/<id>/agent-transcripts` (newest activity first by default).
+
+Choosing a project:
+
+1. `POST`s `/api/select` with `X-Cursor-Bridge: 1` and switches the bridge transcripts folder.
+2. Opens the **History** sheet and reloads Insights onto the **latest non-empty transcript session** for that project (`latestSessionId` from the bridge).
+3. Remounts the History replay transport and restarts Live SSE (`reset` resyncs the workshop; it does **not** remount History replay or move the scrubber by itself).
+
+While Live is connected, **loading a session into History** (project change or session picker) paints the replay frame on the stage but **does not pause Live SSE** until you scrub the timeline or press **Play**. Scrub or Play sets replay ownership so Live events no longer overwrite the stage until you leave History or run Demo/Live again.
 
 ## Build / run the Windows `.exe` (silent GUI)
 
@@ -99,7 +119,7 @@ No server required:
 
 1. Open `model-routing-dashboard.html` in a browser (`file://`). Relative links load `dashboard/styles.css` and `dashboard/app.js`.
 2. Leave **Demo** selected and click **Play** — watch the workshop narrative (asks → explore/research → worker edit → advisor → ship).
-3. Click a character to filter Activity; click the Merge portal to open Activity; use **Panels** for Bill, Log & Insights sheets (stays on Stage); switch **Insights** / **History** for forecast or replay. On **History**, play/pause/scrub/speed drives the workshop stage; unmute with 🔊 for soft blips.
+3. Click a character to filter Activity; click the Merge portal to open Activity; use **Panels** for Bill, Log, and Insights (Stage view); switch **Insights** or **History** for forecast or replay. On **History**, play / pause / scrub / speed drives the workshop stage. Optional sound: header mute toggle.
 
 ## Lint, format, test
 
@@ -170,17 +190,23 @@ The Live UI tracks a single presence state for the header hint, stage banner, an
 
 First time you enter Live, a dismissible coach sheet explains the project picker, what Live sees, and the estimate disclaimer (`localStorage` `ca.liveOnboard.v1`). Demo is never blocked.
 
-### Insights, stations & jump-to-agent
+### Insights, stations, and jump-to-agent
 
-The **Insights** sheet is a playful workshop panel: forecast, cost-ranked **Suggestions**, and soft TipLayer copy. Suggestions are ranked by estimated dollar savings (then name). Clicking a row (or an alert with a mappable agent) jumps to that station — select character, open Activity, brief card highlight. The **Stations** drawer holds the living agent cards (pixel-cast block avatars, daily stats, privacy meter). None of this changes Cursor’s live routing; it only navigates the dashboard.
+The **Insights** sheet shows a session forecast, cost-ranked **Suggestions**, and TipLayer help text. Suggestions sort by estimated dollar savings, then name. Clicking a row (or an alert with a mappable agent) **jumpToAgent** — selects that station’s block agent on the stage, opens Activity, and briefly highlights the card. The **Stations** drawer lists living agent cards (pixel-cast block avatars, daily stats, privacy meter). None of this changes Cursor routing; it only navigates the dashboard.
 
 ### TipLayer & ship celebration
 
 Chrome, stage stations, HUD chips, station cards, Insights, History/Replay, and the alert center share one **TipLayer** hover/focus tip (`data-tip` / `data-tip-detail`, ~300ms delay) — prefer that over bare `title=` on primary controls. Ship / merge plays a short portal celebration and marks avatars done (respects `prefers-reduced-motion`).
 
-### History & desktop alerts
+### History replay and project scope
 
-The bridge keeps a **local event log** (JSONL) under the OS app-data profile — not in the git repo:
+History and `GET /api/history` show events for sessions that exist under the **currently selected project’s** `agent-transcripts` tree. The bridge filters persisted history to those session IDs; if the folder is empty or has no JSONL yet, History shows no events for that project.
+
+Replay transport lives in the History sheet (and shares Insights replay UI). In Live mode, see **Live project picker** above for when SSE keeps streaming versus when replay takes the stage.
+
+### Local event log and desktop alerts
+
+The bridge also keeps a **local event log** (JSONL) under the OS app-data profile — not in the git repo:
 
 | Platform | Default path                                                                |
 | -------- | --------------------------------------------------------------------------- |
@@ -221,5 +247,6 @@ The in-app **alert center** (header bell) lists the same alerts — mark read, s
 - Near-real, not hook-level realtime (no Cursor hooks required for this slice).
 - **SESSION BILL** is transcript-estimated tokens × published rates per 1M input/output: Opus $4/$20, Sonnet $2/$10, Haiku $0.10/$0.50, Fable $10/$50. Estimates · illustrative · not official Cursor invoices.
 - **ACTIVITY** preview lists reads and edits from the transcript (path + short detail). It does not include full file contents.
-- Only sees chats that write into the selected transcripts folder.
-- Hooks / statusline / Cursor SDK are complementary paths; this slice uses transcripts on disk.
+- Only sees chats that write into the selected project’s transcripts folder.
+- History API responses omit events whose `sessionId` is not present under the current transcripts tree.
+- Hooks, statusline, and Cursor SDK are separate integration paths; this dashboard reads transcripts on disk.

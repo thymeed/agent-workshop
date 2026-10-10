@@ -14,7 +14,7 @@ Stack:
 - **Live bridge** — `live-bridge.js` (Node localhost server; tails agent-transcripts JSONL, SSE)
 - **Electron desktop** — windowed app; bridge runs in-process (`npm start` / packaged `.exe`)
 
-Chrome: header **Stage | Insights | History** selects which **drawer sheet** owns the lower panel (workshop stage stays visible). **Stations**, Bill, Activity, Log, and playful **Insights** sheets live under the stage. **Replay** (History) drives the stage via `replay-stage.js` (play/pause/scrub/speed). **HUD** chips are the single status strip (session $, active role, subs, effort, haiku tokens). **TipLayer** (`tips.js`) covers chrome, stage, cards, Insights, History, and alerts via `data-tip` / `data-tip-detail`.
+Chrome: header **Stage | Insights | History** selects which **drawer sheet** owns the lower panel (workshop stage stays visible). **Stations**, Bill, Activity, Log, **Insights**, and **History** sheets live under the stage. **Replay** (History) drives the stage via `replay-stage.js` (play/pause/scrub/speed). **HUD** chips are the single status strip (session $, active role, subs, effort, haiku tokens). **TipLayer** (`tips.js`) covers chrome, stage, cards, Insights, History, and alerts via `data-tip` / `data-tip-detail`.
 
 ## Key files
 
@@ -94,11 +94,11 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 **Product surfaces (keep in mind when editing):**
 
 - **Pixel-cast block agents** — stage `#char-*`, Stations avatars, Insights empty states, and alerts share rect-body + square `.block-agent-eye` sprites via `AgentCards.faceMarkup` / `blockAgentSvgInner`. Role is **fill color only** (`data-avatar` tints in `cards.css`); no round faces, blush, chrome, mouths, or letter-circle initials. Stage figures include stub arms/legs; `.avatar-sm` uses compact blocks. `inferAvatarFromStatus` / `setStatus` drive block-agent state classes (`state-typing`, `state-done`, …); `setActive` only toggles `.card.active` + timing. Reviewing/Analyzing → `state-typing` (bob animation on `.block-agent-svg`).
-- **History replay sheet** — `#historyReplayHost` mounts Insights replay transport (play/pause/scrub/speed) with shared `--insights-*` tokens; History view closes competing drawers, focuses the drawer (grid order + scroll to Play), remounts replay after async Insights load and on drawer reopen; scrub/play drives the stage via `replay-stage.js`. Live **project picker** switches bridge scope, opens **History**, and reloads Insights onto the **latest non-empty transcript session** for that project (`latestSessionIdForTranscripts` / API `latestSessionId` + session picker default). In **Live**, loading a session into History paints the frame but **does not** pause Live SSE until the user scrubs or presses Play. SSE `reset` on reconnect does **not** remount History replay — only the project-picker path reloads Insights/replay.
+- **History replay sheet** — `#historyReplayHost` mounts Insights replay transport (play/pause/scrub/speed) with shared `--insights-*` tokens; History view closes competing drawers, focuses the drawer (grid order + scroll to Play), remounts replay after async Insights load and on drawer reopen; scrub/play drives the stage via `replay-stage.js`. `GET /api/history` and Insights load use `filterHistoryToCurrentProject` in `live-bridge.js` — only events whose `sessionId` exists under the **current** `TRANSCRIPTS` tree; empty project folder → no History events. Live **project picker** switches bridge scope, opens **History**, and reloads Insights onto the **latest non-empty transcript session** for that project (`latestSessionIdForTranscripts` / API `latestSessionId` + session picker default). In **Live**, session load (`source === "session"`) paints the replay frame but leaves `replaySessionActive` false so **Live SSE keeps updating the workshop** until the user scrubs or presses Play (then replay owns the stage). SSE `reset` on reconnect does **not** remount History replay — only the project-picker path reloads Insights/replay.
 - **Inbound route tokens** — `stageDirector.spawnRouteToken(role)` flies a mini block-agent glyph along the pulse path into the station on ask/delegate (`animateRoute`); cap concurrent tokens; respect reduced motion / narrow layouts.
 - **TipLayer** (`tips.js`) — one floating tip host for chrome, stage, cards, Insights, History, alerts; prefer `data-tip` / `data-tip-detail` over bare `title=` on primary controls.
 - **Alert center** (`alerts.js`) — header bell; bridge SSE `event: alert` + `GET /api/alerts` (name/status/`agentId` only); loads after `cards.js` so rows can show role mini faces via `faceMarkup` + `roleFromAgentHint`; Electron desktop Notification stays on the same emit path.
-- **Insights / Stations** — playful Insights forecast + cost-ranked suggestions; Stations drawer hosts living cards; row/alert click → `jumpToAgent` (does not change Cursor routing).
+- **Insights / Stations** — Insights forecast + cost-ranked suggestions; Stations drawer hosts living cards; row/alert click → `jumpToAgent` (does not change Cursor routing).
 - **Ship celebration** — portal burst + avatar `done` on merge/ship; respect `prefers-reduced-motion`.
 - **Live presence** — `data-live-presence` on `#app` (`file-origin` … `streaming`); see table above.
 
@@ -116,6 +116,7 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 
 - Near-real file polling, not hook-level realtime.
 - Token deltas are illustrative estimates from transcript activity.
-- Only sees chats that write into the configured transcripts folder.
+- Only sees chats that write into the configured transcripts folder (Live project picker / `--dir`).
+- History ingest and API responses are scoped to session IDs under the current transcripts tree (`filterHistoryToCurrentProject`).
 - Live bridge is localhost-only (loopback bind + Host/Origin checks pinned to bridge port; no CORS `*`; `Origin: null` rejected). Live from `file://` is unsupported — open `http://127.0.0.1:<port>/` or Electron.
 - `/api/select` is POST-only with `X-Cursor-Bridge: 1`, plus Sec-Fetch-Site `same-origin`/`none` or a valid localhost Origin (blocks cross-site simple requests).

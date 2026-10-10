@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Electron desktop app with in-process live bridge (no separate console on launch).
-- Workshop stage with five station characters, Demo playbook, and Live SSE from Cursor agent transcripts.
+- Workshop stage with five pixel-cast block agents at stations, Demo playbook, and Live SSE from Cursor agent transcripts.
 - Drawer sheets: Stage, Insights (forecast + cost-ranked suggestions), History with replay transport.
 - Station cards, TipLayer tooltips, alert center, ship celebration, and HUD session strip.
 - Headless `live-bridge.js` for browser Live mode on loopback.
