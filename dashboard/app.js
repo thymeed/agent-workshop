@@ -2119,7 +2119,9 @@
     var source = payload.source || "scrub";
 
     if (playing) stopDemo();
-    replaySessionActive = true;
+    /* Live + session load (project pick / focusLatestSession): paint History frame but keep Live SSE. */
+    var liveSessionBrowse = mode === "live" && source === "session";
+    if (!liveSessionBrowse) replaySessionActive = true;
 
     if (source === "play" && index === lastReplayIndex + 1 && lastReplayIndex >= 0) {
       var stepEv = events[index];
@@ -2138,6 +2140,7 @@
     ReplayStage.seek(replayStageApi, events, index, {
       prefersReducedMotion: prefersReducedMotion()
     });
+    if (liveSessionBrowse) replaySessionActive = false;
     lastReplayIndex = index;
     if (viewMode === "history") updateHistoryHint(true);
   }
@@ -2890,12 +2893,12 @@
     getViewMode: function () {
       return viewMode;
     },
-    replaySeek: function (events, index) {
+    replaySeek: function (events, index, source) {
       if (!ReplayStage) return;
       onReplayIndexChange({
         events: events || [],
         index: index,
-        source: "test"
+        source: source || "test"
       });
     },
     isReplaySessionActive: function () {

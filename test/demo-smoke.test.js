@@ -313,6 +313,59 @@ async function smokeLiveHttp(browser) {
     });
     if (acao != null) errors.push("unexpected ACAO on /api/status: " + acao);
 
+    const liveHistorySessionOk = await page.evaluate(() => {
+      const t = window.__cursorAgentsDashTest;
+      if (
+        !t ||
+        typeof t.replaySeek !== "function" ||
+        typeof t.applyLiveEvent !== "function" ||
+        typeof t.isReplaySessionActive !== "function"
+      ) {
+        return false;
+      }
+      const events = [
+        {
+          ts: "2026-10-09T14:00:00.000Z",
+          sessionId: "smoke-live-session",
+          agentId: "agent-parent",
+          parentId: null,
+          name: "Parent",
+          model: "opus",
+          type: "spawn",
+          role: "parent",
+          message: "replay frame",
+          inputTokens: 0,
+          outputTokens: 0,
+          files: []
+        }
+      ];
+      t.setViewMode("history");
+      t.replaySeek(events, 0, "session");
+      if (t.isReplaySessionActive()) return false;
+      const logsBefore = t.getLogLineCount();
+      t.applyLiveEvent({
+        ts: "2026-10-09T14:01:00.000Z",
+        sessionId: "smoke-live-session",
+        agentId: "agent-parent",
+        name: "Parent",
+        model: "opus",
+        type: "message",
+        role: "parent",
+        message: "live after history session load",
+        inputTokens: 0,
+        outputTokens: 0,
+        files: []
+      });
+      if (t.getLogLineCount() <= logsBefore) return false;
+      t.replaySeek(events, 0, "scrub");
+      return t.isReplaySessionActive();
+    });
+    if (!liveHistorySessionOk) {
+      errors.push(
+        "Live History session load must not block applyLiveEvent; scrub must arm replay session"
+      );
+    }
+
     // Project picker must POST /api/select with X-Cursor-Bridge (browser path).
     // Fulfill locally so an unknown id does not emit a console 400.
     let selectSettled = false;
