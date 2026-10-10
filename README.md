@@ -51,11 +51,11 @@ Full portable + NSIS installer pass:
 npm run build
 ```
 
-| File                                          | Use                                         |
-| --------------------------------------------- | ------------------------------------------- |
-| `AgentWorkshop.exe` (repo root)               | Primary launch — portable GUI, no install   |
-| `dist\AgentWorkshop.exe`                      | Same portable artifact before/after copy    |
-| `Cursor Agents Model Routing Setup x.x.x.exe` | Optional NSIS installer (`npm run build`)   |
+| File                                          | Use                                       |
+| --------------------------------------------- | ----------------------------------------- |
+| `AgentWorkshop.exe` (repo root)               | Primary launch — portable GUI, no install |
+| `dist\AgentWorkshop.exe`                      | Same portable artifact before/after copy  |
+| `Cursor Agents Model Routing Setup x.x.x.exe` | Optional NSIS installer (`npm run build`) |
 
 Packaged apps use the Windows GUI subsystem: **no console window** on launch. There is no `.cmd` wrapper.
 
@@ -70,6 +70,7 @@ Git already ignores `dist/`, `*.exe`, and `node_modules/`. Source of truth is Gi
 - Electron/builder caches under `%LOCALAPPDATA%\electron*` / `%LOCALAPPDATA%\electron-builder*` if you are reclaiming a lot of space (next pack re-downloads)
 
 Keep **`node_modules\`** unless you are ready for a full `npm ci` / `npm install` (large reinstall). Never delete `.git` or source files.
+
 ## Project layout
 
 | Path                           | Role                                                                 |
