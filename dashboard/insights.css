@@ -1,6 +1,7 @@
 /* Cursor Agents · Insights — playful workshop sheet (not chrome analytics) */
 
-.insights-root {
+.insights-root,
+.history-replay-host {
   --insights-bg: #0b0c0d;
   --insights-surface: #121618;
   --insights-surface-2: #181e20;
@@ -16,7 +17,16 @@
   --insights-mono: ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
   --insights-soft: 18px;
   --insights-round: 14px;
+}
 
+.history-replay-host {
+  color: var(--insights-ink);
+  font-family: var(--insights-mono);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.insights-root {
   position: relative;
   margin-top: 18px;
   padding: 18px 18px 16px;
