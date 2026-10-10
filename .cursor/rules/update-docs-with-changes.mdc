@@ -19,7 +19,7 @@ Whenever you ship a **product or behavior** change in this repo, update the matc
 1. Would another agent miss this feature if they only read `CLAUDE.md` / `README.md`? → update those.
 2. Did you add a helper callers rely on? → document params/side effects briefly at the definition.
 3. Cosmetic-only CSS with no new concept? → usually no README; still note in `CLAUDE.md` if it is a named product surface (e.g. route tokens, unique card faces, per-role mouths).
-4. User-facing UI or desktop change? → also follow **`.cursor/rules/refresh-desktop-exe.mdc`** (`npm run pack` / `npm run build` → repo-root `AgentWorkshop.exe`; do not commit gitignored `*.exe`).
+4. User-facing UI or desktop change? → also follow **`.cursor/rules/refresh-desktop-exe.mdc`** (`npm run pack` portable / `npm run build` → repo-root `AgentWorkshop.exe`; never copy win-unpacked alone; do not commit gitignored `*.exe`).
 
 ## Examples
 

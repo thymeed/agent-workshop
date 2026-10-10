@@ -35,7 +35,7 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 | `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts` |
 | `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                                     |
 | `package.json`                 | Electron/desktop scripts + lint/test/ci                                                             |
-| `scripts/copy-exe.js`          | After `build`/`pack`: copy portable exe → repo-root `AgentWorkshop.exe`                             |
+| `scripts/copy-exe.js`          | After `build`/`pack`: copy **portable** `dist/AgentWorkshop.exe` → repo-root (never win-unpacked)   |
 | `electron/main.js`             | Desktop window; start bridge in-process                                                             |
 | `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                        |
 | `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                         |
@@ -53,13 +53,15 @@ npm start
 
 Opens the dashboard window. Bridge runs **in-process** (no separate CMD popup).
 
-**Packaged root exe** (after `npm run build` or `npm run pack`):
+**Packaged root exe** (after `npm run pack` or `npm run build`):
 
 ```bat
 AgentWorkshop.exe
 ```
 
-Copied to the repo root by `scripts/copy-exe.js` (gitignored `*.exe` / `dist/`). Same silent GUI as Electron — no CMD popup.
+Copied to the repo root by `scripts/copy-exe.js` from `dist\AgentWorkshop.exe` (portable only — never `win-unpacked`). Gitignored `*.exe` / `dist/`. Same silent GUI as Electron — no CMD popup.
+
+**Local bloat:** `dist\`, root `*.exe`, and builder caches are rebuildable (`npm run pack`). Safe to delete; prefer keeping `node_modules` unless doing a deliberate `npm ci`. See README “Local disk cleanup”.
 
 **Headless / browser:**
 
@@ -105,10 +107,10 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 
 - Brand as **Cursor Agents**, not Claude Code (cute characters are fine; do not relabel the product as Claude Code).
 - Desktop exe: **no CMD popups** — keep the live bridge in-process inside Electron; root portable exe is the primary packaged launch path.
-- After user-facing UI/desktop changes, refresh repo-root **`AgentWorkshop.exe`** via `npm run pack` or `npm run build` (`scripts/copy-exe.js`). `*.exe` is gitignored — still copy locally for the user (see `.cursor/rules/refresh-desktop-exe.mdc`).
+- After user-facing UI/desktop changes, refresh repo-root **`AgentWorkshop.exe`** via `npm run pack` (portable) or `npm run build` (`scripts/copy-exe.js` — portable only, never naked win-unpacked). `*.exe` is gitignored — still copy locally for the user (see `.cursor/rules/refresh-desktop-exe.mdc`).
 - Keep `live-bridge.js` **reusable** from CLI and from Electron (same module/API surface).
 - Prefer **minimal dependencies** (bridge today is Node stdlib only).
-- **Do not commit secrets** (`.env*`, tokens, credentials). Ignore `dist/`, `*.exe`, and `node_modules` via `.gitignore`.
+- **Do not commit secrets** (`.env*`, tokens, credentials). Ignore `dist/`, `*.exe`, and `node_modules` via `.gitignore`. Local `dist\` / stale exes are safe to delete and rebuild from git + npm.
 
 ## Limits (don’t “fix” these away casually)
 

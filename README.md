@@ -40,26 +40,36 @@ In the window, **Live** mode shows a **project** dropdown fed by `~/.cursor/proj
 ## Build / run the Windows `.exe` (silent GUI)
 
 ```bat
-npm run build
-```
-
-Artifacts in `dist\` (and a root copy of the portable exe for easy double-click):
-
-| File                                          | Use                                         |
-| --------------------------------------------- | ------------------------------------------- |
-| `AgentWorkshop.exe`                           | Portable GUI app — double-click, no install |
-| `Cursor Agents Model Routing Setup x.x.x.exe` | Optional NSIS installer                     |
-
-Packaged apps use the Windows GUI subsystem: **no console window** on launch. There is no `.cmd` wrapper.
-
-Faster unpackaged build:
-
-```bat
 npm run pack
 ```
 
-Then run `dist\win-unpacked\Cursor Agents Model Routing.exe`.
+Builds the **portable** single-file exe and copies it to repo-root **`AgentWorkshop.exe`** (via `scripts/copy-exe.js`). Double-click that root file — no install, no sibling DLLs.
 
+Full portable + NSIS installer pass:
+
+```bat
+npm run build
+```
+
+| File                                          | Use                                         |
+| --------------------------------------------- | ------------------------------------------- |
+| `AgentWorkshop.exe` (repo root)               | Primary launch — portable GUI, no install   |
+| `dist\AgentWorkshop.exe`                      | Same portable artifact before/after copy    |
+| `Cursor Agents Model Routing Setup x.x.x.exe` | Optional NSIS installer (`npm run build`)   |
+
+Packaged apps use the Windows GUI subsystem: **no console window** on launch. There is no `.cmd` wrapper.
+
+Do **not** copy `dist\win-unpacked\*.exe` to the repo root alone — that naked Electron binary needs `ffmpeg.dll` beside it. Use `npm run pack:dir` only to inspect an unpacked tree locally.
+
+### Local disk cleanup (safe — rebuildable)
+
+Git already ignores `dist/`, `*.exe`, and `node_modules/`. Source of truth is GitHub + `npm install` / `npm run pack`. Safe to delete locally anytime:
+
+- Entire **`dist\`** folder (unpacked trees, portable duplicates, NSIS setup, blockmaps)
+- Stale root **`AgentWorkshop.exe`** / legacy `*Portable*.exe` (recreate with `npm run pack`)
+- Electron/builder caches under `%LOCALAPPDATA%\electron*` / `%LOCALAPPDATA%\electron-builder*` if you are reclaiming a lot of space (next pack re-downloads)
+
+Keep **`node_modules\`** unless you are ready for a full `npm ci` / `npm install` (large reinstall). Never delete `.git` or source files.
 ## Project layout
 
 | Path                           | Role                                                                 |
