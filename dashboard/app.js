@@ -1070,7 +1070,10 @@
 
   /**
    * Primary nav: Stage | Insights | History.
-   * Slice 1: shell only (data-view-mode + persist). Drawer open/close lands in later slices.
+   * Sets `data-view-mode` on #app, syncs header buttons, persists to sessionStorage
+   * (unless opts.skipPersist). Each mode opens the matching lower drawer and closes others:
+   * stage → Activity; insights → Insights (forecast tab); history → History (replay tab,
+   * remounts replay transport, scrolls drawer into view; does not auto-play).
    */
   function setViewMode(mode, opts) {
     opts = opts || {};
@@ -1083,7 +1086,6 @@
       } catch (_) {}
     }
 
-    /* Drawer focus — no-ops until Insights/History drawers exist */
     if (viewMode === "stage") {
       if (drawerInsights) drawerInsights.open = false;
       if (drawerHistory) drawerHistory.open = false;
