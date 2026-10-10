@@ -37,8 +37,19 @@
       <header>
         <div class="header-top">
           <div class="title-row">
-            <div class="eyebrow">CURSOR AGENTS · MODEL ROUTING</div>
-            <span class="pill-new">NEW · HAIKU 5.5</span>
+            <div
+              class="eyebrow"
+              data-tip="Cursor Agents"
+              data-tip-detail="Model-routing workshop · not Claude Code UI"
+            >
+              CURSOR AGENTS · MODEL ROUTING
+            </div>
+            <span
+              class="pill-new"
+              data-tip="Haiku 5.5"
+              data-tip-detail="Fast scout lane · explore & research stay read-only"
+              >NEW · HAIKU 5.5</span
+            >
           </div>
           <div class="mode-bar">
             <div class="seg" role="group" aria-label="Source">
@@ -46,16 +57,16 @@
                 type="button"
                 id="modeDemo"
                 class="on"
-                data-tip="Demo"
-                data-tip-detail="Scripted routing story · no bridge required"
+                data-tip="Demo mode"
+                data-tip-detail="Scripted workshop story · no bridge, just vibes"
               >
                 Demo
               </button>
               <button
                 type="button"
                 id="modeLive"
-                data-tip="Live"
-                data-tip-detail="Near-real events from agent-transcripts via the bridge"
+                data-tip="Live mode"
+                data-tip-detail="Near-real transcript traffic via the localhost bridge"
               >
                 Live
               </button>
@@ -67,8 +78,8 @@
                 class="on"
                 aria-pressed="true"
                 data-view="stage"
-                data-tip="Stage"
-                data-tip-detail="Workshop · stations and merge portal"
+                data-tip="Stage view"
+                data-tip-detail="Cute workshop · stations bounce when busy"
               >
                 Stage
               </button>
@@ -77,8 +88,8 @@
                 id="viewInsights"
                 aria-pressed="false"
                 data-view="insights"
-                data-tip="Insights"
-                data-tip-detail="Forecast, suggestions, and session breakdown"
+                data-tip="Insights view"
+                data-tip-detail="Forecast, savings ideas, and session breakdown"
               >
                 Insights
               </button>
@@ -87,8 +98,8 @@
                 id="viewHistory"
                 aria-pressed="false"
                 data-view="history"
-                data-tip="History"
-                data-tip-detail="Replay past transcript events on the stage"
+                data-tip="History view"
+                data-tip-detail="Replay past events on the workshop stage"
               >
                 History
               </button>
@@ -99,7 +110,7 @@
               id="demoBtn"
               aria-pressed="false"
               data-tip="Play / Reconnect"
-              data-tip-detail="Demo Play/Stop · Live manual Reconnect"
+              data-tip-detail="Demo: Play or Stop · Live: manual Reconnect (no auto-loop)"
             >
               Play
             </button>
@@ -107,8 +118,8 @@
               id="projectPicker"
               class="project-picker"
               aria-label="Cursor project"
-              data-tip="Project"
-              data-tip-detail="Which Cursor project’s transcripts the bridge tails"
+              data-tip="Project picker"
+              data-tip-detail="Which Cursor project’s agent-transcripts the bridge tails"
               hidden
             ></select>
             <button
@@ -119,7 +130,7 @@
               title="Open panels"
               aria-label="Open panels"
               data-tip="Panels"
-              data-tip-detail="Open or collapse drawer panels"
+              data-tip-detail="Open or tuck the bill / activity / log drawers"
             >
               Panels
             </button>
@@ -129,8 +140,8 @@
               id="soundBtn"
               aria-pressed="false"
               title="Sound off (click to unmute)"
-              data-tip="Sound"
-              data-tip-detail="Workshop blips · muted by default"
+              data-tip="Workshop sound"
+              data-tip-detail="Soft blips when crates fly · muted by default"
             >
               🔇
             </button>
@@ -142,8 +153,8 @@
                 aria-label="Alerts"
                 aria-expanded="false"
                 aria-haspopup="true"
-                data-tip="Alerts"
-                data-tip-detail="Finished, error, and stalled agents"
+                data-tip="Alert bell"
+                data-tip-detail="Finished, error, and stalled agents · name/status only"
               >
                 <span class="alert-bell-icon" aria-hidden="true">🔔</span>
                 <span class="alert-badge" id="alertBadge" hidden>0</span>
@@ -171,17 +182,43 @@
               class="live-hint"
               id="liveHint"
               hidden
-              data-tip="Live status"
-              data-tip-detail="Bridge connection and project scope"
+              data-tip="Live hint"
+              data-tip-detail="Bridge connection and which project is in scope"
             ></span>
           </div>
         </div>
-        <h1 class="headline">Agent <em>workshop.</em></h1>
+        <h1
+          class="headline"
+          data-tip="Agent workshop"
+          data-tip-detail="Watch stations light up as work routes across agents"
+        >
+          Agent <em>workshop.</em>
+        </h1>
         <div class="role-pills" aria-label="Role summary">
-          <span class="role-pill opus">opus plans</span>
-          <span class="role-pill sonnet">sonnet edits</span>
-          <span class="role-pill haiku">haiku reads</span>
-          <span class="role-pill advisor">advisor reviews</span>
+          <span
+            class="role-pill opus"
+            data-tip="Opus plans"
+            data-tip-detail="Main session · plans, reviews, and ships"
+            >opus plans</span
+          >
+          <span
+            class="role-pill sonnet"
+            data-tip="Sonnet edits"
+            data-tip-detail="Worker lane · code changes and tests"
+            >sonnet edits</span
+          >
+          <span
+            class="role-pill haiku"
+            data-tip="Haiku reads"
+            data-tip-detail="Explorer + researcher · fast read-only scouts"
+            >haiku reads</span
+          >
+          <span
+            class="role-pill advisor"
+            data-tip="Advisor reviews"
+            data-tip-detail="Fable · checks before plan, same-error ×2, and before done"
+            >advisor reviews</span
+          >
         </div>
       </header>
 
@@ -192,8 +229,17 @@
           hidden
           role="status"
           aria-live="polite"
+          data-tip="Live presence"
+          data-tip-detail="Bridge health · connecting, quiet, streaming, or needs a nudge"
         ></div>
-        <aside class="live-coach" id="liveCoach" hidden aria-label="Live onboarding">
+        <aside
+          class="live-coach"
+          id="liveCoach"
+          hidden
+          aria-label="Live onboarding"
+          data-tip="Live coach"
+          data-tip-detail="First-Live tips · dismiss anytime; Demo still works"
+        >
           <div class="live-coach-inner">
             <h2 class="live-coach-title">Live workshop</h2>
             <ul class="live-coach-list">
@@ -204,12 +250,34 @@
               </li>
               <li>Session Bill and HUD costs are estimates — not official invoices.</li>
             </ul>
-            <button type="button" class="live-coach-dismiss" id="liveCoachDismiss">Got it</button>
+            <button
+              type="button"
+              class="live-coach-dismiss"
+              id="liveCoachDismiss"
+              data-tip="Got it"
+              data-tip-detail="Hide this coach sheet · you can still use Live"
+            >
+              Got it
+            </button>
           </div>
         </aside>
         <div class="workshop" id="workshop" aria-label="Agent workshop stage">
-          <div class="asks-bridge" id="asksLabel"><span>asks</span></div>
-          <div class="flow-label" id="delegatesLabel">delegates → merge</div>
+          <div
+            class="asks-bridge"
+            id="asksLabel"
+            data-tip="Asks path"
+            data-tip-detail="Opus pings Fable for a second look before big moves"
+          >
+            <span>asks</span>
+          </div>
+          <div
+            class="flow-label"
+            id="delegatesLabel"
+            data-tip="Delegates path"
+            data-tip-detail="Work flows to Sonnet / Haiku, then into the merge portal"
+          >
+            delegates → merge
+          </div>
           <div class="stage-toast" id="stageToast" role="status"></div>
 
           <svg
@@ -303,7 +371,7 @@
             <g id="cratesLayer"></g>
             <g id="sparksLayer"></g>
 
-            <!-- Opus desk -->
+            <!-- Opus desk — soft Claude-agent figure -->
             <g
               class="char"
               id="char-opus"
@@ -312,45 +380,36 @@
               role="button"
               aria-label="Opus station"
               data-tip="Opus"
-              data-tip-detail="Main session · plans and reviews"
+              data-tip-detail="Cute lead at the desk · plans, reviews, and ships"
             >
               <ellipse
                 class="station-glow"
                 cx="180"
                 cy="175"
-                rx="70"
-                ry="28"
-                fill="rgba(242,244,244,0.18)"
+                rx="72"
+                ry="30"
+                fill="rgba(242,244,244,0.2)"
                 filter="url(#softGlow)"
               />
-              <rect
-                x="120"
-                y="155"
-                width="120"
-                height="14"
-                rx="3"
-                fill="rgba(255,255,255,0.06)"
-                stroke="rgba(242,244,244,0.2)"
-              />
-              <g class="body-bob">
-                <circle cx="180" cy="118" r="16" fill="#dfe4e4" stroke="rgba(255,255,255,0.35)" />
-                <rect x="166" y="134" width="28" height="26" rx="6" fill="#c8cece" />
-                <circle cx="174" cy="116" r="2" fill="#0a0e0f" />
-                <circle cx="186" cy="116" r="2" fill="#0a0e0f" />
+              <rect class="station-pad" x="118" y="158" width="124" height="16" rx="8" />
+              <g class="body-bob agent-figure">
+                <ellipse class="agent-shadow" cx="180" cy="168" rx="18" ry="5" />
+                <rect class="agent-body" x="166" y="136" width="28" height="30" rx="12" />
+                <circle class="agent-head" cx="180" cy="114" r="20" />
+                <ellipse class="agent-cheek" cx="168" cy="118" rx="3.2" ry="2.2" />
+                <ellipse class="agent-cheek" cx="192" cy="118" rx="3.2" ry="2.2" />
+                <ellipse class="agent-eye" cx="173" cy="112" rx="2.2" ry="2.6" />
+                <ellipse class="agent-eye" cx="187" cy="112" rx="2.2" ry="2.6" />
+                <path class="agent-mouth" d="M174 121 Q180 126 186 121" />
+                <g class="agent-accent" aria-hidden="true">
+                  <rect x="174" y="92" width="12" height="5" rx="2.5" />
+                </g>
               </g>
               <text class="char-label" x="180" y="198" text-anchor="middle">Opus</text>
-              <text
-                class="char-label"
-                x="180"
-                y="212"
-                text-anchor="middle"
-                style="font-size: 8px; fill: var(--dim)"
-              >
-                desk
-              </text>
+              <text class="char-sub" x="180" y="212" text-anchor="middle">desk</text>
             </g>
 
-            <!-- Fable consult -->
+            <!-- Fable consult — soft Claude-agent figure -->
             <g
               class="char"
               id="char-advisor"
@@ -359,45 +418,36 @@
               role="button"
               aria-label="Fable station"
               data-tip="Fable"
-              data-tip-detail="Advisor · reviews before plan and before done"
+              data-tip-detail="Warm advisor · peeks before plan, same-error ×2, and before done"
             >
               <ellipse
                 class="station-glow"
                 cx="820"
                 cy="175"
-                rx="70"
-                ry="28"
-                fill="rgba(245,165,36,0.2)"
+                rx="72"
+                ry="30"
+                fill="rgba(245,165,36,0.22)"
                 filter="url(#softGlow)"
               />
-              <rect
-                x="760"
-                y="155"
-                width="120"
-                height="14"
-                rx="3"
-                fill="rgba(245,165,36,0.08)"
-                stroke="rgba(245,165,36,0.35)"
-              />
-              <g class="body-bob">
-                <circle cx="820" cy="118" r="16" fill="#f5a524" stroke="rgba(255,210,120,0.5)" />
-                <rect x="806" y="134" width="28" height="26" rx="6" fill="#d8891a" />
-                <circle cx="814" cy="116" r="2" fill="#0a0e0f" />
-                <circle cx="826" cy="116" r="2" fill="#0a0e0f" />
+              <rect class="station-pad" x="758" y="158" width="124" height="16" rx="8" />
+              <g class="body-bob agent-figure">
+                <ellipse class="agent-shadow" cx="820" cy="168" rx="18" ry="5" />
+                <rect class="agent-body" x="806" y="136" width="28" height="30" rx="12" />
+                <circle class="agent-head" cx="820" cy="114" r="20" />
+                <ellipse class="agent-cheek" cx="808" cy="118" rx="3.2" ry="2.2" />
+                <ellipse class="agent-cheek" cx="832" cy="118" rx="3.2" ry="2.2" />
+                <ellipse class="agent-eye" cx="813" cy="112" rx="2.2" ry="2.6" />
+                <ellipse class="agent-eye" cx="827" cy="112" rx="2.2" ry="2.6" />
+                <path class="agent-mouth" d="M814 121 Q820 126 826 121" />
+                <g class="agent-accent" aria-hidden="true">
+                  <path d="M820 90 L826 100 L814 100 Z" />
+                </g>
               </g>
               <text class="char-label" x="820" y="198" text-anchor="middle">Fable</text>
-              <text
-                class="char-label"
-                x="820"
-                y="212"
-                text-anchor="middle"
-                style="font-size: 8px; fill: var(--dim)"
-              >
-                consult
-              </text>
+              <text class="char-sub" x="820" y="212" text-anchor="middle">consult</text>
             </g>
 
-            <!-- Sonnet build bench -->
+            <!-- Sonnet build bench — soft Claude-agent figure -->
             <g
               class="char"
               id="char-worker"
@@ -406,45 +456,36 @@
               role="button"
               aria-label="Sonnet station"
               data-tip="Sonnet"
-              data-tip-detail="Worker · edits and tests"
+              data-tip-detail="Build buddy · edits, tests, and crate drops to merge"
             >
               <ellipse
                 class="station-glow"
                 cx="500"
                 cy="305"
-                rx="64"
-                ry="24"
-                fill="rgba(62,207,255,0.2)"
+                rx="66"
+                ry="26"
+                fill="rgba(62,207,255,0.22)"
                 filter="url(#softGlow)"
               />
-              <rect
-                x="450"
-                y="288"
-                width="100"
-                height="12"
-                rx="3"
-                fill="rgba(62,207,255,0.08)"
-                stroke="rgba(62,207,255,0.35)"
-              />
-              <g class="body-bob">
-                <circle cx="500" cy="252" r="15" fill="#3ecfff" stroke="rgba(140,230,255,0.5)" />
-                <rect x="487" y="267" width="26" height="24" rx="6" fill="#2aa8d4" />
-                <circle cx="494" cy="250" r="2" fill="#0a0e0f" />
-                <circle cx="506" cy="250" r="2" fill="#0a0e0f" />
+              <rect class="station-pad" x="448" y="290" width="104" height="14" rx="7" />
+              <g class="body-bob agent-figure">
+                <ellipse class="agent-shadow" cx="500" cy="298" rx="16" ry="4.5" />
+                <rect class="agent-body" x="487" y="268" width="26" height="28" rx="11" />
+                <circle class="agent-head" cx="500" cy="248" r="18" />
+                <ellipse class="agent-cheek" cx="489" cy="252" rx="2.8" ry="2" />
+                <ellipse class="agent-cheek" cx="511" cy="252" rx="2.8" ry="2" />
+                <ellipse class="agent-eye" cx="494" cy="246" rx="2" ry="2.4" />
+                <ellipse class="agent-eye" cx="506" cy="246" rx="2" ry="2.4" />
+                <path class="agent-mouth" d="M495 254 Q500 258 505 254" />
+                <g class="agent-accent" aria-hidden="true">
+                  <rect x="512" y="276" width="8" height="8" rx="2" />
+                </g>
               </g>
               <text class="char-label" x="500" y="326" text-anchor="middle">Sonnet</text>
-              <text
-                class="char-label"
-                x="500"
-                y="340"
-                text-anchor="middle"
-                style="font-size: 8px; fill: var(--dim)"
-              >
-                build
-              </text>
+              <text class="char-sub" x="500" y="340" text-anchor="middle">build</text>
             </g>
 
-            <!-- Explore shelves -->
+            <!-- Explore shelves — soft Claude-agent figure -->
             <g
               class="char"
               id="char-explorer"
@@ -453,54 +494,37 @@
               role="button"
               aria-label="Explore station"
               data-tip="Explore"
-              data-tip-detail="Haiku · read-only search"
+              data-tip-detail="Tiny scout · read-only search across the shelves"
             >
               <ellipse
                 class="station-glow"
                 cx="280"
                 cy="395"
-                rx="58"
-                ry="22"
-                fill="rgba(184,240,0,0.18)"
+                rx="60"
+                ry="24"
+                fill="rgba(184,240,0,0.2)"
                 filter="url(#softGlow)"
               />
-              <rect
-                x="240"
-                y="360"
-                width="18"
-                height="40"
-                rx="2"
-                fill="rgba(184,240,0,0.12)"
-                stroke="rgba(184,240,0,0.3)"
-              />
-              <rect
-                x="262"
-                y="350"
-                width="18"
-                height="50"
-                rx="2"
-                fill="rgba(184,240,0,0.1)"
-                stroke="rgba(184,240,0,0.28)"
-              />
-              <rect
-                x="284"
-                y="355"
-                width="18"
-                height="45"
-                rx="2"
-                fill="rgba(184,240,0,0.12)"
-                stroke="rgba(184,240,0,0.3)"
-              />
-              <g class="body-bob">
-                <circle cx="280" cy="330" r="13" fill="#b8f000" stroke="rgba(220,255,120,0.45)" />
-                <rect x="269" y="343" width="22" height="20" rx="5" fill="#95c400" />
-                <circle cx="275" cy="328" r="1.8" fill="#0a0e0f" />
-                <circle cx="285" cy="328" r="1.8" fill="#0a0e0f" />
+              <rect class="station-shelf" x="238" y="362" width="16" height="38" rx="6" />
+              <rect class="station-shelf" x="260" y="352" width="16" height="48" rx="6" />
+              <rect class="station-shelf" x="282" y="358" width="16" height="42" rx="6" />
+              <g class="body-bob agent-figure">
+                <ellipse class="agent-shadow" cx="280" cy="368" rx="14" ry="4" />
+                <rect class="agent-body" x="269" y="342" width="22" height="24" rx="10" />
+                <circle class="agent-head" cx="280" cy="326" r="15" />
+                <ellipse class="agent-cheek" cx="271" cy="330" rx="2.4" ry="1.8" />
+                <ellipse class="agent-cheek" cx="289" cy="330" rx="2.4" ry="1.8" />
+                <ellipse class="agent-eye" cx="275" cy="324" rx="1.7" ry="2.1" />
+                <ellipse class="agent-eye" cx="285" cy="324" rx="1.7" ry="2.1" />
+                <path class="agent-mouth" d="M276 332 Q280 335 284 332" />
+                <g class="agent-accent" aria-hidden="true">
+                  <ellipse cx="272" cy="312" rx="4" ry="3.5" transform="rotate(-28 272 312)" />
+                </g>
               </g>
               <text class="char-label" x="280" y="420" text-anchor="middle">Explore</text>
             </g>
 
-            <!-- Research library -->
+            <!-- Research library — soft Claude-agent figure -->
             <g
               class="char"
               id="char-researcher"
@@ -509,33 +533,33 @@
               role="button"
               aria-label="Research station"
               data-tip="Research"
-              data-tip-detail="Haiku · docs and references"
+              data-tip-detail="Library buddy · read-only docs and references"
             >
               <ellipse
                 class="station-glow"
                 cx="720"
                 cy="395"
-                rx="58"
-                ry="22"
-                fill="rgba(184,240,0,0.18)"
+                rx="60"
+                ry="24"
+                fill="rgba(140,220,180,0.18)"
                 filter="url(#softGlow)"
               />
-              <rect
-                x="680"
-                y="355"
-                width="80"
-                height="48"
-                rx="3"
-                fill="rgba(184,240,0,0.06)"
-                stroke="rgba(184,240,0,0.28)"
-              />
-              <line x1="690" y1="368" x2="750" y2="368" stroke="rgba(184,240,0,0.25)" />
-              <line x1="690" y1="380" x2="750" y2="380" stroke="rgba(184,240,0,0.25)" />
-              <g class="body-bob">
-                <circle cx="720" cy="330" r="13" fill="#c6f54a" stroke="rgba(220,255,120,0.45)" />
-                <rect x="709" y="343" width="22" height="20" rx="5" fill="#9ecf20" />
-                <circle cx="715" cy="328" r="1.8" fill="#0a0e0f" />
-                <circle cx="725" cy="328" r="1.8" fill="#0a0e0f" />
+              <rect class="station-pad station-library" x="678" y="358" width="84" height="44" rx="10" />
+              <line class="station-shelf-line" x1="690" y1="372" x2="750" y2="372" />
+              <line class="station-shelf-line" x1="690" y1="384" x2="750" y2="384" />
+              <g class="body-bob agent-figure">
+                <ellipse class="agent-shadow" cx="720" cy="368" rx="14" ry="4" />
+                <rect class="agent-body" x="709" y="342" width="22" height="24" rx="10" />
+                <circle class="agent-head" cx="720" cy="326" r="15" />
+                <ellipse class="agent-cheek" cx="711" cy="330" rx="2.4" ry="1.8" />
+                <ellipse class="agent-cheek" cx="729" cy="330" rx="2.4" ry="1.8" />
+                <ellipse class="agent-eye" cx="715" cy="324" rx="1.7" ry="2.1" />
+                <ellipse class="agent-eye" cx="725" cy="324" rx="1.7" ry="2.1" />
+                <path class="agent-mouth" d="M716 332 Q720 335 724 332" />
+                <g class="agent-accent" aria-hidden="true">
+                  <circle cx="730" cy="314" r="3.5" />
+                  <circle cx="724" cy="318" r="2.5" />
+                </g>
               </g>
               <text class="char-label" x="720" y="420" text-anchor="middle">Research</text>
             </g>
@@ -548,7 +572,7 @@
               role="button"
               aria-label="Merge portal — open Activity"
               data-tip="Merge portal"
-              data-tip-detail="Open Activity · ship celebrations land here"
+              data-tip-detail="Where crates land · click to open Activity and cheer ships"
             >
               <ellipse class="portal-core" cx="500" cy="445" rx="48" ry="18" />
               <ellipse class="portal-ring" cx="500" cy="445" rx="48" ry="18" />
@@ -570,32 +594,32 @@
             <div class="hud-chips">
               <span
                 class="hud-chip cost"
-                data-tip="Session cost"
-                data-tip-detail="Estimated Session Bill total · not an invoice"
+                data-tip="Session $"
+                data-tip-detail="Estimated Session Bill total · fun math, not an invoice"
                 >session <strong id="hudSessionCost">$0.00</strong></span
               >
               <span
                 class="hud-chip active-role"
                 data-tip="Active role"
-                data-tip-detail="Which stations are busy right now"
+                data-tip-detail="Who’s bouncing on stage right now"
                 >active <strong id="hudActiveRole">—</strong></span
               >
               <span
                 class="hud-chip"
                 data-tip="Subagents"
-                data-tip-detail="Distinct worker / explorer / researcher launches"
+                data-tip-detail="How many worker / explorer / researcher launches so far"
                 >subs <strong id="hudSubs">0</strong></span
               >
               <span
                 class="hud-chip"
                 data-tip="Effort"
-                data-tip-detail="Session effort band from the narrative or live stream"
+                data-tip-detail="How hard the session is leaning · from demo narrative or live"
                 >effort <strong id="hudEffort">mixed</strong></span
               >
               <span
                 class="hud-chip"
                 data-tip="Haiku tokens"
-                data-tip-detail="Illustrative Haiku in+out from transcript activity"
+                data-tip-detail="Illustrative Haiku in+out · scout fuel from transcripts"
                 >haiku <strong id="hudTokens">0</strong></span
               >
             </div>
@@ -688,7 +712,7 @@
                   <div class="card-role">Haiku · search</div>
                 </div>
                 <div class="badge-row">
-                  <span class="readonly-pill">read-only</span>
+                  <span class="readonly-pill" data-tip="Scout mode" data-tip-detail="Read-only explore — no edits from this station">scout</span>
                   <div class="effort" title="Effort: low">
                     <span class="effort-bars" data-level="low" aria-hidden="true">
                       <span></span><span></span><span></span><span></span><span></span><span></span>
@@ -710,7 +734,7 @@
                   <div class="card-role">Haiku · docs</div>
                 </div>
                 <div class="badge-row">
-                  <span class="readonly-pill">read-only</span>
+                  <span class="readonly-pill" data-tip="Scout mode" data-tip-detail="Read-only research — no edits from this station">scout</span>
                   <div class="effort" title="Effort: low">
                     <span class="effort-bars" data-level="low" aria-hidden="true">
                       <span></span><span></span><span></span><span></span><span></span><span></span>
@@ -730,16 +754,30 @@
 
       <div class="drawers" id="drawers">
         <details class="drawer" data-panel="stations" id="drawerStations">
-          <summary>Stations · status</summary>
+          <summary
+            data-tip="Stations drawer"
+            data-tip-detail="Living agent cards · status, effort, and scout badges"
+          >
+            Stations · status
+          </summary>
           <div class="drawer-body" id="stationsDrawerBody"></div>
         </details>
 
         <details class="drawer" data-panel="bill" id="drawerBill">
-          <summary>Session Bill</summary>
+          <summary
+            data-tip="Session Bill"
+            data-tip-detail="Estimated spend by model · illustrative, not an invoice"
+          >
+            Session Bill
+          </summary>
           <div class="drawer-body">
             <section class="session-bill" aria-label="Session Bill">
               <div class="session-bill-inner">
-                <table class="bill-grid">
+                <table
+                  class="bill-grid"
+                  data-tip="Bill grid"
+                  data-tip-detail="Tokens in/out × published rates · Haiku splits explorer + researcher"
+                >
                   <thead>
                     <tr>
                       <th>Model</th>
@@ -795,14 +833,27 @@
                   </tbody>
                 </table>
                 <div class="bill-foot">
-                  <div class="bill-total-block">
+                  <div
+                    class="bill-total-block"
+                    data-tip="Session total"
+                    data-tip-detail="Sum of estimated model costs this session"
+                  >
                     <div class="session-total-label">Session total</div>
                     <div class="session-total" id="billSessionTotal">$0.00</div>
-                    <div class="illustrative" id="billIllustrative">
+                    <div
+                      class="illustrative"
+                      id="billIllustrative"
+                      data-tip="Estimates only"
+                      data-tip-detail="Token deltas are illustrative · not official usage"
+                    >
                       estimated · not official usage
                     </div>
                   </div>
-                  <div class="bill-compare-block">
+                  <div
+                    class="bill-compare-block"
+                    data-tip="All-Opus compare"
+                    data-tip-detail="What the same work might cost if everything stayed on Opus"
+                  >
                     <div class="all-opus">
                       same work all-Opus <strong id="billAllOpus">$0.00</strong>
                     </div>
@@ -810,7 +861,13 @@
                     <div class="savings-note" id="billSavingsNote">savings vs all-Opus</div>
                   </div>
                 </div>
-                <div class="cost-share" id="costShareBar" aria-hidden="true">
+                <div
+                  class="cost-share"
+                  id="costShareBar"
+                  aria-hidden="true"
+                  data-tip="Cost share"
+                  data-tip-detail="Who ate the bill · Opus / Fable / Sonnet / Haiku"
+                >
                   <i class="opus" id="shareOpus"></i>
                   <i class="fable" id="shareFable"></i>
                   <i class="sonnet" id="shareSonnet"></i>
@@ -822,17 +879,30 @@
         </details>
 
         <details class="drawer" data-panel="activity" id="drawerActivity" open>
-          <summary>Activity</summary>
+          <summary
+            data-tip="Activity"
+            data-tip-detail="Reads and edits flowing toward the merge portal"
+          >
+            Activity
+          </summary>
           <div class="drawer-body">
             <section class="activity-panel" aria-label="Activity preview">
               <div class="activity-cols">
-                <div class="activity-col read">
+                <div
+                  class="activity-col read"
+                  data-tip="Reads"
+                  data-tip-detail="Files and paths the scouts / leads opened"
+                >
                   <div class="activity-col-head">Read</div>
                   <div class="activity-list" id="activityRead">
                     <div class="activity-empty" id="activityReadEmpty">No reads yet…</div>
                   </div>
                 </div>
-                <div class="activity-col edit">
+                <div
+                  class="activity-col edit"
+                  data-tip="Edits"
+                  data-tip-detail="Files Sonnet (and friends) actually changed"
+                >
                   <div class="activity-col-head">Edited</div>
                   <div class="activity-list" id="activityEdit">
                     <div class="activity-empty" id="activityEditEmpty">No edits yet…</div>
@@ -844,13 +914,20 @@
         </details>
 
         <details class="drawer" data-panel="log" id="drawerLog">
-          <summary>Session Log</summary>
+          <summary
+            data-tip="Session Log"
+            data-tip-detail="Narrative timeline · Demo story beats or Live events"
+          >
+            Session Log
+          </summary>
           <div class="drawer-body">
             <section
               class="session-log"
               id="sessionLog"
               aria-live="polite"
               aria-label="Session log"
+              data-tip="Log stream"
+              data-tip-detail="Scrollable session story · waiting until Demo Play or Live"
             >
               <div class="log-empty" id="logEmpty">
                 Waiting for session… choose Demo · Play or Live.
@@ -860,24 +937,48 @@
         </details>
 
         <details class="drawer" data-panel="insights" id="drawerInsights">
-          <summary>Insights</summary>
+          <summary
+            data-tip="Insights drawer"
+            data-tip-detail="Forecast and suggestions live here · open Insights view too"
+          >
+            Insights
+          </summary>
           <div class="drawer-body" id="insightsDrawerBody" aria-label="Insights panel"></div>
         </details>
 
         <details class="drawer" data-panel="history" id="drawerHistory">
-          <summary>History</summary>
+          <summary
+            data-tip="History drawer"
+            data-tip-detail="Replay transport · play, pause, scrub, and speed"
+          >
+            History
+          </summary>
           <div class="drawer-body">
-            <p class="history-hint" id="historyHint" role="status">Replay driving stage</p>
+            <p
+              class="history-hint"
+              id="historyHint"
+              role="status"
+              data-tip="Replay status"
+              data-tip-detail="Whether History replay is driving the workshop stage"
+            >
+              Replay driving stage
+            </p>
             <div
               id="historyReplayHost"
               class="history-replay-host"
               aria-label="Session replay"
+              data-tip="Replay host"
+              data-tip-detail="Transport controls land here when History is open"
             ></div>
           </div>
         </details>
       </div>
 
-      <footer class="footer">
+      <footer
+        class="footer"
+        data-tip="CLI echo"
+        data-tip-detail="Friendly reminder of the routing recipe for this project"
+      >
         <div class="cli">
           <span class="prompt">project $</span>
           <span class="cmd" id="footerProject">cursor --model opus --advisor fable</span>

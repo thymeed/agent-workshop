@@ -462,12 +462,21 @@
       el.setAttribute("class", "crate flying " + (kind === "edit" ? "code" : "page"));
       el.setAttribute("width", kind === "edit" ? "14" : "11");
       el.setAttribute("height", kind === "edit" ? "11" : "14");
-      el.setAttribute("rx", "2");
+      el.setAttribute("rx", "4");
       el.setAttribute("x", String(from.x - 6));
       el.setAttribute("y", String(from.y - 10));
       el.dataset.path = activity.path || "—";
       el.dataset.detail = activity.detail || kind;
       el.dataset.role = role;
+      el.setAttribute("data-tip", activity.path || "Crate");
+      el.setAttribute(
+        "data-tip-detail",
+        (ROLE_LABEL[role] || role) +
+          " · " +
+          (kind === "edit" ? "edit crate" : "read crate") +
+          (activity.detail ? " · " + activity.detail : "") +
+          " → merge"
+      );
       cratesLayer.appendChild(el);
 
       if (kind === "edit") sound.play("edit");
