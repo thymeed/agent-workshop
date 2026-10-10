@@ -1,5 +1,5 @@
 /**
- * Agent card rendering — avatars, privacy meter, daily stats.
+ * Agent card rendering — avatars, privacy meter, daily stats, ship celebration.
  * Loaded before app.js; exposes window.AgentCards.
  * Works from file:// (Demo) and bridge-served Live.
  */
