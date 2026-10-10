@@ -136,6 +136,90 @@ function fetchLiveEvents(port) {
   });
 }
 
+function fetchAlerts(port) {
+  return new Promise((resolve, reject) => {
+    http
+      .get(`http://127.0.0.1:${port}/api/alerts`, (res) => {
+        let data = "";
+        res.on("data", (c) => {
+          data += c;
+        });
+        res.on("end", () => {
+          try {
+            resolve({ status: res.statusCode, body: JSON.parse(data) });
+          } catch (e) {
+            reject(e);
+          }
+        });
+      })
+      .on("error", reject);
+  });
+}
+
+/**
+ * Open SSE /api/stream and collect named `alert` events until timeout or count.
+ * @param {number} port
+ * @param {{count?:number, timeoutMs?:number}} [opts]
+ */
+function collectSseAlerts(port, opts) {
+  opts = opts || {};
+  const want = opts.count != null ? opts.count : 1;
+  const timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : 4000;
+  return new Promise((resolve, reject) => {
+    const found = [];
+    let buf = "";
+    let settled = false;
+    const req = http.get(`http://127.0.0.1:${port}/api/stream`, (res) => {
+      res.on("data", (chunk) => {
+        buf += chunk.toString("utf8");
+        const parts = buf.split("\n\n");
+        buf = parts.pop() || "";
+        for (const block of parts) {
+          const lines = block.split("\n");
+          let eventName = "";
+          let dataLine = "";
+          for (const line of lines) {
+            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+            else if (line.startsWith("data:")) dataLine = line.slice(5).trim();
+          }
+          if (eventName !== "alert" || !dataLine) continue;
+          try {
+            found.push(JSON.parse(dataLine));
+          } catch (_e) {
+            /* ignore */
+          }
+          if (found.length >= want && !settled) {
+            settled = true;
+            clearTimeout(timer);
+            req.destroy();
+            resolve(found);
+          }
+        }
+      });
+      res.on("error", (err) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
+    });
+    req.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      }
+    });
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      req.destroy();
+      resolve(found);
+    }, timeoutMs);
+  });
+}
+
 function transcriptLiveEvents(liveEvents) {
   return liveEvents.filter(
     (e) => e && e.source !== "bridge" && String(e.message || "").includes("warm-tail-")
@@ -720,6 +804,67 @@ async function testSubagentFinishedNotStalled() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+async function testAlertBusSseAndApi() {
+  const { root, subDir } = tmpTranscripts();
+  const subId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeee0001";
+  const subFile = path.join(subDir, subId + ".jsonl");
+  appendLine(subFile, line("user", "Implementation worker task", { tsOffsetMs: -3000 }));
+
+  await withBridge(root, async ({ alerts, port }) => {
+    scanTranscripts();
+
+    const ssePromise = collectSseAlerts(port, { count: 1, timeoutMs: 5000 });
+    // Let the SSE client attach before the terminal emit.
+    await new Promise((r) => setTimeout(r, 80));
+
+    appendLine(subFile, line("assistant", "<final>alert-bus-done</final>"));
+    scanTranscripts();
+
+    assert(
+      alerts.some((a) => a.status === "finished" && a.name),
+      "onAgentAlert callback must still fire for desktop notifications"
+    );
+    assert(
+      alerts.every((a) => a.name != null && a.status != null && a.message == null),
+      "callback payload is name+status only (no message/prompt)"
+    );
+
+    const sseAlerts = await ssePromise;
+    assert(sseAlerts.length >= 1, "SSE must broadcast event: alert, got " + sseAlerts.length);
+    const sseHit = sseAlerts.find((a) => a.status === "finished" && a.agentId === subId);
+    assert(sseHit, "SSE alert should include finished status and agentId");
+    assert(typeof sseHit.id === "number" && sseHit.id > 0, "SSE alert needs numeric id");
+    assert(typeof sseHit.ts === "string" && Date.parse(sseHit.ts), "SSE alert needs ts");
+    assert(typeof sseHit.name === "string" && sseHit.name.length > 0, "SSE alert needs name");
+    assert(
+      sseHit.message == null && sseHit.path == null && sseHit.prompt == null,
+      "SSE alert must not carry prompt/path fields"
+    );
+
+    const api = await fetchAlerts(port);
+    assert(api.status === 200, "GET /api/alerts expected 200, got " + api.status);
+    assert(Array.isArray(api.body.alerts), "GET /api/alerts returns alerts array");
+    const apiHit = api.body.alerts.find((a) => a.status === "finished" && a.agentId === subId);
+    assert(apiHit, "GET /api/alerts must include the finished alert with agentId");
+    assert(apiHit.id === sseHit.id, "API alert id should match SSE alert id");
+    assert(apiHit.name === sseHit.name, "API alert name should match SSE");
+    assert(
+      api.body.alerts.every(
+        (a) =>
+          a &&
+          typeof a.id === "number" &&
+          typeof a.ts === "string" &&
+          typeof a.name === "string" &&
+          typeof a.status === "string" &&
+          a.message == null
+      ),
+      "stored alerts are id/ts/name/status (+ optional agentId) only"
+    );
+  });
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 async function main() {
   await testRestartDedupeAndTimestamps();
   await testKeywordFalsePositiveAndStructuredTerminal();
@@ -736,7 +881,10 @@ async function main() {
   await testOversizedLineSkippedNoStall();
   await testChunkedReadCappedPerPoll();
   await testSubagentFinishedNotStalled();
-  console.log("transcript-history tests OK · dedupe, timestamps, terminal signals, alerts, stall");
+  await testAlertBusSseAndApi();
+  console.log(
+    "transcript-history tests OK · dedupe, timestamps, terminal signals, alerts, stall, alert bus"
+  );
 }
 
 main().catch((err) => {

@@ -125,20 +125,126 @@ async function assertInsightsUi(page, label, errors) {
     errors.push(label + ": forecast pace/spend should use all sessions, not selected session");
   }
 
-  /* Suggestions */
+  /* Suggestions — ranked by savings, jump event, honesty hint */
   await page.click('.insights-tab[data-tab="suggestions"]');
   await page.waitForSelector('[data-panel="suggestions"].on', { timeout: 3000 });
   const suggestOk = await page.evaluate(() => {
-    const list = document.querySelector("[data-suggestions-list]");
+    const honesty = document.querySelector("[data-suggestions-honesty]");
+    const honestyText = honesty && honesty.textContent ? honesty.textContent : "";
+    if (!/does not change Cursor routing/i.test(honestyText)) return false;
+
     const empty = document.querySelector("[data-suggestions-empty]");
     if (empty) return true;
+
+    const list = document.querySelector("[data-suggestions-list]");
     if (!list) return false;
-    const items = list.querySelectorAll("li");
+    const items = list.querySelectorAll("li[data-agent-id]");
     if (!items.length) return false;
+
+    const savingsEls = list.querySelectorAll("[data-suggest-savings]");
+    if (savingsEls.length !== items.length) return false;
+    const amounts = [];
+    for (let i = 0; i < savingsEls.length; i++) {
+      const m = (savingsEls[i].textContent || "").match(/\$[\d.]+/);
+      if (!m) return false;
+      amounts.push(parseFloat(m[0].slice(1)));
+    }
+    for (let i = 1; i < amounts.length; i++) {
+      if (amounts[i] > amounts[i - 1] + 1e-9) return false;
+    }
+
+    if (!document.querySelector("[data-suggestions-copy]")) return false;
+
     const reason = items[0].querySelector(".insights-suggest-reason");
-    return !!(reason && reason.textContent.trim().length > 10);
+    if (!(reason && reason.textContent.trim().length > 10)) return false;
+
+    const row = items[0];
+    if (row.getAttribute("tabindex") !== "0") return false;
+    let jumped = null;
+    function onJump(ev) {
+      jumped = ev && ev.detail ? ev.detail : null;
+    }
+    window.addEventListener("cursor-agents:jump-to-agent", onJump);
+    row.click();
+    window.removeEventListener("cursor-agents:jump-to-agent", onJump);
+    if (
+      !jumped ||
+      jumped.agentId !== row.getAttribute("data-agent-id") ||
+      typeof jumped.name !== "string" ||
+      typeof jumped.model !== "string" ||
+      typeof jumped.suggestion !== "string" ||
+      typeof jumped.savings !== "number"
+    ) {
+      return false;
+    }
+    return true;
   });
   if (!suggestOk) errors.push(label + ": suggestions panel empty/incomplete");
+
+  const suggestSortApiOk = await page.evaluate(() => {
+    const events = [
+      {
+        ts: "2026-10-09T14:00:00.000Z",
+        sessionId: "sort",
+        agentId: "agent-a",
+        parentId: "p",
+        name: "Zebra scan",
+        model: "fable",
+        type: "turn",
+        inputTokens: 8000,
+        outputTokens: 400,
+        files: ["a.js"]
+      },
+      {
+        ts: "2026-10-09T14:00:01.000Z",
+        sessionId: "sort",
+        agentId: "agent-a",
+        parentId: "p",
+        name: "Zebra scan",
+        model: "fable",
+        type: "done",
+        inputTokens: 0,
+        outputTokens: 0,
+        files: []
+      },
+      {
+        ts: "2026-10-09T14:00:02.000Z",
+        sessionId: "sort",
+        agentId: "agent-b",
+        parentId: "p",
+        name: "Alpha scan",
+        model: "fable",
+        type: "turn",
+        inputTokens: 60000,
+        outputTokens: 800,
+        files: ["b.js"]
+      },
+      {
+        ts: "2026-10-09T14:00:03.000Z",
+        sessionId: "sort",
+        agentId: "agent-b",
+        parentId: "p",
+        name: "Alpha scan",
+        model: "fable",
+        type: "done",
+        inputTokens: 0,
+        outputTokens: 0,
+        files: []
+      }
+    ];
+    const list = window.Insights.analyze.routingSuggestions(events);
+    if (!list || list.length < 2) return false;
+    for (let i = 1; i < list.length; i++) {
+      const prev = list[i - 1];
+      const cur = list[i];
+      if (cur.savings > prev.savings + 1e-9) return false;
+      if (Math.abs(cur.savings - prev.savings) < 1e-9 && cur.name.localeCompare(prev.name) < 0) {
+        return false;
+      }
+    }
+    return list[0].savings >= list[1].savings;
+  });
+  if (!suggestSortApiOk) errors.push(label + ": routingSuggestions not sorted by savings/name");
 
   /* Replay scrubber */
   await page.click('.insights-tab[data-tab="replay"]');
