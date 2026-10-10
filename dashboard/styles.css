@@ -657,6 +657,24 @@ h1.headline em {
   stroke-width: 1.6;
   stroke-linecap: round;
 }
+/* Per-role stage mouths — match card cast expressions */
+.char[data-role="opus"] .agent-mouth {
+  stroke-width: 1.7;
+}
+.char[data-role="advisor"] .agent-mouth {
+  stroke-width: 1.85;
+}
+.char[data-role="worker"] .agent-mouth {
+  stroke-width: 1.55;
+}
+.char[data-role="explorer"] .agent-mouth {
+  stroke-width: 1.75;
+}
+.char[data-role="researcher"] .agent-mouth.agent-mouth-o {
+  fill: #0a0e0f;
+  stroke: none;
+  opacity: 0.75;
+}
 .agent-accent {
   opacity: 0.9;
 }

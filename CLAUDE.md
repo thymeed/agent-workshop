@@ -93,6 +93,7 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 
 - **Cute station characters** — stage figures + card avatars stay soft/Claude-agent-like; keep Cursor Agents naming (Opus / Fable / Worker / Explore / Research).
 - **Unique card faces** — Stations avatars (`data-avatar` + `cards.css`) are per-role (tuft/band/hat/glasses accents), not one shared face tinted by color.
+- **Per-role mouths** — idle mouths differ by cast (Opus calm wide smile, Fable warm deep grin, Worker compact dash, Explore curious open U, Research thoughtful o) on both card avatars and stage SVG figures; keep expressions soft/cute, not identical.
 - **Inbound route tokens** — `stageDirector.spawnRouteToken(role)` flies a small role-shaped glyph along the pulse path into the station on ask/delegate (`animateRoute`); cap concurrent tokens; respect reduced motion / narrow layouts.
 - **TipLayer** (`tips.js`) — one floating tip host for chrome, stage, cards, Insights, History, alerts; prefer `data-tip` / `data-tip-detail` over bare `title=` on primary controls.
 - **Alert center** (`alerts.js`) — header bell; bridge SSE `event: alert` + `GET /api/alerts` (name/status/`agentId` only); Electron desktop Notification stays on the same emit path.
@@ -104,6 +105,7 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 
 - Brand as **Cursor Agents**, not Claude Code (cute characters are fine; do not relabel the product as Claude Code).
 - Desktop exe: **no CMD popups** — keep the live bridge in-process inside Electron; root portable exe is the primary packaged launch path.
+- After user-facing UI/desktop changes, refresh repo-root **`AgentWorkshop.exe`** via `npm run pack` or `npm run build` (`scripts/copy-exe.js`). `*.exe` is gitignored — still copy locally for the user (see `.cursor/rules/refresh-desktop-exe.mdc`).
 - Keep `live-bridge.js` **reusable** from CLI and from Electron (same module/API surface).
 - Prefer **minimal dependencies** (bridge today is Node stdlib only).
 - **Do not commit secrets** (`.env*`, tokens, credentials). Ignore `dist/`, `*.exe`, and `node_modules` via `.gitignore`.

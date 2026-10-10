@@ -1,0 +1,42 @@
+---
+description: Rebuild and copy repo-root AgentWorkshop.exe after user-facing UI or desktop changes
+alwaysApply: true
+---
+
+# Refresh desktop exe after UI / desktop changes
+
+Whenever you ship a **user-facing UI** or **desktop/Electron** change in this repo, rebuild and refresh the repo-root portable executable so local double-click stays current.
+
+## When to refresh
+
+Do this after changes that affect what users see or how the desktop app launches, including:
+
+- Dashboard HTML/CSS/JS (`model-routing-dashboard.html`, `dashboard/**`)
+- Electron shell (`electron/**`)
+- Live bridge behavior that the desktop app embeds (`live-bridge.js`, related `lib/**`)
+- Packaging / copy scripts (`package.json` build/pack, `scripts/copy-exe.js`)
+
+Skip for docs-only, test-only, or pure backend/tooling edits that never ship inside the windowed app.
+
+## How
+
+```bat
+npm run pack
+```
+
+Prefer `npm run pack` for a faster unpackaged build + root copy. Use `npm run build` when a full portable/NSIS `dist\` artifacts pass is needed.
+
+Both scripts run `scripts/copy-exe.js`, which copies the portable exe to repo-root **`AgentWorkshop.exe`**.
+
+## Checklist (before “done”)
+
+1. Did the change alter Demo/Live UI, stage/cards/chrome, or the Electron window? → refresh the root exe.
+2. Confirm **`AgentWorkshop.exe`** exists at the repo root after pack/build (mtime updated).
+3. **Do not commit** `*.exe` — they are gitignored; still build/copy locally for the user and note that in the handoff.
+
+## Examples
+
+- ✅ Distinct avatar mouths / stage face CSS → pack + root `AgentWorkshop.exe`
+- ✅ Live presence banner or TipLayer chrome → pack + root exe
+- ❌ Docs-only `CLAUDE.md` / README tweak → no exe rebuild
+- ❌ Test-only smoke fix with no packaged asset change → no exe rebuild

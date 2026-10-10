@@ -273,7 +273,66 @@
   left: auto;
 }
 
-/* Idle — gentle smile */
+/*
+ * Per-role idle mouths — each cast member reads differently at a glance
+ * (not one shared smile tinted by accent). Soft Claude-agent cute, Cursor Agents cast.
+ * Opus calm lead · Fable warm grin · Worker determined dash · Explore curious open · Research thoughtful o
+ */
+.agent-avatar[data-avatar="opus"].state-idle .avatar-mouth {
+  width: 11px;
+  height: 4px;
+  top: 25px;
+  border: none;
+  border-radius: 0 0 12px 12px;
+  border-bottom: 2.2px solid var(--avatar-ink);
+  background: transparent;
+  opacity: 0.88;
+}
+
+.agent-avatar[data-avatar="advisor"].state-idle .avatar-mouth {
+  width: 10px;
+  height: 6px;
+  top: 23px;
+  border: none;
+  border-radius: 0 0 11px 11px;
+  border-bottom: 2.5px solid var(--avatar-ink);
+  background: transparent;
+  opacity: 0.92;
+}
+
+.agent-avatar[data-avatar="worker"].state-idle .avatar-mouth {
+  width: 7px;
+  height: 3px;
+  top: 26px;
+  border: none;
+  border-radius: 0 0 5px 5px;
+  border-bottom: 2px solid var(--avatar-ink);
+  background: transparent;
+  opacity: 0.85;
+}
+
+.agent-avatar[data-avatar="explorer"].state-idle .avatar-mouth {
+  width: 8px;
+  height: 5.5px;
+  top: 24px;
+  border: 1.6px solid var(--avatar-ink);
+  border-top-color: transparent;
+  border-radius: 0 0 8px 8px;
+  background: rgba(40, 52, 8, 0.12);
+  opacity: 0.9;
+}
+
+.agent-avatar[data-avatar="researcher"].state-idle .avatar-mouth {
+  width: 4.5px;
+  height: 4.5px;
+  top: 25px;
+  border: none;
+  border-radius: 50%;
+  background: var(--avatar-ink);
+  opacity: 0.55;
+}
+
+/* Idle fallback (unknown avatar) — gentle smile */
 .agent-avatar.state-idle .avatar-mouth {
   width: 8px;
   border-bottom-width: 2px;
