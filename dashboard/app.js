@@ -2108,6 +2108,11 @@
 
   function onReplayIndexChange(payload) {
     if (!ReplayStage || !payload) return;
+    /* Insights reloads history in the background on Stage/Insights — only History view owns the stage. */
+    if (viewMode !== "history") {
+      replaySessionActive = false;
+      return;
+    }
     var events = payload.events || [];
     var index = Number(payload.index);
     if (!isFinite(index)) return;
