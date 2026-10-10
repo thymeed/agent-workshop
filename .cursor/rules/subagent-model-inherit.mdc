@@ -1,11 +1,11 @@
 ---
-description: Subagents use inherit — never pin claude-* model slugs on Task
+description: Subagents use inherit; never pin claude-* model slugs on Task
 alwaysApply: true
 ---
 
 # Subagent model routing (Cursor IDE)
 
-This repo does **not** configure subagent models in agent markdown. Roles (Opus / Fable / Worker / Explore / Research) are **dashboard visualization** labels — not Task `model` slugs.
+This repo does **not** configure subagent models in agent markdown. Roles (Opus / Fable / Worker / Explore / Research) are **dashboard visualization** labels, not Task `model` slugs.
 
 ## Required behavior
 
@@ -13,16 +13,16 @@ When spawning subagents via **Task** / **CallDynamicTool** (`subagent_type`: `wo
 
 - **Do not** pass a `model` argument unless the **user explicitly** asked for a named model in that turn.
 - **Default:** omit `model` entirely so Cursor uses **`inherit`** (follows the parent chat model / Auto routing).
-- **Never** pin `claude-*`, `composer-*`, `gpt-*`, `grok-*`, `gemini-*`, or other catalog slugs to “match” workshop cast names — that burns **Other Models** quota and is unrelated to the dashboard Demo/Live story.
+- **Never** pin `claude-*`, `composer-*`, `gpt-*`, `grok-*`, `gemini-*`, or other catalog slugs to "match" workshop cast names. That burns **Other Models** quota and is unrelated to the dashboard Demo/Live story.
 
 ## What still uses named models (OK)
 
-- **Dashboard product** — Demo playbook, Insights cost tiers, Session Bill, `history-demo.json`, and Live bridge **role→bill-key** mapping (`opus` / `fable` / `sonnet` / `haiku`) for UI only.
-- **Footer flavor text** — e.g. `cursor --model opus --advisor fable` in the dashboard shell is illustrative, not agent config.
+- **Dashboard product.** Demo playbook, Insights cost tiers, Session Bill, `history-demo.json`, and Live bridge **role→bill-key** mapping (`opus` / `fable` / `sonnet` / `haiku`) for UI only.
+- **Footer flavor text.** e.g. `cursor --model opus --advisor fable` in the dashboard shell is illustrative, not agent config.
 
 ## Examples
 
-- ✅ `Task(subagent_type: "worker", prompt: "...")` — no `model` field
+- ✅ `Task(subagent_type: "worker", prompt: "...")` with no `model` field
 - ✅ User says “run Bugbot on Sonnet” → pass the slug **they** named
 - ❌ `Task(..., model: "claude-sonnet-5-5-high")` for routine worker/explore/advisor delegation
 - ❌ Choosing slugs from the global “available subagent models” list without a user request

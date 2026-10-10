@@ -4,7 +4,7 @@
  * Playwright error collectors for dashboard smoke tests.
  *
  * Allowed soft failures until sibling PRs land:
- * - GET /api/history 404 only — insights UI (master) calls it; bridge route ships in PR #5
+ * - GET /api/history 404 only. insights UI (master) calls it; bridge route ships in PR #5
  * - dashboard/insights.js|css 404 on file:// only when those assets are not present
  *
  * Any other /api/* 4xx/5xx or dashboard asset failure must fail the test.

@@ -1,7 +1,7 @@
 {
   "name": "cursor-agents-model-routing",
   "version": "1.0.0",
-  "description": "Cursor Agents · Model Routing — Electron desktop dashboard with in-process live bridge",
+  "description": "Cursor Agents · Model Routing. Electron desktop dashboard with in-process live bridge",
   "main": "electron/main.js",
   "author": "Thymeed",
   "license": "MIT",

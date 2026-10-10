@@ -1,5 +1,5 @@
 /**
- * In-app alert center — SSE `alert` + GET /api/alerts.
+ * In-app alert center. SSE `alert` + GET /api/alerts.
  * window.AlertCenter.init / attachEventSource / hydrate / push
  */
 (function (global) {
@@ -123,10 +123,10 @@
   function statusTipDetail(it) {
     var status = statusLabel(it.status);
     var bits = [];
-    if (status === "finished") bits.push("Shipped a crate — tap to visit their station");
-    else if (status === "error") bits.push("Ouch — tap to check their station");
-    else if (status === "stalled") bits.push("Stuck in traffic — tap to peek");
-    else bits.push("Ping from the workshop");
+    if (status === "finished") bits.push("Finished. Click to open that station");
+    else if (status === "error") bits.push("Error. Click to open that station");
+    else if (status === "stalled") bits.push("Stalled. Click to open that station");
+    else bits.push("Agent status update");
     if (it.read) bits.push("already peeked");
     else bits.push("fresh unread");
     return bits.join(" · ");
@@ -137,26 +137,26 @@
       bell,
       "Alert bell",
       isSnoozed()
-        ? "Snoozing — badge is napping, new pings still file quietly"
-        : "Finished, error & stalled pals ping here"
+        ? "Snoozed for 15 minutes. New alerts still arrive but the badge stays hidden."
+        : "Finished, error, and stalled agent alerts"
     );
-    tipCopy(badge, "Unread sparkle", "How many alerts you haven’t peeked yet");
+    tipCopy(badge, "Unread count", "Alerts you have not marked read");
     tipCopy(
       document.getElementById("alertMarkRead"),
       "Mark all read",
-      "Clears the unread sparkle — list stays for history"
+      "Clears the unread count. The list stays for history."
     );
     tipCopy(
       document.getElementById("alertSnooze"),
       "Snooze 15 min",
-      "Badge takes a nap · alerts keep filing in the background"
+      "Hides the badge for 15 minutes. Alerts still accumulate."
     );
     tipCopy(
       document.getElementById("alertClear"),
       "Clear all",
-      "Toss every alert in the bin — fresh empty tray"
+      "Removes every alert from the list."
     );
-    tipCopy(emptyEl, "All quiet", "No pings yet — your agents are behaving (for now)");
+    tipCopy(emptyEl, "All quiet", "No alerts yet for this session.");
   }
 
   function renderList() {

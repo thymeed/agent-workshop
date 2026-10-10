@@ -1,4 +1,4 @@
-﻿/* Living agent cards — pixel-cast block-agent faces (data-avatar), soft workshop stations */
+﻿/* Living agent cards. pixel-cast block-agent faces (data-avatar), soft workshop stations */
 
 .stations-panel [data-tip],
 .daily-stats-card[data-tip],
@@ -231,11 +231,11 @@
   }
 }
 
-/* Legacy cute-face selectors removed â€” block agents only */
+/* Legacy round-face selectors removed; block agents only */
 .agent-avatar:not(.block-agent) {
   display: none !important;
 }
-/* Privacy â€” quiet cute nook, tip carries heuristic disclaimer */
+/* Privacy meter; tip carries heuristic disclaimer */
 .privacy-meter {
   display: inline-flex;
   align-items: center;

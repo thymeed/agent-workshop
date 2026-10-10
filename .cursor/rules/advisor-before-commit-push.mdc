@@ -7,11 +7,11 @@ alwaysApply: true
 
 Before any **git commit and push** of product/behavior changes, route a **quick Advisor** review of the diff. Do not commit+push until Advisor returns **go**.
 
-Advisor behavior (fast go/fix + **CI foresight**) lives in **`.cursor/agents/advisor.md`** — follow that file when prompting Advisor; do not skip its CI checklist.
+Advisor behavior (fast go/fix + **CI foresight**) lives in **`.cursor/agents/advisor.md`**. Follow that file when prompting Advisor; do not skip its CI checklist.
 
 ## Flow
 
-1. Finish the change (and any required docs/exe refresh — see checklist).
+1. Finish the change (and any required docs/exe refresh; see checklist).
 2. **Worker preflight (prefer before Advisor):** run `npm run format:check` and ideally `npm run lint`. Fix failures first.
 3. Spawn **Advisor** with a scoped, fast prompt: diff/summary + short **go / fix** ask. Point Advisor at (or paste the CI foresight ask from) **`.cursor/agents/advisor.md`**.
 4. Advisor returns a short judgment (not a long essay).
@@ -34,7 +34,7 @@ Creating or editing **this rule** or **`.cursor/agents/advisor.md`** may use a m
 1. Diff ready and focused (no secrets, no gitignored `*.exe` / `dist/`).
 2. Docs/comments updated if shipping product/behavior? → **`.cursor/rules/update-docs-with-changes.mdc`**.
 3. User-facing UI / desktop change? → refresh root portable exe per **`.cursor/rules/refresh-desktop-exe.mdc`** (`npm run pack` / `npm run build`; never win-unpacked alone).
-4. Worker ran `npm run format:check` (and ideally `npm run lint`) — or Advisor flags that they were skipped (see **`.cursor/agents/advisor.md`**).
+4. Worker ran `npm run format:check` (and ideally `npm run lint`), or Advisor flags that they were skipped (see **`.cursor/agents/advisor.md`**).
 5. Quick Advisor **go** per **`.cursor/agents/advisor.md`** (or bootstrap exception above).
 6. Then commit; push only when the user requested push.
 

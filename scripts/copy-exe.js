@@ -3,7 +3,7 @@
  * Invoked after `npm run build` / `npm run pack` (and as electron-builder afterAllArtifactBuild).
  *
  * Only copies electron-builder **portable** artifacts (self-contained single file).
- * Never copies `dist/win-unpacked/*.exe` — that binary needs ffmpeg.dll and sibling deps
+ * Never copies `dist/win-unpacked/*.exe`. That binary needs ffmpeg.dll and sibling deps
  * beside it and will fail with a missing-DLL System Error if launched alone from the repo root.
  */
 "use strict";
@@ -25,7 +25,7 @@ const PORTABLE_CANDIDATES = [
 ];
 
 /**
- * Prefer the first existing portable artifact. Do not pick by mtime across unpacked vs portable —
+ * Prefer the first existing portable artifact. Do not pick by mtime across unpacked vs portable.
  * a fresher win-unpacked exe is not a valid root single-file launch.
  * @returns {string|null}
  */
@@ -51,7 +51,7 @@ function copyRootExe() {
   if (!src) {
     console.error(
       "copy-exe: no portable exe found under dist/ (e.g. dist/AgentWorkshop.exe). " +
-        "Run `npm run pack` or `npm run build` — do not copy win-unpacked Electron.exe alone."
+        "Run `npm run pack` or `npm run build`. do not copy win-unpacked Electron.exe alone."
     );
     process.exitCode = 1;
     return false;
@@ -62,7 +62,7 @@ function copyRootExe() {
   return true;
 }
 
-// electron-builder afterAllArtifactBuild hook — receive context, still copy from dist/
+// electron-builder afterAllArtifactBuild hook. receive context, still copy from dist/
 function afterAllArtifactBuild() {
   copyRootExe();
 }

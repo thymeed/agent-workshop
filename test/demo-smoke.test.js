@@ -93,11 +93,11 @@ async function smokeDemoFile(browser) {
       disclaimer: t && t.estimatesDisclaimer
     };
   });
-  if (syncAgeDemo.text !== "—") {
-    errors.push("Demo sync-age chip expected —, got " + JSON.stringify(syncAgeDemo.text));
+  if (syncAgeDemo.text !== "n/a") {
+    errors.push("Demo sync-age chip expected n/a, got " + JSON.stringify(syncAgeDemo.text));
   }
-  if (syncAgeDemo.nullAge !== "—") {
-    errors.push("formatSyncAge(null) expected —");
+  if (syncAgeDemo.nullAge !== "n/a") {
+    errors.push("formatSyncAge(null) expected n/a");
   }
   if (!/just now|0s ago/i.test(String(syncAgeDemo.justNow || ""))) {
     errors.push("formatSyncAge(now) expected just now / 0s ago, got " + syncAgeDemo.justNow);

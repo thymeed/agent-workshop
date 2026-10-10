@@ -53,7 +53,7 @@ function assertBridgeTestOpts(opts) {
   }
   if (missing.length) {
     throw new Error(
-      "BRIDGE_TEST=1: startBridge requires isolated test paths — missing " + missing.join(", ")
+      "BRIDGE_TEST=1: startBridge requires isolated test paths. missing " + missing.join(", ")
     );
   }
 }
@@ -117,7 +117,7 @@ const fileState = new Map();
 const transcriptFilesAtStart = new Set();
 /** filePath -> byte length at last inventory snapshot */
 const transcriptSnapshotSizes = new Map();
-/** Files in the first scan slice after inventory — use 8 KB tail warm-up, not snapshot offset. */
+/** Files in the first scan slice after inventory. use 8 KB tail warm-up, not snapshot offset. */
 const transcriptStartupWarmFiles = new Set();
 /** True until the first scan() pass marks warm-up files after snapshotTranscriptInventory(). */
 let warmScanAfterInventory = false;
@@ -265,7 +265,7 @@ function resolveDefaultTranscripts(opts) {
     return TRANSCRIPTS;
   }
 
-  // Runtime placeholder under ~/.cursor/projects — no hardcoded machine/user path
+  // Runtime placeholder under ~/.cursor/projects. no hardcoded machine/user path
   TRANSCRIPTS = EMPTY_TRANSCRIPTS;
   currentProjectId = null;
   currentProjectLabel = "no Cursor projects found";
@@ -307,7 +307,7 @@ function pushEvent(partial) {
 
 /**
  * Push an agent alert to the in-memory ring, SSE-broadcast it, and notify Electron.
- * Privacy: name + status (+ optional agentId) only — never prompts or file paths.
+ * Privacy: name + status (+ optional agentId) only. never prompts or file paths.
  * @param {string} name
  * @param {string} status
  * @param {string} [agentId]
@@ -416,7 +416,7 @@ function extractToolResults(obj) {
 }
 
 /**
- * Structured terminal signals only — never prose keywords like "error" or "done".
+ * Structured terminal signals only. never prose keywords like "error" or "done".
  * @returns {"error"|"done"|null}
  */
 function terminalTypeFromTranscript(obj) {
@@ -612,7 +612,7 @@ function statusPayload() {
     sseClients: sseClients.size,
     watching: fileState.size,
     lastScanError,
-    /** Last transcript poll time — near-real file polling (~pollMs), not hook-level realtime. */
+    /** Last transcript poll time. near-real file polling (~pollMs), not hook-level realtime. */
     lastScanAt,
     pollMs: POLL_MS,
     time: nowIso()
@@ -796,7 +796,7 @@ function toolActivity(tool) {
   return null;
 }
 
-/** Char count for out-estimate from tools — uses write body length, not contents string. */
+/** Char count for out-estimate from tools. uses write body length, not contents string. */
 function toolEstimateChars(tool) {
   if (!tool) return 0;
   const name = resolveToolName(tool);
@@ -1028,7 +1028,7 @@ function handleParentLine(obj, filePath) {
       files: parentFiles
     });
   } else {
-    // Tools emitted nothing (or only non-activity tools) — still bill the turn once.
+    // Tools emitted nothing (or only non-activity tools). still bill the turn once.
     const leftover = takeUsage();
     if (leftover && text) {
       pushEvent({
@@ -1263,7 +1263,7 @@ function isTransientReadError(err) {
 function sleepMsSync(ms) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    /* sync ingest path — short backoff for Windows shared reads */
+    /* sync ingest path. short backoff for Windows shared reads */
   }
 }
 
@@ -1376,7 +1376,7 @@ function findNextNewlineOffset(filePath, startOffset, fileSize) {
 
 /**
  * Skip a line with no newline in the first read window; advance offset without parsing body.
- * Never writes to history or SSE — no placeholder and no substring from the skipped bytes
+ * Never writes to history or SSE. no placeholder and no substring from the skipped bytes
  * (partial reads could split secrets past redaction).
  */
 function skipOversizedLine(filePath, lineStartOffset, fileSize, state) {

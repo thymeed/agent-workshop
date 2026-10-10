@@ -1,4 +1,4 @@
-/* Cursor Agents · Insights — playful workshop sheet (not chrome analytics) */
+/* Cursor Agents · Insights drawer sheet */
 
 .insights-root,
 .history-replay-host {
@@ -62,7 +62,7 @@
   z-index: 1;
 }
 
-/* —— Header —— */
+/* Header */
 .insights-header {
   display: flex;
   align-items: flex-start;
@@ -214,7 +214,7 @@
   box-shadow: 0 0 8px rgba(184, 240, 0, 0.7);
 }
 
-/* —— Tabs (soft pills) —— */
+/* Tabs (soft pills) */
 .insights-tabs {
   display: flex;
   gap: 8px;
@@ -273,7 +273,7 @@
   animation: insights-sheet-in 0.28s ease-out;
 }
 
-/* —— Forecast —— */
+/* Forecast */
 .insights-forecast {
   display: flex;
   flex-direction: column;
@@ -465,7 +465,7 @@
   font-size: 11px;
 }
 
-/* —— Suggestions (premium + playful) —— */
+/* Suggestions list */
 .insights-suggest {
   display: flex;
   flex-direction: column;
@@ -685,7 +685,7 @@
   opacity: 0.85;
 }
 
-/* —— Empty states (healthy / cute) —— */
+/* Empty states */
 .insights-empty {
   margin: 0;
   padding: 22px 18px;
@@ -723,7 +723,7 @@
   margin-bottom: 4px;
 }
 
-/* —— Replay —— */
+/* Replay */
 .insights-replay {
   display: flex;
   flex-direction: column;
@@ -880,7 +880,7 @@
   color: var(--insights-lime);
 }
 
-/* —— What-if —— */
+/* What-if */
 .insights-whatif {
   display: flex;
   flex-direction: column;
@@ -932,7 +932,7 @@
   box-shadow: 0 0 10px rgba(184, 240, 0, 0.15);
 }
 
-/* —— Status —— */
+/* Status */
 .insights-status {
   margin: 14px 0 0;
   font-size: 11px;
@@ -940,7 +940,7 @@
   letter-spacing: 0.04em;
 }
 
-/* —— Motion —— */
+/* Motion */
 @keyframes insights-sheet-in {
   from {
     opacity: 0;

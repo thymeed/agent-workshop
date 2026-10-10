@@ -24,7 +24,7 @@ Skip for docs-only, test-only, or pure backend/tooling edits that never ship ins
 npm run pack
 ```
 
-Prefer `npm run pack` for a faster **portable-only** build + root copy (`electron-builder --win portable`). Use `npm run build` when a full portable + NSIS `dist\` artifacts pass is needed. Use `npm run pack:dir` only when you need `dist\win-unpacked\` for local inspection — it does **not** refresh the root exe.
+Prefer `npm run pack` for a faster **portable-only** build + root copy (`electron-builder --win portable`). Use `npm run build` when a full portable + NSIS `dist\` artifacts pass is needed. Use `npm run pack:dir` only when you need `dist\win-unpacked\` for local inspection; it does **not** refresh the root exe.
 
 Both `pack` and `build` run `scripts/copy-exe.js`, which copies the **portable** artifact (`dist\AgentWorkshop.exe`) to repo-root **`AgentWorkshop.exe`**.
 
@@ -34,14 +34,14 @@ Both `pack` and `build` run `scripts/copy-exe.js`, which copies the **portable**
 
 > The code execution cannot proceed because ffmpeg.dll was not found
 
-`scripts/copy-exe.js` must use portable candidates only — never prefer win-unpacked by mtime.
+`scripts/copy-exe.js` must use portable candidates only. Never prefer win-unpacked by mtime.
 
 ## Checklist (before “done”)
 
 1. Did the change alter Demo/Live UI, stage/cards/chrome, or the Electron window? → refresh the root exe.
 2. Confirm **`AgentWorkshop.exe`** exists at the repo root after pack/build (mtime updated).
-3. Sanity: root exe should match portable size (~70–80MB class), **not** the ~180MB+ unpacked Electron.exe; copy log should show `← dist\AgentWorkshop.exe` (or legacy portable name), never `win-unpacked\…`.
-4. **Do not commit** `*.exe` — they are gitignored; still build/copy locally for the user and note that in the handoff.
+3. Sanity: root exe should match portable size (~70-80MB class), **not** the ~180MB+ unpacked Electron.exe; copy log should show `← dist\AgentWorkshop.exe` (or legacy portable name), never `win-unpacked\…`.
+4. **Do not commit** `*.exe`. They are gitignored; still build/copy locally for the user and note that in the handoff.
 
 ## Examples
 

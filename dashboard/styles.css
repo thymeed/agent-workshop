@@ -141,7 +141,7 @@ body::after {
   border-color: rgba(62, 207, 255, 0.22);
 }
 
-/* View modes: Stage | Insights | History — hooks for sheet focus (drawers land later) */
+/* View modes: Stage | Insights | History. hooks for sheet focus (drawers land later) */
 #app[data-view-mode="stage"] .view-mode-seg #viewStage.on,
 #app[data-view-mode="insights"] .view-mode-seg #viewInsights.on,
 #app[data-view-mode="history"] .view-mode-seg #viewHistory.on {
@@ -1209,7 +1209,7 @@ h1.headline em {
 }
 
 .drawer[open] > summary::after {
-  content: "–";
+  content: "-";
 }
 .drawer[open] > summary {
   color: var(--text);

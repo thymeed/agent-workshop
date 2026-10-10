@@ -71,7 +71,7 @@
   var hudSubs = document.getElementById("hudSubs");
   var hudEffort = document.getElementById("hudEffort");
   var hudTokens = document.getElementById("hudTokens");
-  /** Estimates glossary — Bill + Insights share this trust-layer wording. */
+  /** Estimates glossary. Bill + Insights share this trust-layer wording. */
   var ESTIMATES_DISCLAIMER = "Estimates · not official invoices";
   var lastBridgeScanAt = null;
   var bridgePollMs = 900;
@@ -91,7 +91,7 @@
       "data-tip-detail",
       "Near-real file polling · last bridge transcript scan (not hook-level realtime)"
     );
-    chip.innerHTML = 'sync <strong id="hudSyncAge">—</strong>';
+    chip.innerHTML = 'sync <strong id="hudSyncAge">n/a</strong>';
     chips.appendChild(chip);
     hudSyncAge = document.getElementById("hudSyncAge");
   })();
@@ -165,7 +165,7 @@
   var mode = "demo"; /* demo | live */
   var insightsPanel = null;
 
-  /* Insights sheet — mount inside #drawerInsights (not a stacked sibling under drawers). */
+  /* Insights sheet. mount inside #drawerInsights (not a stacked sibling under drawers). */
   if (window.Insights && typeof window.Insights.init === "function") {
     try {
       insightsPanel = window.Insights.init(
@@ -233,7 +233,7 @@
     activity: []
   };
 
-  /* —— Cute Web Audio blips (default muted) —— */
+  /* Web Audio blips (default muted) */
   var sound = (function () {
     var muted = true;
     var ctx = null;
@@ -338,7 +338,7 @@
     };
   })();
 
-  /* —— Stage director: characters, crates, portal —— */
+  /* Stage director: characters, crates, portal */
   var CHAR_HOME = {
     opus: { x: 180, y: 150 },
     advisor: { x: 820, y: 150 },
@@ -386,7 +386,7 @@
         var labels = (roles || []).map(function (r) {
           return ROLE_LABEL[r] || r;
         });
-        hudActiveRole.textContent = labels.length ? labels.join(" · ") : "—";
+        hudActiveRole.textContent = labels.length ? labels.join(" · ") : "n/a";
       }
     }
 
@@ -469,7 +469,7 @@
       el.setAttribute("rx", "4");
       el.setAttribute("x", String(from.x - 6));
       el.setAttribute("y", String(from.y - 10));
-      el.dataset.path = activity.path || "—";
+      el.dataset.path = activity.path || "n/a";
       el.dataset.detail = activity.detail || kind;
       el.dataset.role = role;
       el.setAttribute("data-tip", activity.path || "Crate");
@@ -697,7 +697,7 @@
       if (cratesLayer) cratesLayer.innerHTML = "";
       if (sparksLayer) sparksLayer.innerHTML = "";
       if (portal) portal.classList.remove("inhale");
-      if (hudActiveRole) hudActiveRole.textContent = "—";
+      if (hudActiveRole) hudActiveRole.textContent = "n/a";
       clearSelection();
       hideTooltip();
     }
@@ -735,7 +735,7 @@
 
   function showCrateTooltip(ev, el) {
     if (!el || !window.TipLayer || typeof window.TipLayer.show !== "function") return;
-    var tip = el.dataset.path || "—";
+    var tip = el.dataset.path || "n/a";
     var detail = (el.dataset.role || "") + (el.dataset.detail ? " · " + el.dataset.detail : "");
     window.TipLayer.show({ tip: tip, detail: detail }, ev);
   }
@@ -955,12 +955,12 @@
         hint.className = "live-hint err";
         hint.textContent =
           detail ||
-          "Live needs the bridge — open " + BRIDGE.replace(/\/$/, "") + "/ (or run npm start)";
+          "Live needs the bridge. Open " + BRIDGE.replace(/\/$/, "") + "/ (or run npm start)";
       }
       bannerText =
         "Open Electron (npm start) or " +
         BRIDGE.replace(/\/$/, "") +
-        "/ — file:// cannot stream Live.";
+        ". file:// pages cannot stream Live.";
       bannerClass += " file-origin";
       showBanner = true;
     } else if (state === "connecting") {
@@ -976,7 +976,7 @@
       if (hint) {
         hint.hidden = false;
         hint.className = "live-hint err";
-        hint.textContent = detail || "Bridge offline — use npm start or node live-bridge.js";
+        hint.textContent = detail || "Bridge offline. Use npm start or node live-bridge.js";
       }
       bannerText =
         "Bridge offline · stations may look idle. Start the bridge, then click Reconnect.";
@@ -1116,7 +1116,7 @@
       if (insightsPanel) {
         if (typeof insightsPanel.showTab === "function") insightsPanel.showTab("replay");
         mountHistoryReplay();
-        /* Do not auto-play — user hits Play in History transport. */
+        /* Do not auto-play. user hits Play in History transport. */
         if (typeof insightsPanel.pause === "function") insightsPanel.pause();
       }
     }
@@ -1413,7 +1413,7 @@
       billEls.multiplier.textContent = "~1×";
       billEls.savingsNote.textContent = "routed cost near all-Opus";
     } else {
-      billEls.multiplier.textContent = "—";
+      billEls.multiplier.textContent = "n/a";
       billEls.savingsNote.textContent = "savings vs all-Opus";
     }
 
@@ -1442,7 +1442,7 @@
       state.usage[role].in += inn;
       state.usage[role].out += out;
     } else if (model === "haiku") {
-      /* Live may send model=haiku without role — attribute to explorer by default */
+      /* Live may send model=haiku without role. attribute to explorer by default */
       state.usage.explorer.in += inn;
       state.usage.explorer.out += out;
     }
@@ -1527,7 +1527,7 @@
     var kind = activityKindBucket(item.kind);
     var role = item.role || "parent";
     if (role === "parent") role = "parent";
-    var path = item.path || "—";
+    var path = item.path || "n/a";
     var detail = item.detail || "";
     var t = timeStr;
     if (!t) {
@@ -1657,7 +1657,7 @@
   }
 
   function layoutFlow() {
-    /* Workshop paths are fixed in SVG viewBox — no card-geometry layout. */
+    /* Workshop paths are fixed in SVG viewBox. no card-geometry layout. */
   }
 
   function pulsePath(id) {
@@ -1721,7 +1721,7 @@
   function emptyLogMessage() {
     if (mode !== "live") return "Waiting for session… choose Demo · Play or Live.";
     if (livePresence === "file-origin") {
-      return "Live needs the bridge — open via npm start or http://127.0.0.1…";
+      return "Live needs the bridge. Open via npm start or http://127.0.0.1…";
     }
     if (livePresence === "bridge-down") {
       return "Bridge offline · click Reconnect after starting the bridge.";
@@ -1908,7 +1908,7 @@
     setStatus("researcher", '<span class="live">Standby</span>');
     setCalls(0);
     setSubs(0);
-    advisorLastEl.textContent = "Last advice: —";
+    advisorLastEl.textContent = "Last advice: none";
     setEffort(mode === "live" ? "live" : "mixed");
     state.usage = emptyUsage();
     lastDemoUsageTotal = 0;
@@ -1955,7 +1955,7 @@
     if (!ev) return;
     opts = opts || {};
     var isReplay = !!opts.replay;
-    /* History replay owns the stage — ignore Live/Demo ingress until Stage resumes. */
+    /* History replay owns the stage. ignore Live/Demo ingress until Stage resumes. */
     if (replaySessionActive && !isReplay) return;
 
     var alreadySeen = false;
@@ -2083,7 +2083,7 @@
     setStatus("researcher", '<span class="live">Standby</span>');
     setCalls(0);
     setSubs(0);
-    advisorLastEl.textContent = "Last advice: —";
+    advisorLastEl.textContent = "Last advice: none";
     state.usage = emptyUsage();
     state.liveSubs = {};
     renderBill();
@@ -2110,7 +2110,7 @@
 
   function onReplayIndexChange(payload) {
     if (!ReplayStage || !payload) return;
-    /* Insights reloads history in the background on Stage/Insights — only History view owns the stage. */
+    /* Insights reloads history in the background on Stage/Insights. only History view owns the stage. */
     if (viewMode !== "history") {
       replaySessionActive = false;
       return;
@@ -2138,7 +2138,7 @@
       return;
     }
 
-    /* scrub / play-start / session / test — rebuild [0..index] */
+    /* scrub / play-start / session / test. rebuild [0..index] */
     ReplayStage.seek(replayStageApi, events, index, {
       prefersReducedMotion: prefersReducedMotion()
     });
@@ -2152,9 +2152,9 @@
   }
 
   function formatSyncAge(iso) {
-    if (!iso) return "—";
+    if (!iso) return "n/a";
     var t = Date.parse(iso);
-    if (!isFinite(t)) return "—";
+    if (!isFinite(t)) return "n/a";
     var sec = Math.max(0, Math.round((Date.now() - t) / 1000));
     if (sec < 1) return "just now";
     if (sec < 60) return sec + "s ago";
@@ -2168,7 +2168,7 @@
     var chip = hudSyncAge.closest(".hud-chip");
     if (mode !== "live") {
       lastBridgeScanAt = null;
-      hudSyncAge.textContent = "—";
+      hudSyncAge.textContent = "n/a";
       if (chip) {
         chip.classList.remove("stale");
         chip.setAttribute("title", "Sync age · Live mode only (Demo has no bridge poll)");
@@ -2327,7 +2327,7 @@
       armLiveSseBacklogReplay();
       es = new EventSource(BRIDGE + "/api/stream");
     } catch (_e) {
-      onErr("Cannot open SSE — start the app (npm start)");
+      onErr("Cannot open SSE. Start the app (npm start)");
       return;
     }
 
@@ -2359,12 +2359,12 @@
       } catch (_) {}
     };
     es.onerror = function () {
-      onErr("Bridge offline — use npm start or node live-bridge.js");
+      onErr("Bridge offline. Use npm start or node live-bridge.js");
       stopLive();
     };
   }
 
-  /* Demo narrative — advances Opus / Fable / Sonnet / Haiku bill buckets */
+  /* Demo narrative. advances Opus / Fable / Sonnet / Haiku bill buckets */
   var steps = [
     function () {
       setActive(["opus"]);
@@ -2446,7 +2446,7 @@
         kind: "read",
         role: "explorer",
         path: "src/billing/webhooks.ts",
-        detail: "lines 1–240"
+        detail: "lines 1-240"
       });
       /* Demo fixture: sensitive path lights privacy meter (path never shown on badge). */
       appendActivity({
@@ -2553,7 +2553,7 @@
       setCalls(2);
       setStatus("advisor", '<span class="live">Quiet</span>');
       advisorLastEl.textContent =
-        "Last advice: stop / change approach — fix signature mismatch first";
+        "Last advice: stop / change approach. Fix signature mismatch first";
       setStatus("worker", '<span class="live">Awaiting revised approach</span>');
       appendLog("advisor", "stop / change approach; calls = 2");
       setUsageSnapshot(
@@ -2613,7 +2613,7 @@
     function () {
       setActive(["opus"]);
       setStatus("advisor", '<span class="live">Quiet</span>');
-      advisorLastEl.textContent = "Last advice: ship it — Haiku absorbed the read load";
+      advisorLastEl.textContent = "Last advice: ship it. Haiku covered the read load";
       setStatus("opus", '<span class="live">Reviewed · shipped</span>');
       setStatus("worker", '<span class="live">Done</span>');
       setStatus("explorer", '<span class="live">Done</span>');
