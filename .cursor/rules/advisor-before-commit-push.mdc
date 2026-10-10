@@ -1,0 +1,42 @@
+---
+description: Quick Advisor review required before commit + push of product changes
+alwaysApply: true
+---
+
+# Advisor gate before commit + push
+
+Before any **git commit and push** of product/behavior changes, route a **quick Advisor** review of the diff. Do not commit+push until Advisor returns **go**.
+
+## Flow
+
+1. Finish the change (and any required docs/exe refresh — see checklist).
+2. Spawn **Advisor** with a **scoped, fast** prompt: diff/summary + ask for a short **go / fix** verdict only.
+3. Advisor returns a short judgment (not a long essay).
+4. **Worker**:
+   - **fix** → apply the requested fixes, then re-run a quick Advisor pass if the fix was material.
+   - **go** → proceed to commit + push (when the user asked for commit/push).
+
+## Keep Advisor fast
+
+- Prompt Advisor with the **diff (or short change summary) and the verdict ask only**.
+- Tell Advisor: return **go** or **fix** with at most a few bullets; no architecture essays.
+- Prefer a fast/cheap Advisor model when available; do not wait on deep exploration.
+
+## Bootstrap exception
+
+Creating or editing **this rule file** itself may use a minimal self-check instead of a full Advisor round-trip (user is establishing the gate). All later product commits follow the flow above.
+
+## Checklist (before commit + push)
+
+1. Diff ready and focused (no secrets, no gitignored `*.exe` / `dist/`).
+2. Docs/comments updated if shipping product/behavior? → **`.cursor/rules/update-docs-with-changes.mdc`**.
+3. User-facing UI / desktop change? → refresh root portable exe per **`.cursor/rules/refresh-desktop-exe.mdc`** (`npm run pack` / `npm run build`; never win-unpacked alone).
+4. Quick Advisor **go** (or bootstrap exception above).
+5. Then commit; push only when the user requested push.
+
+## Examples
+
+- ✅ Feature/UI change → Advisor go → commit + push
+- ✅ Advisor says fix docs/exe → Worker fixes → quick Advisor re-check → go → commit + push
+- ❌ Commit+push product changes without Advisor
+- ❌ Ask Advisor for a full design review or long write-up before a routine commit

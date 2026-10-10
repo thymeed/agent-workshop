@@ -111,6 +111,7 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 - Keep `live-bridge.js` **reusable** from CLI and from Electron (same module/API surface).
 - Prefer **minimal dependencies** (bridge today is Node stdlib only).
 - **Do not commit secrets** (`.env*`, tokens, credentials). Ignore `dist/`, `*.exe`, and `node_modules` via `.gitignore`. Local `dist\` / stale exes are safe to delete and rebuild from git + npm.
+- Before **commit + push** of product changes, run a **quick Advisor** go/fix gate (see `.cursor/rules/advisor-before-commit-push.mdc`).
 
 ## Limits (don’t “fix” these away casually)
 
