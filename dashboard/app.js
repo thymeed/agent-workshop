@@ -1813,6 +1813,22 @@
       });
   }
 
+  function focusInsightsLatestSession(meta) {
+    if (!insightsPanel || typeof insightsPanel.focusLatestSession !== "function") return;
+    var hint = meta && meta.latestSessionId ? meta.latestSessionId : "";
+    insightsPanel.focusLatestSession(hint).then(function () {
+      remountHistoryReplayIfNeeded();
+    });
+  }
+
+  function onLiveProjectScopeChange(meta, opts) {
+    opts = opts || {};
+    focusInsightsLatestSession(meta);
+    if (opts.navigateHistory && typeof setViewMode === "function") {
+      setViewMode("history");
+    }
+  }
+
   function selectProject(id) {
     if (!id || selectingProject) return Promise.resolve(null);
     selectingProject = true;
@@ -2287,6 +2303,7 @@
       updateFooterProject();
       setLivePresence("quiet-healthy");
       loadProjects();
+      onLiveProjectScopeChange(meta, { navigateHistory: false });
       if (window.AlertCenter && typeof window.AlertCenter.hydrate === "function") {
         window.AlertCenter.hydrate(BRIDGE);
       }
@@ -2703,8 +2720,10 @@
         currentProjectId = data.projectId || id;
         currentProjectLabel = data.projectLabel || currentProjectLabel;
         updateFooterProject();
-        // Restart Live stream; SSE "reset" also clears if the bridge emits it
+        // Restart Live stream; SSE "reset" may be missed if the old EventSource closes first
         startLive();
+        setViewMode("history");
+        onLiveProjectScopeChange(data, { navigateHistory: false });
       });
     });
   }

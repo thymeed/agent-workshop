@@ -363,6 +363,24 @@
     return ids;
   }
 
+  /** Session with the most recent event timestamp (last activity). */
+  function latestSessionIdFromEvents(events) {
+    var lastBySession = {};
+    sortEvents(events).forEach(function (ev) {
+      var id = ev.sessionId || "unknown";
+      lastBySession[id] = Date.parse(ev.ts) || 0;
+    });
+    var best = "";
+    var bestT = -1;
+    Object.keys(lastBySession).forEach(function (id) {
+      if (lastBySession[id] >= bestT) {
+        bestT = lastBySession[id];
+        best = id;
+      }
+    });
+    return best;
+  }
+
   function filterSession(events, sessionId) {
     if (!sessionId) return sortEvents(events);
     return sortEvents(events).filter(function (ev) {
@@ -703,7 +721,10 @@
     var res = await fetch(q, { cache: "no-store" });
     if (!res.ok) throw new Error("history " + res.status);
     var data = await res.json();
-    return (data && data.events) || [];
+    return {
+      events: (data && data.events) || [],
+      latestSessionId: data && data.latestSessionId ? String(data.latestSessionId) : ""
+    };
   }
 
   function el(html) {
@@ -778,7 +799,14 @@
       return filterSession(allEvents, sessionId);
     }
 
-    function fillSessions() {
+    function pickLatestSessionId(ids, hint) {
+      if (hint && ids.indexOf(hint) >= 0) return hint;
+      var fromEvents = latestSessionIdFromEvents(allEvents);
+      if (fromEvents && ids.indexOf(fromEvents) >= 0) return fromEvents;
+      return ids.length ? ids[ids.length - 1] : "";
+    }
+
+    function fillSessions(hint) {
       var ids = sessionIds(allEvents);
       sessionSelect.innerHTML = ids
         .map(function (id) {
@@ -790,7 +818,7 @@
         sessionId = "";
         return;
       }
-      if (ids.indexOf(sessionId) < 0) sessionId = ids[0];
+      if (ids.indexOf(sessionId) < 0) sessionId = pickLatestSessionId(ids, hint);
       sessionSelect.value = sessionId;
     }
 
@@ -1425,16 +1453,28 @@
       notifyReplayIndex("session");
     });
 
-    async function load() {
+    async function load(loadOpts) {
+      loadOpts = loadOpts || {};
       setStatus(demo ? "Loading demo history…" : "Loading /api/history…");
       try {
-        allEvents = demo ? await loadDemoEvents() : await loadLiveEvents(opts);
+        var latestHint = loadOpts.latestSessionId || "";
+        if (loadOpts.preferLatest) sessionId = "";
+        if (demo) {
+          allEvents = await loadDemoEvents();
+        } else {
+          var livePayload = await loadLiveEvents(loadOpts);
+          allEvents = livePayload.events;
+          if (!latestHint && livePayload.latestSessionId) {
+            latestHint = livePayload.latestSessionId;
+          }
+        }
         allEvents = sortEvents(allEvents);
-        fillSessions();
+        fillSessions(latestHint);
         pauseTransport();
         replayIndex = 0;
         renderAll();
         if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
+        notifyReplayIndex("session");
         setStatus(
           (demo ? "Demo" : "Live") +
             " · " +
@@ -1444,11 +1484,15 @@
         );
       } catch (err) {
         allEvents = demo ? DEMO_HISTORY.events.slice() : [];
-        fillSessions();
+        fillSessions(loadOpts.latestSessionId || "");
         renderAll();
         if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
         setStatus("Load failed: " + (err && err.message ? err.message : String(err)));
       }
+    }
+
+    function focusLatestSession(hint) {
+      return load({ preferLatest: true, latestSessionId: hint || "" });
     }
 
     var readyListeners = [];
@@ -1484,6 +1528,7 @@
         if (root.parentNode) root.parentNode.removeChild(root);
       },
       reload: load,
+      focusLatestSession: focusLatestSession,
       onReady: onReady,
       setDemoMode: setDemoMode,
       showTab: showTab,
@@ -1522,7 +1567,9 @@
       usageByModel: usageByModel,
       totalCost: totalCost,
       buildTreeAt: buildTreeAt,
-      normalizeModel: normalizeModel
+      normalizeModel: normalizeModel,
+      latestSessionIdFromEvents: latestSessionIdFromEvents,
+      sessionIds: sessionIds
     }
   };
 })(typeof window !== "undefined" ? window : globalThis);
