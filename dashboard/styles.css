@@ -723,6 +723,21 @@ h1.headline em {
   color: var(--sonnet);
 }
 
+.hud-chip.sync-age {
+  letter-spacing: 0.04em;
+}
+
+.hud-chip.sync-age strong {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.hud-chip.sync-age.stale strong {
+  color: var(--advisor, #f5a524);
+}
+
 .crate-tooltip {
   position: absolute;
   z-index: 5;

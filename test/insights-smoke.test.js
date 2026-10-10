@@ -258,12 +258,20 @@ async function assertInsightsUi(page, label, errors) {
     const list = document.querySelector("[data-whatif-list]");
     const text = disclaimer && disclaimer.textContent ? disclaimer.textContent : "";
     return (
-      /Estimate:\s*same tokens,\s*different prices;\s*real behavior may differ\./i.test(text) &&
+      /Estimates\s*·\s*not official invoices/i.test(text) &&
+      /same tokens,\s*different prices;\s*real behavior may differ\./i.test(text) &&
       list &&
       list.querySelectorAll("li").length >= 3
     );
   });
   if (!whatIfOk) errors.push(label + ": what-if panel missing disclaimer or scenarios");
+
+  const glossaryOk = await page.evaluate(() => {
+    const g = document.querySelector("[data-estimates-glossary]");
+    const text = g && g.textContent ? g.textContent : "";
+    return /Estimates\s*·\s*not official invoices/i.test(text);
+  });
+  if (!glossaryOk) errors.push(label + ": Insights Estimates glossary missing");
 
   /* Pure analyze helpers */
   const analyzeOk = await page.evaluate(() => {

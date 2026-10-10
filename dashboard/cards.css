@@ -259,6 +259,10 @@
 
 .privacy-meter .privacy-label {
   opacity: 0.7;
+  max-width: 9.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .privacy-dots {

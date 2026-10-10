@@ -69,6 +69,25 @@
   var hudSubs = document.getElementById("hudSubs");
   var hudEffort = document.getElementById("hudEffort");
   var hudTokens = document.getElementById("hudTokens");
+  /** Estimates glossary — Bill + Insights share this trust-layer wording. */
+  var ESTIMATES_DISCLAIMER = "Estimates · not official invoices";
+  var lastBridgeScanAt = null;
+  var bridgePollMs = 900;
+  var hudSyncAge = document.getElementById("hudSyncAge");
+  (function ensureHudSyncAge() {
+    if (hudSyncAge) return;
+    var chips = document.querySelector(".hud-chips");
+    if (!chips) return;
+    var chip = document.createElement("span");
+    chip.className = "hud-chip sync-age";
+    chip.setAttribute(
+      "title",
+      "Near-real file polling · last bridge transcript scan (not hook-level realtime)"
+    );
+    chip.innerHTML = 'sync <strong id="hudSyncAge">—</strong>';
+    chips.appendChild(chip);
+    hudSyncAge = document.getElementById("hudSyncAge");
+  })();
   var crateTooltip = document.getElementById("crateTooltip");
   var stageToast = document.getElementById("stageToast");
   var appEl = document.getElementById("app");
@@ -1361,8 +1380,9 @@
     }
     billEls.illustrative.textContent =
       mode === "live"
-        ? "Live estimates from transcript activity · not official usage"
-        : "estimated · not official usage · demo narrative";
+        ? ESTIMATES_DISCLAIMER + " · near-real transcript activity"
+        : ESTIMATES_DISCLAIMER + " · demo narrative";
+    refreshSyncAgeChip();
     sessionLog.innerHTML = "";
     logEmpty = document.createElement("div");
     logEmpty.className = "log-empty";
@@ -1558,6 +1578,77 @@
     insightsPanel.onReplayIndex(onReplayIndexChange);
   }
 
+  function formatSyncAge(iso) {
+    if (!iso) return "—";
+    var t = Date.parse(iso);
+    if (!isFinite(t)) return "—";
+    var sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (sec < 1) return "just now";
+    if (sec < 60) return sec + "s ago";
+    var min = Math.floor(sec / 60);
+    if (min < 60) return min + "m ago";
+    return Math.floor(min / 60) + "h ago";
+  }
+
+  function refreshSyncAgeChip() {
+    if (!hudSyncAge) return;
+    var chip = hudSyncAge.closest(".hud-chip");
+    if (mode !== "live") {
+      lastBridgeScanAt = null;
+      hudSyncAge.textContent = "—";
+      if (chip) {
+        chip.classList.remove("stale");
+        chip.setAttribute("title", "Sync age · Live mode only (Demo has no bridge poll)");
+      }
+      return;
+    }
+    hudSyncAge.textContent = formatSyncAge(lastBridgeScanAt);
+    if (chip) {
+      var ageMs = lastBridgeScanAt ? Date.now() - Date.parse(lastBridgeScanAt) : NaN;
+      var stale = !lastBridgeScanAt || !isFinite(ageMs) || ageMs > Math.max(5000, bridgePollMs * 6);
+      chip.classList.toggle("stale", stale);
+      chip.setAttribute(
+        "title",
+        "Near-real file polling (~" +
+          bridgePollMs +
+          "ms) · last bridge transcript scan (not hook-level realtime)"
+      );
+    }
+  }
+
+  function applyBridgeSyncMeta(meta) {
+    if (!meta) return;
+    if (meta.lastScanAt) lastBridgeScanAt = meta.lastScanAt;
+    if (meta.pollMs != null && isFinite(Number(meta.pollMs))) {
+      bridgePollMs = Number(meta.pollMs);
+    }
+    refreshSyncAgeChip();
+  }
+
+  function pollBridgeStatusOnce() {
+    if (mode !== "live" || location.protocol === "file:") return;
+    fetch(BRIDGE + "/api/status", { cache: "no-store" })
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (body) {
+        if (body && body.ok) applyBridgeSyncMeta(body);
+      })
+      .catch(function () {});
+  }
+
+  function startSyncAgePoll() {
+    if (livePoll) {
+      clearInterval(livePoll);
+      livePoll = null;
+    }
+    pollBridgeStatusOnce();
+    livePoll = setInterval(function () {
+      pollBridgeStatusOnce();
+      refreshSyncAgeChip();
+    }, 1000);
+  }
+
   function stopLive() {
     if (es) {
       try {
@@ -1572,6 +1663,7 @@
     clearLiveSseBacklogReplay();
     clearStickyActive();
     demoBtn.classList.remove("live-connected");
+    refreshSyncAgeChip();
   }
 
   function startLive() {
@@ -1588,12 +1680,14 @@
       demoBtn.classList.remove("live-connected");
       demoBtn.textContent = "Reconnect";
       setProjectPickerVisible(false);
+      refreshSyncAgeChip();
       return;
     }
 
     liveHint.textContent = "Connecting to " + BRIDGE + "…";
     setProjectPickerVisible(true);
     loadProjects();
+    startSyncAgePoll();
 
     function hintLabel() {
       return currentProjectLabel || "agent-transcripts";
@@ -1608,6 +1702,7 @@
           projectPicker.value = currentProjectId;
         }
       }
+      applyBridgeSyncMeta(meta);
       liveHint.className = "live-hint ok";
       liveHint.textContent = "Streaming · " + hintLabel();
       demoBtn.classList.add("live-connected");
@@ -2147,6 +2242,13 @@
 
   // Initial
   renderBill();
+  if (billEls.illustrative) {
+    billEls.illustrative.textContent =
+      mode === "live"
+        ? ESTIMATES_DISCLAIMER + " · near-real transcript activity"
+        : ESTIMATES_DISCLAIMER + " · demo narrative";
+  }
+  refreshSyncAgeChip();
   clearActivity();
   updateFooterProject();
   sound.syncBtn();
@@ -2204,6 +2306,11 @@
     getHudSessionCost: function () {
       return hudSessionCost ? hudSessionCost.textContent.trim() : "";
     },
+    getHudSyncAge: function () {
+      return hudSyncAge ? hudSyncAge.textContent.trim() : "";
+    },
+    formatSyncAge: formatSyncAge,
+    estimatesDisclaimer: ESTIMATES_DISCLAIMER,
     getLogLineCount: function () {
       return sessionLog ? sessionLog.querySelectorAll(".log-line").length : 0;
     },

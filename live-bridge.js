@@ -121,6 +121,8 @@ let warmScanAfterInventory = false;
 const subagentRoles = new Map();
 let eventSeq = 0;
 let lastScanError = null;
+/** ISO time of the most recent scan() pass (near-real poll, not hook-level). */
+let lastScanAt = null;
 
 /** @type {http.Server|null} */
 let server = null;
@@ -542,6 +544,9 @@ function statusPayload() {
     sseClients: sseClients.size,
     watching: fileState.size,
     lastScanError,
+    /** Last transcript poll time — near-real file polling (~pollMs), not hook-level realtime. */
+    lastScanAt,
+    pollMs: POLL_MS,
     time: nowIso()
   };
 }
@@ -1462,6 +1467,7 @@ function scan() {
   } catch (e) {
     lastScanError = String(e.message || e);
   }
+  lastScanAt = nowIso();
 }
 
 function sendJson(res, code, obj) {
@@ -1791,7 +1797,9 @@ function createServer() {
           ok: true,
           transcripts: TRANSCRIPTS,
           projectId: currentProjectId,
-          projectLabel: currentProjectLabel
+          projectLabel: currentProjectLabel,
+          lastScanAt,
+          pollMs: POLL_MS
         })}\n\n`
       );
       const backlog = events.slice(-40);

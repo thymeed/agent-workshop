@@ -52,6 +52,11 @@ async function smokeDemoFile(browser) {
     const insightsInDrawers = !!document.querySelector("#drawers #drawerInsights");
     const historyInDrawers = !!document.querySelector("#drawers #drawerHistory");
     const hud = document.getElementById("hudSessionCost");
+    const syncAge = document.getElementById("hudSyncAge");
+    const billIllustrative = (
+      (document.getElementById("billIllustrative") || {}).textContent || ""
+    ).trim();
+    const estimatesOk = /Estimates\s*·\s*not official invoices/i.test(billIllustrative);
     const noFooterCost = !document.getElementById("footerSessionCost");
     const noFooterSubs = !document.getElementById("footerSubs");
     return (
@@ -63,14 +68,42 @@ async function smokeDemoFile(browser) {
       insightsInDrawers &&
       historyInDrawers &&
       !!hud &&
+      !!syncAge &&
+      estimatesOk &&
       noFooterCost &&
       noFooterSubs
     );
   });
   if (!chromeOk) {
     errors.push(
-      "chrome unify missing: Stage|Insights|History modes, drawers host Insights/History, HUD-only session/subs"
+      "chrome unify missing: Stage|Insights|History modes, drawers host Insights/History, HUD-only session/subs, sync-age chip, Estimates disclaimer"
     );
+  }
+
+  const syncAgeDemo = await page.evaluate(() => {
+    const el = document.getElementById("hudSyncAge");
+    const t = window.__cursorAgentsDashTest;
+    const age = t && typeof t.formatSyncAge === "function" ? t.formatSyncAge(null) : null;
+    const just =
+      t && typeof t.formatSyncAge === "function" ? t.formatSyncAge(new Date().toISOString()) : null;
+    return {
+      text: el ? el.textContent.trim() : "",
+      nullAge: age,
+      justNow: just,
+      disclaimer: t && t.estimatesDisclaimer
+    };
+  });
+  if (syncAgeDemo.text !== "—") {
+    errors.push("Demo sync-age chip expected —, got " + JSON.stringify(syncAgeDemo.text));
+  }
+  if (syncAgeDemo.nullAge !== "—") {
+    errors.push("formatSyncAge(null) expected —");
+  }
+  if (!/just now|0s ago/i.test(String(syncAgeDemo.justNow || ""))) {
+    errors.push("formatSyncAge(now) expected just now / 0s ago, got " + syncAgeDemo.justNow);
+  }
+  if (!/Estimates\s*·\s*not official invoices/i.test(String(syncAgeDemo.disclaimer || ""))) {
+    errors.push("estimatesDisclaimer trust wording missing");
   }
 
   const replaySeekOk = await page.evaluate(() => {
