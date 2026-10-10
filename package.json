@@ -9,9 +9,10 @@
   "scripts": {
     "start": "electron .",
     "bridge": "node live-bridge.js",
-    "build": "electron-builder --win",
+    "build": "electron-builder --win && node scripts/copy-exe.js",
     "build:check": "node scripts/check-packaging.js",
-    "pack": "electron-builder --win --dir",
+    "copy-exe": "node scripts/copy-exe.js",
+    "pack": "electron-builder --win --dir && node scripts/copy-exe.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -69,7 +70,8 @@
     },
     "portable": {
       "artifactName": "CursorAgentsModelRouting-Portable.exe"
-    }
+    },
+    "afterAllArtifactBuild": "./scripts/copy-exe.js"
   },
   "allowScripts": {
     "electron@33.4.11": true

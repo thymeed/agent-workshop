@@ -4,7 +4,7 @@ Desktop dashboard for visualizing how a Cursor Agents session routes work across
 
 The first viewport is an **agent workshop**: five station characters (Opus desk, Fable consult, Sonnet build, Explore / Research shelves) walk paths and carry code crates into a central **Merge portal**. Demo Play and Live SSE drive the stage; Session Bill, Activity, Insights, History/Replay, and Session Log live as **drawer sheets** under the stage. Header **Stage | Insights | History** switches which sheet owns the lower chrome (workshop stays visible). HUD chips are the single status strip (session $, active role, subs, effort, haiku tokens). **History** Replay play/pause/scrub/speed drives the same workshop engine (crates/characters); leaving History stops transport and leaves the last replay frame until Demo/Live runs again. Estimates remain illustrative · not official usage. Optional cute Web Audio blips are **muted by default** — toggle 🔊/🔇 in the header (persisted in `localStorage`).
 
-**Primary product:** double-click the Windows GUI `.exe`, or run `npm start`. Window title: **Cursor Agents · Model Routing**. The live bridge runs **in-process** inside Electron — no CMD popup, no separate `node.exe` console.
+**Primary product:** after `npm run build`, double-click repo-root **`CursorAgentsModelRouting-Portable.exe`** (auto-copied from `dist\`; gitignored), or run `npm start`. Window title: **Cursor Agents · Model Routing**. The live bridge runs **in-process** inside Electron — no CMD popup, no separate `node.exe` console.
 
 A second launch focuses the existing window (single-instance lock); it does not start another bridge on the same port.
 
@@ -35,7 +35,7 @@ In the window, **Live** mode shows a **project** dropdown fed by `~/.cursor/proj
 npm run build
 ```
 
-Artifacts in `dist\`:
+Artifacts in `dist\` (and a root copy of the portable exe for easy double-click):
 
 | File                                          | Use                                         |
 | --------------------------------------------- | ------------------------------------------- |
