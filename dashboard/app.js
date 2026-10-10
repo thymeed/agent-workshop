@@ -61,16 +61,14 @@
     shareSonnet: document.getElementById("shareSonnet"),
     shareHaiku: document.getElementById("shareHaiku")
   };
-  var footerSubs = document.getElementById("footerSubs");
-  var footerTokens = document.getElementById("footerTokens");
-  var footerSessionCost = document.getElementById("footerSessionCost");
-  var footerEffort = document.getElementById("footerEffort");
   var workshop = document.getElementById("workshop");
   var asksLabel = document.getElementById("asksLabel");
   var delegatesLabel = document.getElementById("delegatesLabel");
   var hudSessionCost = document.getElementById("hudSessionCost");
   var hudActiveRole = document.getElementById("hudActiveRole");
   var hudSubs = document.getElementById("hudSubs");
+  var hudEffort = document.getElementById("hudEffort");
+  var hudTokens = document.getElementById("hudTokens");
   var crateTooltip = document.getElementById("crateTooltip");
   var stageToast = document.getElementById("stageToast");
   var appEl = document.getElementById("app");
@@ -887,9 +885,8 @@
 
     billEls.sessionTotal.textContent = formatMoney(sessionTotal);
     billEls.allOpus.textContent = formatMoney(allOpus);
-    footerSessionCost.textContent = formatMoney(sessionTotal);
     if (hudSessionCost) hudSessionCost.textContent = formatMoney(sessionTotal);
-    footerTokens.textContent = formatTokens(u.haiku.in + u.haiku.out);
+    if (hudTokens) hudTokens.textContent = formatTokens(u.haiku.in + u.haiku.out);
 
     if (sessionTotal > 0 && allOpus > sessionTotal) {
       var mult = allOpus / Math.max(sessionTotal, 0.0001);
@@ -1095,9 +1092,12 @@
 
   function setSubs(n) {
     state.subs = n;
-    footerSubs.textContent = String(n);
     if (hudSubs) hudSubs.textContent = String(n);
     syncDailyStatsFromUsage();
+  }
+
+  function setEffort(label) {
+    if (hudEffort) hudEffort.textContent = label || "mixed";
   }
 
   function pad2(n) {
@@ -1345,7 +1345,7 @@
     setCalls(0);
     setSubs(0);
     advisorLastEl.textContent = "Last advice: —";
-    footerEffort.textContent = mode === "live" ? "live" : "mixed";
+    setEffort(mode === "live" ? "live" : "mixed");
     state.usage = emptyUsage();
     lastDemoUsageTotal = 0;
     renderBill();
@@ -1603,7 +1603,7 @@
         },
         "opus"
       );
-      footerEffort.textContent = "high";
+      setEffort("high");
     },
     function () {
       setActive(["opus", "advisor"]);
@@ -1855,7 +1855,7 @@
         "parent",
         "reviewed · shipped · Session Bill shows multi-model savings vs all-Opus"
       );
-      footerEffort.textContent = "done";
+      setEffort("done");
       playing = false;
       demoBtn.textContent = "Play";
       demoBtn.classList.remove("playing");
