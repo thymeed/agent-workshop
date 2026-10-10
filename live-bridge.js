@@ -1886,7 +1886,9 @@ function createServer() {
       );
       const backlog = events.slice(-40);
       for (const ev of backlog) {
-        res.write(`data: ${JSON.stringify(ev)}\n\n`);
+        /* Mark connect-time replay so the dashboard skips card timing even if JS
+         * processes messages slower than LIVE_SSE_BACKLOG_QUIET_MS (Windows CI). */
+        res.write(`data: ${JSON.stringify({ ...ev, sseBacklog: true })}\n\n`);
       }
       sseClients.add(res);
       req.on("close", () => sseClients.delete(res));

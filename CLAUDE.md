@@ -101,6 +101,7 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 - **Insights / Stations** — Insights forecast + cost-ranked suggestions; Stations drawer hosts living cards; row/alert click → `jumpToAgent` (does not change Cursor routing).
 - **Ship celebration** — portal burst + avatar `done` on merge/ship; respect `prefers-reduced-motion`.
 - **Live presence** — `data-live-presence` on `#app` (`file-origin` … `streaming`); see table above.
+- **Live SSE connect backlog** — `/api/stream` replays recent events with ephemeral `sseBacklog: true` so Stations daily “fastest” timing ignores connect-time replay even when the browser processes messages slower than the backlog quiet window (`liveSseBacklogReplay` in `app.js`).
 
 ## Conventions
 

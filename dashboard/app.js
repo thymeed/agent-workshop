@@ -1962,7 +1962,7 @@
       if (!alreadySeen) markSeenLiveEvent(ev);
     }
     var usageOpts = { skipDaily: alreadySeen || isReplay };
-    var skipTiming = !!opts.skipTiming || alreadySeen || liveSseBacklogReplay;
+    var skipTiming = !!opts.skipTiming || alreadySeen || liveSseBacklogReplay || !!ev.sseBacklog;
     var skipMotion = !!opts.skipMotion || (isReplay && prefersReducedMotion());
 
     var role = ev.role || "parent";
