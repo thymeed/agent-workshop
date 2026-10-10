@@ -6,11 +6,13 @@ Guidance for AI agents working in this repo.
 
 A **Cursor Agents** model-routing dashboard: visualize how a session routes work across parent (Opus), advisor (Fable), worker (Sonnet), and explorer/researcher (Haiku).
 
-Stack (target):
+Stack:
 
 - **HTML UI** — `model-routing-dashboard.html` (Demo + Live)
 - **Live bridge** — `live-bridge.js` (Node localhost server; tails agent-transcripts JSONL, SSE)
-- **Electron desktop** — windowed app that runs the bridge in-process (scaffold may land via `package.json` + Electron main)
+- **Electron desktop** — windowed app; bridge runs in-process (`npm start` / packaged `.exe`)
+
+Chrome: header **Stage | Insights | History** selects which **drawer sheet** owns the lower panel (workshop stage stays visible). **Replay** (History) drives the stage via `replay-stage.js` (play/pause/scrub/speed). **HUD** chips are the single status strip (session $, active role, subs, effort, haiku tokens).
 
 This is **Cursor Agents** branding/product framing, not Claude Code product UI.
 
@@ -18,9 +20,13 @@ This is **Cursor Agents** branding/product framing, not Claude Code product UI.
 
 | File                           | Role                                                                                        |
 | ------------------------------ | ------------------------------------------------------------------------------------------- |
-| `model-routing-dashboard.html` | Dashboard markup shell (Demo + Live)                                                        |
-| `dashboard/styles.css`         | Dashboard styles (extracted from the former monolith)                                       |
+| `model-routing-dashboard.html` | Dashboard markup shell (Demo + Live; Stage/Insights/History chrome)                         |
+| `dashboard/styles.css`         | Dashboard styles                                                                            |
+| `dashboard/insights.css`       | Insights / History drawer styles                                                            |
 | `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage                                            |
+| `dashboard/insights.js`        | Insights forecast + History/Replay UI                                                       |
+| `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                       |
+| `dashboard/cards.js`           | Session Bill / Activity / Log card helpers                                                  |
 | `live-bridge.js`               | Headless bridge: serves HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status` |
 | `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                             |
 | `package.json`                 | Electron/desktop scripts + lint/test/ci                                                     |
@@ -31,15 +37,15 @@ This is **Cursor Agents** branding/product framing, not Claude Code product UI.
 
 ## How to run
 
-**Desktop (once Electron scaffold exists):**
+**Desktop (primary):**
 
 ```bat
 npm start
 ```
 
-Opens the dashboard window. Bridge should run **in-process** (no separate CMD popup).
+Opens the dashboard window. Bridge runs **in-process** (no separate CMD popup).
 
-**Headless / browser (works today, no npm install):**
+**Headless / browser:**
 
 ```bat
 node live-bridge.js
@@ -53,8 +59,6 @@ Options: `--port N`, `--dir <agent-transcripts path>` (or `CURSOR_TRANSCRIPTS`).
 
 - **Demo** — open `model-routing-dashboard.html` via `file://` or the bridge; Play runs a scripted routing story. No server required for Demo alone.
 - **Live** — needs the bridge; streams near-real events from `~/.cursor/projects/.../agent-transcripts/**/*.jsonl`.
-
-If `package.json` is missing, prefer `node live-bridge.js` / `start-live.cmd` until the Electron scaffold is present; then use `npm start` for the desktop window.
 
 ## Conventions
 
