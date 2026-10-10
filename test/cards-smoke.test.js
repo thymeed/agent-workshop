@@ -587,7 +587,8 @@ async function smokeCardsDemo(browser) {
 
   const pretty = await page.evaluate(() => {
     const h = window.AgentCards;
-    if (!h || typeof h.prettyStatusText !== "function") return { ok: false, reason: "no prettyStatusText" };
+    if (!h || typeof h.prettyStatusText !== "function")
+      return { ok: false, reason: "no prettyStatusText" };
     const worker = h.prettyStatusText(
       "working · **Commit:** 'ced9811405e4b9f01b2ee368cb3cc1fa45742696' **Message:** 'docs: note_hooks'"
     );
@@ -597,7 +598,8 @@ async function smokeCardsDemo(browser) {
     const explorer = h.prettyStatusText("delegates · explore · Check commit and comments");
     const fails = [];
     if (/\*\*/.test(worker)) fails.push("worker still has markdown bold");
-    if (/ced9811405e4b9f01b2ee368cb3cc1fa45742696/i.test(worker)) fails.push("worker kept full SHA");
+    if (/ced9811405e4b9f01b2ee368cb3cc1fa45742696/i.test(worker))
+      fails.push("worker kept full SHA");
     if (!/ced9811/i.test(worker)) fails.push("worker missing short SHA");
     if (/c35a2e43-1a3f-4538-8886-9c6f1fab3302/i.test(opus)) fails.push("opus kept full UUID");
     if (/^\s*delegates/i.test(explorer)) fails.push("explorer kept delegates prefix");
@@ -606,7 +608,8 @@ async function smokeCardsDemo(browser) {
   });
   if (!pretty.ok) {
     errors.push(
-      "prettyStatusText: " + ((pretty.fails && pretty.fails.join("; ")) || pretty.reason || "failed")
+      "prettyStatusText: " +
+        ((pretty.fails && pretty.fails.join("; ")) || pretty.reason || "failed")
     );
   }
   if (ui.runs === "0") errors.push("Demo daily runs still 0");
