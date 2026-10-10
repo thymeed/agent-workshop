@@ -1,6 +1,14 @@
 # Cursor Agents · Model Routing
 
+[![CI](https://github.com/thymeed/cursor-agents-model-routing/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/thymeed/cursor-agents-model-routing/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-1.0.0-informational)](CHANGELOG.md)
+
 Desktop dashboard for visualizing how a Cursor Agents session routes work across Opus (parent), Fable (advisor), Worker (Sonnet), Explorer / Researcher (Haiku).
+
+![Demo workshop stage — station characters, merge portal, and session HUD](docs/preview.png)
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 The first viewport is a soft **agent workshop**: five cute Claude-agent-style station figures (Opus desk, Fable consult, Sonnet build, Explore / Research shelves) — **Cursor Agents** branding, not Claude Code product UI — walk paths and carry code crates into a central **Merge portal**. Demo Play and Live SSE drive the stage; Session Bill, Activity, Insights, History/Replay, Session Log, and **Stations** live as **drawer sheets** under the stage. Header **Stage | Insights | History** switches which sheet owns the lower chrome (workshop stays visible). Station cards use the same soft faces/avatars as the stage. HUD chips are the single status strip (session $, active role, subs, effort, haiku tokens). **History** Replay play/pause/scrub/speed drives the same workshop engine (crates/characters); leaving History stops transport and leaves the last replay frame until Demo/Live runs again. Estimates remain illustrative · not official usage. Optional cute Web Audio blips are **muted by default** — toggle 🔊/🔇 in the header (persisted in `localStorage`).
 
