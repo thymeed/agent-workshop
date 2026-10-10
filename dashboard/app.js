@@ -581,6 +581,12 @@
       }, 250);
     }
 
+    /**
+     * Fly a small role-shaped glyph along the inbound pulse path into a station.
+     * Called from animateRoute on ask/delegate. Caps concurrent tokens; reduced
+     * motion / narrow layouts snap to the end with a brief land catch.
+     * @param {string} role - advisor | worker | explorer | researcher
+     */
     function spawnRouteToken(role) {
       if (!cratesLayer || !role || !ROUTE_TOKEN_PATH[role]) return;
       var path = document.getElementById(ROUTE_TOKEN_PATH[role]);

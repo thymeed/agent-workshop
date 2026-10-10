@@ -26,10 +26,10 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 | `dashboard/insights.css`       | Insights / History drawer styles                                                                    |
 | `dashboard/tips.css`           | TipLayer floating tooltip styles                                                                    |
 | `dashboard/alerts.css`         | Alert center bell / popover styles                                                                  |
-| `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage + Live presence                                    |
+| `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage + Live presence + inbound route tokens             |
 | `dashboard/insights.js`        | Insights forecast + cost-ranked suggestions + History/Replay UI                                     |
 | `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                               |
-| `dashboard/cards.js`           | Station cards, avatars, daily stats, privacy meter, ship celebration                                |
+| `dashboard/cards.js`           | Station cards, per-role cute faces/avatars, daily stats, privacy meter, ship celebration            |
 | `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                   |
 | `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`)                                               |
 | `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts` |
@@ -92,6 +92,8 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 **Product surfaces (keep in mind when editing):**
 
 - **Cute station characters** — stage figures + card avatars stay soft/Claude-agent-like; keep Cursor Agents naming (Opus / Fable / Worker / Explore / Research).
+- **Unique card faces** — Stations avatars (`data-avatar` + `cards.css`) are per-role (tuft/band/hat/glasses accents), not one shared face tinted by color.
+- **Inbound route tokens** — `stageDirector.spawnRouteToken(role)` flies a small role-shaped glyph along the pulse path into the station on ask/delegate (`animateRoute`); cap concurrent tokens; respect reduced motion / narrow layouts.
 - **TipLayer** (`tips.js`) — one floating tip host for chrome, stage, cards, Insights, History, alerts; prefer `data-tip` / `data-tip-detail` over bare `title=` on primary controls.
 - **Alert center** (`alerts.js`) — header bell; bridge SSE `event: alert` + `GET /api/alerts` (name/status/`agentId` only); Electron desktop Notification stays on the same emit path.
 - **Insights / Stations** — playful Insights forecast + cost-ranked suggestions; Stations drawer hosts living cards; row/alert click → `jumpToAgent` (does not change Cursor routing).

@@ -451,6 +451,7 @@
     decorateDailyTips();
   }
 
+  /** Mount the per-role cute face (`data-avatar`) into the card head. */
   function mountAvatar(card, role) {
     if (!card || avatarEls[role]) return;
     var head = card.querySelector(".card-head");
