@@ -35,7 +35,7 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 | `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts` |
 | `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                                     |
 | `package.json`                 | Electron/desktop scripts + lint/test/ci                                                             |
-| `scripts/copy-exe.js`          | After `build`/`pack`: copy portable exe → repo-root `AgentWorkshop.exe`                              |
+| `scripts/copy-exe.js`          | After `build`/`pack`: copy portable exe → repo-root `AgentWorkshop.exe`                             |
 | `electron/main.js`             | Desktop window; start bridge in-process                                                             |
 | `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                        |
 | `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                         |
