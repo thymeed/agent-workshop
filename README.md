@@ -2,9 +2,9 @@
 
 Desktop dashboard for visualizing how a Cursor Agents session routes work across Opus (parent), Fable (advisor), Worker (Sonnet), Explorer / Researcher (Haiku).
 
-The first viewport is an **agent workshop**: five station characters (Opus desk, Fable consult, Sonnet build, Explore / Research shelves) walk paths and carry code crates into a central **Merge portal**. Demo Play and Live SSE drive the stage; Session Bill, Activity, Insights, History/Replay, and Session Log live as **drawer sheets** under the stage. Header **Stage | Insights | History** switches which sheet owns the lower chrome (workshop stays visible). HUD chips are the single status strip (session $, active role, subs, effort, haiku tokens). **History** Replay play/pause/scrub/speed drives the same workshop engine (crates/characters); leaving History stops transport and leaves the last replay frame until Demo/Live runs again. Estimates remain illustrative · not official usage. Optional cute Web Audio blips are **muted by default** — toggle 🔊/🔇 in the header (persisted in `localStorage`).
+The first viewport is a soft **agent workshop**: five cute Claude-agent-style station figures (Opus desk, Fable consult, Sonnet build, Explore / Research shelves) — **Cursor Agents** branding, not Claude Code product UI — walk paths and carry code crates into a central **Merge portal**. Demo Play and Live SSE drive the stage; Session Bill, Activity, Insights, History/Replay, Session Log, and **Stations** live as **drawer sheets** under the stage. Header **Stage | Insights | History** switches which sheet owns the lower chrome (workshop stays visible). Station cards use the same soft faces/avatars as the stage. HUD chips are the single status strip (session $, active role, subs, effort, haiku tokens). **History** Replay play/pause/scrub/speed drives the same workshop engine (crates/characters); leaving History stops transport and leaves the last replay frame until Demo/Live runs again. Estimates remain illustrative · not official usage. Optional cute Web Audio blips are **muted by default** — toggle 🔊/🔇 in the header (persisted in `localStorage`).
 
-**Primary product:** after `npm run build`, double-click repo-root **`CursorAgentsModelRouting-Portable.exe`** (auto-copied from `dist\`; gitignored), or run `npm start`. Window title: **Cursor Agents · Model Routing**. The live bridge runs **in-process** inside Electron — no CMD popup, no separate `node.exe` console.
+**Primary launch:** double-click repo-root **`CursorAgentsModelRouting-Portable.exe`** (produced by `npm run build` / `npm run pack` via `scripts/copy-exe.js` from `dist\`; gitignored `*.exe`), or run `npm start` while developing. Window title: **Cursor Agents · Model Routing**. The live bridge runs **in-process** inside Electron — no CMD popup, no separate `node.exe` console.
 
 A second launch focuses the existing window (single-instance lock); it does not start another bridge on the same port.
 
@@ -151,13 +151,13 @@ The Live UI tracks a single presence state for the header hint, stage banner, an
 
 First time you enter Live, a dismissible coach sheet explains the project picker, what Live sees, and the estimate disclaimer (`localStorage` `ca.liveOnboard.v1`). Demo is never blocked.
 
-### Insights suggestions & jump-to-agent
+### Insights, stations & jump-to-agent
 
-Insights **Suggestions** are ranked by estimated dollar savings (then name). Clicking a row (or an alert with a mappable agent) jumps to that station on the stage — select character, open Activity, brief card highlight. This does **not** change Cursor’s live routing; it only navigates the dashboard.
+The **Insights** sheet is a playful workshop panel: forecast, cost-ranked **Suggestions**, and soft TipLayer copy. Suggestions are ranked by estimated dollar savings (then name). Clicking a row (or an alert with a mappable agent) jumps to that station — select character, open Activity, brief card highlight. The **Stations** drawer holds the living agent cards (cute faces, daily stats, privacy meter). None of this changes Cursor’s live routing; it only navigates the dashboard.
 
 ### TipLayer & ship celebration
 
-Chrome, stage stations, HUD chips, cards, Insights, and alerts share one **TipLayer** hover/focus tip (`data-tip` / `data-tip-detail`, ~300ms delay). Ship / merge plays a short portal celebration and marks avatars done (respects `prefers-reduced-motion`).
+Chrome, stage stations, HUD chips, station cards, Insights, History/Replay, and the alert center share one **TipLayer** hover/focus tip (`data-tip` / `data-tip-detail`, ~300ms delay) — prefer that over bare `title=` on primary controls. Ship / merge plays a short portal celebration and marks avatars done (respects `prefers-reduced-motion`).
 
 ### History & desktop alerts
 
