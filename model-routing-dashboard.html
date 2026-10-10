@@ -28,6 +28,8 @@
     <link rel="stylesheet" href="dashboard/styles.css" />
     <link rel="stylesheet" href="dashboard/cards.css" />
     <link rel="stylesheet" href="dashboard/insights.css" />
+    <link rel="stylesheet" href="dashboard/tips.css" />
+    <link rel="stylesheet" href="dashboard/alerts.css" />
   </head>
   <body>
     <div class="wrap" id="app" data-view-mode="stage">
@@ -39,25 +41,73 @@
           </div>
           <div class="mode-bar">
             <div class="seg" role="group" aria-label="Source">
-              <button type="button" id="modeDemo" class="on">Demo</button>
-              <button type="button" id="modeLive">Live</button>
+              <button
+                type="button"
+                id="modeDemo"
+                class="on"
+                data-tip="Demo"
+                data-tip-detail="Scripted routing story · no bridge required"
+              >
+                Demo
+              </button>
+              <button
+                type="button"
+                id="modeLive"
+                data-tip="Live"
+                data-tip-detail="Near-real events from agent-transcripts via the bridge"
+              >
+                Live
+              </button>
             </div>
             <div class="seg view-mode-seg" id="viewMode" role="group" aria-label="View">
-              <button type="button" id="viewStage" class="on" aria-pressed="true" data-view="stage">
+              <button
+                type="button"
+                id="viewStage"
+                class="on"
+                aria-pressed="true"
+                data-view="stage"
+                data-tip="Stage"
+                data-tip-detail="Workshop · stations and merge portal"
+              >
                 Stage
               </button>
-              <button type="button" id="viewInsights" aria-pressed="false" data-view="insights">
+              <button
+                type="button"
+                id="viewInsights"
+                aria-pressed="false"
+                data-view="insights"
+                data-tip="Insights"
+                data-tip-detail="Forecast, suggestions, and session breakdown"
+              >
                 Insights
               </button>
-              <button type="button" id="viewHistory" aria-pressed="false" data-view="history">
+              <button
+                type="button"
+                id="viewHistory"
+                aria-pressed="false"
+                data-view="history"
+                data-tip="History"
+                data-tip-detail="Replay past transcript events on the stage"
+              >
                 History
               </button>
             </div>
-            <button type="button" class="action-btn" id="demoBtn" aria-pressed="false">Play</button>
+            <button
+              type="button"
+              class="action-btn"
+              id="demoBtn"
+              aria-pressed="false"
+              data-tip="Play / Reconnect"
+              data-tip-detail="Demo Play/Stop · Live manual Reconnect"
+            >
+              Play
+            </button>
             <select
               id="projectPicker"
               class="project-picker"
               aria-label="Cursor project"
+              data-tip="Project"
+              data-tip-detail="Which Cursor project’s transcripts the bridge tails"
               hidden
             ></select>
             <button
@@ -67,6 +117,8 @@
               aria-pressed="false"
               title="Open panels"
               aria-label="Open panels"
+              data-tip="Panels"
+              data-tip-detail="Open or collapse drawer panels"
             >
               Panels
             </button>
@@ -76,10 +128,51 @@
               id="soundBtn"
               aria-pressed="false"
               title="Sound off (click to unmute)"
+              data-tip="Sound"
+              data-tip-detail="Workshop blips · muted by default"
             >
               🔇
             </button>
-            <span class="live-hint" id="liveHint" hidden></span>
+            <div class="alert-bell-wrap">
+              <button
+                type="button"
+                class="alert-bell"
+                id="alertBell"
+                aria-label="Alerts"
+                aria-expanded="false"
+                aria-haspopup="true"
+                data-tip="Alerts"
+                data-tip-detail="Finished, error, and stalled agents"
+              >
+                <span class="alert-bell-icon" aria-hidden="true">🔔</span>
+                <span class="alert-badge" id="alertBadge" hidden>0</span>
+              </button>
+              <div
+                class="alert-popover"
+                id="alertPopover"
+                hidden
+                role="dialog"
+                aria-label="Alert center"
+              >
+                <div class="alert-popover-head">
+                  <span class="alert-popover-title">Alerts</span>
+                  <div class="alert-popover-actions">
+                    <button type="button" id="alertMarkRead">Mark read</button>
+                    <button type="button" id="alertSnooze">Snooze</button>
+                    <button type="button" id="alertClear">Clear</button>
+                  </div>
+                </div>
+                <ul class="alert-list" id="alertList"></ul>
+                <div class="alert-empty" id="alertEmpty">No alerts yet</div>
+              </div>
+            </div>
+            <span
+              class="live-hint"
+              id="liveHint"
+              hidden
+              data-tip="Live status"
+              data-tip-detail="Bridge connection and project scope"
+            ></span>
           </div>
         </div>
         <h1 class="headline">Agent <em>workshop.</em></h1>
@@ -92,6 +185,27 @@
       </header>
 
       <div class="stage" id="stage">
+        <div
+          class="live-presence-banner"
+          id="livePresenceBanner"
+          hidden
+          role="status"
+          aria-live="polite"
+        ></div>
+        <aside class="live-coach" id="liveCoach" hidden aria-label="Live onboarding">
+          <div class="live-coach-inner">
+            <h2 class="live-coach-title">Live workshop</h2>
+            <ul class="live-coach-list">
+              <li>Pick a Cursor project — the bridge tails that project’s agent-transcripts.</li>
+              <li>
+                Live sees near-real file activity, not hook-level realtime. Idle stations can mean
+                healthy quiet.
+              </li>
+              <li>Session Bill and HUD costs are estimates — not official invoices.</li>
+            </ul>
+            <button type="button" class="live-coach-dismiss" id="liveCoachDismiss">Got it</button>
+          </div>
+        </aside>
         <div class="workshop" id="workshop" aria-label="Agent workshop stage">
           <div class="asks-bridge" id="asksLabel"><span>asks</span></div>
           <div class="flow-label" id="delegatesLabel">delegates → merge</div>
@@ -197,6 +311,8 @@
               tabindex="0"
               role="button"
               aria-label="Opus station"
+              data-tip="Opus"
+              data-tip-detail="Main session · plans and reviews"
             >
               <ellipse
                 class="station-glow"
@@ -242,6 +358,8 @@
               tabindex="0"
               role="button"
               aria-label="Fable station"
+              data-tip="Fable"
+              data-tip-detail="Advisor · reviews before plan and before done"
             >
               <ellipse
                 class="station-glow"
@@ -287,6 +405,8 @@
               tabindex="0"
               role="button"
               aria-label="Sonnet station"
+              data-tip="Sonnet"
+              data-tip-detail="Worker · edits and tests"
             >
               <ellipse
                 class="station-glow"
@@ -332,6 +452,8 @@
               tabindex="0"
               role="button"
               aria-label="Explore station"
+              data-tip="Explore"
+              data-tip-detail="Haiku · read-only search"
             >
               <ellipse
                 class="station-glow"
@@ -386,6 +508,8 @@
               tabindex="0"
               role="button"
               aria-label="Research station"
+              data-tip="Research"
+              data-tip-detail="Haiku · docs and references"
             >
               <ellipse
                 class="station-glow"
@@ -423,6 +547,8 @@
               tabindex="0"
               role="button"
               aria-label="Merge portal — open Activity"
+              data-tip="Merge portal"
+              data-tip-detail="Open Activity · ship celebrations land here"
             >
               <ellipse class="portal-core" cx="500" cy="445" rx="48" ry="18" />
               <ellipse class="portal-ring" cx="500" cy="445" rx="48" ry="18" />
@@ -442,11 +568,36 @@
 
           <div class="hud-bar">
             <div class="hud-chips">
-              <span class="hud-chip cost">session <strong id="hudSessionCost">$0.00</strong></span>
-              <span class="hud-chip active-role">active <strong id="hudActiveRole">—</strong></span>
-              <span class="hud-chip">subs <strong id="hudSubs">0</strong></span>
-              <span class="hud-chip">effort <strong id="hudEffort">mixed</strong></span>
-              <span class="hud-chip">haiku <strong id="hudTokens">0</strong></span>
+              <span
+                class="hud-chip cost"
+                data-tip="Session cost"
+                data-tip-detail="Estimated Session Bill total · not an invoice"
+                >session <strong id="hudSessionCost">$0.00</strong></span
+              >
+              <span
+                class="hud-chip active-role"
+                data-tip="Active role"
+                data-tip-detail="Which stations are busy right now"
+                >active <strong id="hudActiveRole">—</strong></span
+              >
+              <span
+                class="hud-chip"
+                data-tip="Subagents"
+                data-tip-detail="Distinct worker / explorer / researcher launches"
+                >subs <strong id="hudSubs">0</strong></span
+              >
+              <span
+                class="hud-chip"
+                data-tip="Effort"
+                data-tip-detail="Session effort band from the narrative or live stream"
+                >effort <strong id="hudEffort">mixed</strong></span
+              >
+              <span
+                class="hud-chip"
+                data-tip="Haiku tokens"
+                data-tip-detail="Illustrative Haiku in+out from transcript activity"
+                >haiku <strong id="hudTokens">0</strong></span
+              >
             </div>
           </div>
         </div>
@@ -733,6 +884,8 @@
         </div>
       </footer>
     </div>
+    <script src="dashboard/tips.js"></script>
+    <script src="dashboard/alerts.js"></script>
     <script src="dashboard/cards.js"></script>
     <script src="dashboard/insights.js"></script>
     <script src="dashboard/replay-stage.js"></script>

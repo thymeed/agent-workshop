@@ -1,0 +1,36 @@
+/* Unified TipLayer — same visual language as .crate-tooltip */
+
+.tip-layer {
+  position: fixed;
+  z-index: 40;
+  max-width: 260px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 14, 15, 0.94);
+  color: var(--text, #e8ecec);
+  font-family: var(--mono, ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace);
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.tip-layer[hidden] {
+  display: none !important;
+}
+
+.tip-layer .tt-path {
+  color: var(--haiku, #b8f000);
+  margin-bottom: 2px;
+  word-break: break-all;
+}
+
+.tip-layer .tt-detail {
+  color: var(--muted, #8a9698);
+  font-size: 10px;
+}
+
+.tip-layer .tt-detail[hidden] {
+  display: none !important;
+}

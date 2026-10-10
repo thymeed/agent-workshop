@@ -63,6 +63,8 @@ const EMPTY_TRANSCRIPTS = path.join(PROJECTS_ROOT, "_none", "agent-transcripts")
 const DASHBOARD = path.join(__dirname, "model-routing-dashboard.html");
 const STATIC_ROOT = path.join(__dirname, "dashboard");
 const MAX_EVENTS = 400;
+/** In-memory ring for agent alerts (SSE + GET /api/alerts). */
+const MAX_ALERTS = 50;
 const POLL_MS = 900;
 /** Max transcript JSONL files polled per scan (newest by mtime). */
 const TRANSCRIPT_SCAN_LIMIT = 40;
@@ -105,6 +107,8 @@ let currentProjectLabel = null;
 
 /** @type {Array<object>} */
 const events = [];
+/** @type {Array<{id:number,ts:string,name:string,status:string,agentId?:string}>} */
+const alerts = [];
 /** @type {Set<http.ServerResponse>} */
 const sseClients = new Set();
 /** filePath -> { size, warm, lineSeq } */
@@ -120,6 +124,7 @@ let warmScanAfterInventory = false;
 /** subagent uuid -> role */
 const subagentRoles = new Map();
 let eventSeq = 0;
+let alertSeq = 0;
 let lastScanError = null;
 /** ISO time of the most recent scan() pass (near-real poll, not hook-level). */
 let lastScanAt = null;
@@ -300,13 +305,35 @@ function pushEvent(partial) {
   return ev;
 }
 
-function emitAgentAlert(name, status) {
-  if (typeof onAgentAlert !== "function") return;
-  try {
-    // Alerts carry only agent name + status — never prompts or file paths.
-    onAgentAlert({ name: String(name || "agent"), status: String(status || "") });
-  } catch (_e) {
-    /* ignore alert handler failures */
+/**
+ * Push an agent alert to the in-memory ring, SSE-broadcast it, and notify Electron.
+ * Privacy: name + status (+ optional agentId) only — never prompts or file paths.
+ * @param {string} name
+ * @param {string} status
+ * @param {string} [agentId]
+ */
+function emitAgentAlert(name, status, agentId) {
+  const alert = {
+    id: ++alertSeq,
+    ts: nowIso(),
+    name: String(name || "agent"),
+    status: String(status || "")
+  };
+  const id = agentId != null && String(agentId) ? String(agentId) : "";
+  if (id) alert.agentId = id;
+
+  alerts.push(alert);
+  if (alerts.length > MAX_ALERTS) alerts.splice(0, alerts.length - MAX_ALERTS);
+
+  broadcastSse("alert", alert);
+
+  if (typeof onAgentAlert === "function") {
+    try {
+      // Desktop notifications: name + status only (same privacy rule).
+      onAgentAlert({ name: alert.name, status: alert.status });
+    } catch (_e) {
+      /* ignore alert handler failures */
+    }
   }
 }
 
@@ -343,7 +370,7 @@ function touchAgentWatch(agentId, name, terminalStatus, opts) {
     prev.terminal = terminalStatus;
     prev.stallAlerted = true;
     agentWatch.set(id, prev);
-    emitAgentAlert(prev.name, terminalStatus);
+    emitAgentAlert(prev.name, terminalStatus, id);
     return;
   }
 
@@ -360,7 +387,7 @@ function checkStalledAgents() {
     if (now - state.lastSeen >= stallMs) {
       state.stallAlerted = true;
       agentWatch.set(id, state);
-      emitAgentAlert(state.name, "stalled");
+      emitAgentAlert(state.name, "stalled", id);
     }
   }
 }
@@ -1746,6 +1773,15 @@ function createServer() {
         projectId: currentProjectId,
         projectLabel: currentProjectLabel
       });
+      return;
+    }
+
+    if (url.pathname === "/api/alerts") {
+      if (req.method !== "GET") {
+        sendJson(res, 405, { ok: false, error: "GET required" });
+        return;
+      }
+      sendJson(res, 200, { alerts: alerts.slice() });
       return;
     }
 

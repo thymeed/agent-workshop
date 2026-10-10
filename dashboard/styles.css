@@ -228,6 +228,114 @@ body::after {
 .live-hint.ok {
   color: rgba(62, 207, 255, 0.85);
 }
+.live-hint.quiet {
+  color: rgba(184, 240, 0, 0.75);
+}
+
+/* Live presence banner + onboarding coach */
+.live-presence-banner {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(16, 22, 23, 0.92);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.live-presence-banner[hidden] {
+  display: none !important;
+}
+
+.live-presence-banner.bridge-down {
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.08);
+  color: var(--fail);
+}
+
+.live-presence-banner.connecting {
+  border-color: rgba(62, 207, 255, 0.28);
+  color: rgba(62, 207, 255, 0.9);
+}
+
+.live-presence-banner.quiet-healthy {
+  border-color: rgba(184, 240, 0, 0.22);
+  color: rgba(184, 240, 0, 0.85);
+}
+
+.live-presence-banner.file-origin,
+.live-presence-banner.no-projects {
+  border-color: rgba(245, 165, 36, 0.35);
+  color: var(--advisor);
+}
+
+.live-coach {
+  margin: 0 0 10px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(62, 207, 255, 0.28);
+  background:
+    linear-gradient(135deg, rgba(62, 207, 255, 0.08), transparent 55%), rgba(16, 22, 23, 0.95);
+  padding: 12px 14px;
+}
+
+.live-coach[hidden] {
+  display: none !important;
+}
+
+.live-coach-title {
+  margin: 0 0 8px;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.live-coach-list {
+  margin: 0 0 10px;
+  padding-left: 1.15em;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.live-coach-list li + li {
+  margin-top: 4px;
+}
+
+.live-coach-dismiss {
+  appearance: none;
+  border: 1px solid rgba(62, 207, 255, 0.4);
+  background: rgba(62, 207, 255, 0.1);
+  color: var(--sonnet);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.live-coach-dismiss:hover {
+  border-color: rgba(62, 207, 255, 0.6);
+  background: rgba(62, 207, 255, 0.16);
+}
+
+.card.jump-highlight {
+  outline: 1px solid rgba(62, 207, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(62, 207, 255, 0.12);
+  transition:
+    outline-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card.jump-highlight {
+    transition: none;
+  }
+}
 
 .project-picker {
   appearance: none;

@@ -24,6 +24,25 @@
     researcher: "Rs"
   };
 
+  /** Short model name for avatar tips (TipLayer). */
+  var MODEL_LABEL = {
+    opus: "Opus",
+    advisor: "Fable",
+    worker: "Sonnet",
+    explorer: "Haiku",
+    researcher: "Haiku"
+  };
+
+  var STATE_TIP = {
+    idle: "idle",
+    typing: "working",
+    thinking: "thinking",
+    blocked: "blocked",
+    done: "done",
+    celebrating: "celebrating",
+    error: "error"
+  };
+
   /**
    * Demo fixtures for privacy + daily-stats without a live bridge.
    * Paths are scanned for the meter; UI never displays them.
@@ -138,6 +157,25 @@
     return String(n);
   }
 
+  function avatarTipText(role, state) {
+    var label = ROLE_LABEL[role] || role;
+    var model = MODEL_LABEL[role] || "";
+    var st = STATE_TIP[state] || state || "idle";
+    return label + (model ? " · " + model : "") + " · " + st;
+  }
+
+  function syncAvatarTip(role) {
+    var el = avatarEls[role];
+    if (!el) return;
+    var state = avatarState[role] || "idle";
+    var tip = avatarTipText(role, state);
+    el.setAttribute("data-tip", tip);
+    el.setAttribute(
+      "data-tip-detail",
+      (ROLE_LABEL[role] || role) + " station · " + (STATE_TIP[state] || state)
+    );
+  }
+
   function mountAvatar(card, role) {
     if (!card || avatarEls[role]) return;
     var head = card.querySelector(".card-head");
@@ -147,6 +185,7 @@
     wrap.setAttribute("data-avatar", role);
     wrap.setAttribute("aria-hidden", "true");
     wrap.innerHTML =
+      '<span class="avatar-chrome" aria-hidden="true"></span>' +
       '<span class="avatar-face">' +
       '<span class="avatar-initials">' +
       (INITIALS[role] || "?") +
@@ -157,6 +196,7 @@
     head.insertBefore(wrap, head.firstChild);
     avatarEls[role] = wrap;
     avatarState[role] = "idle";
+    syncAvatarTip(role);
   }
 
   function mountPrivacy(card, role) {
@@ -240,21 +280,32 @@
     return level;
   }
 
-  function setAvatarState(role, state) {
+  function setAvatarState(role, state, opts) {
+    opts = opts || {};
     var el = avatarEls[role];
     if (!el) return;
     var next = state || "idle";
-    if (avatarState[role] === next) return;
+    var force = !!opts.force;
+    if (!force && avatarState[role] === next) return;
     avatarState[role] = next;
-    el.className = "agent-avatar state-" + next + (reducedMotion ? " reduced-motion" : "");
+    var cls = "agent-avatar state-" + next + (reducedMotion ? " reduced-motion" : "");
+    if (force) {
+      // Retrigger CSS keyframes (ship wave / done bounce).
+      el.className = "agent-avatar" + (reducedMotion ? " reduced-motion" : "");
+      void el.offsetWidth;
+    }
+    el.className = cls;
+    syncAvatarTip(role);
   }
 
   function inferAvatarFromStatus(role, html, cls) {
     var text = String(html || "").replace(/<[^>]+>/g, " ");
     var fail = cls === "fail" || /\bFAIL\b/i.test(text);
+    var blocked = /\b(Blocked|Stalled|Stall|stuck)\b/i.test(text);
+    var celebrating = /\b(shipped|ship|merge[d]?)\b/i.test(text);
     var done =
       cls === "pass" ||
-      /\b(Done|shipped|PASS|complete|Quiet)\b/i.test(text) ||
+      /\b(Done|PASS|complete|Quiet)\b/i.test(text) ||
       /Idle · waiting/i.test(text);
     var thinking = /Reviewing|Analyzing|Awaiting|waiting|Standby|Quiet/i.test(text);
     var typing = /Editing|Searching|Pulling|Calling|Task received|Plan approved|Fix applied/i.test(
@@ -262,11 +313,62 @@
     );
 
     if (fail) return "error";
+    if (blocked) return "blocked";
+    if (celebrating) return "celebrating";
     if (typing) return "typing";
     if (thinking && !done) return "thinking";
-    if (/\b(Done|shipped|PASS)\b/i.test(text) || cls === "pass") return "done";
+    if (/\b(Done|PASS)\b/i.test(text) || cls === "pass") return "done";
     if (done) return "idle";
     return "thinking";
+  }
+
+  /**
+   * Ship / merge payoff for avatars only (portal + toast stay in app.js).
+   * @param {string[]|string} [roles] — roles to celebrate; defaults to currently active cards
+   */
+  function celebrateShip(roles) {
+    var list = [];
+    if (typeof roles === "string") list = [roles];
+    else if (Array.isArray(roles) && roles.length) list = roles.slice();
+    else {
+      ROLE_KEYS.forEach(function (key) {
+        if (cards[key] && cards[key].classList.contains("active")) list.push(key);
+      });
+    }
+    if (!list.length) return;
+    list.forEach(function (role) {
+      if (!avatarEls[role]) return;
+      setAvatarState(role, "celebrating", { force: true });
+    });
+  }
+
+  /** Same clock setActive uses (Date.now when role became active). */
+  function getRoleActiveStarted(role) {
+    ensureDay();
+    if (role) {
+      var ts = dayStats.roleActiveStarted[role];
+      return ts == null ? null : ts;
+    }
+    var out = {};
+    Object.keys(dayStats.roleActiveStarted).forEach(function (k) {
+      out[k] = dayStats.roleActiveStarted[k];
+    });
+    return out;
+  }
+
+  function getActiveStartMs(role) {
+    if (!role) return null;
+    return getRoleActiveStarted(role);
+  }
+
+  /** Attach timing hooks for Playwright; re-apply after app.js replaces the object. */
+  function ensureTestHooks() {
+    var t = global.__cursorAgentsDashTest;
+    if (!t || typeof t !== "object") {
+      global.__cursorAgentsDashTest = t = {};
+    }
+    t.getRoleActiveStarted = getRoleActiveStarted;
+    t.getActiveStartMs = getActiveStartMs;
   }
 
   function setStatus(role, html, cls) {
@@ -292,7 +394,12 @@
       cards[key].classList.toggle("active", on);
       if (on) {
         if (!skipTiming && !dayStats.roleActiveStarted[key]) dayStats.roleActiveStarted[key] = now;
-        if (avatarState[key] !== "error" && avatarState[key] !== "done") {
+        if (
+          avatarState[key] !== "error" &&
+          avatarState[key] !== "done" &&
+          avatarState[key] !== "celebrating" &&
+          avatarState[key] !== "blocked"
+        ) {
           setAvatarState(key, "typing");
         }
       } else if (!skipTiming && dayStats.roleActiveStarted[key]) {
@@ -309,6 +416,7 @@
         if (avatarState[key] === "typing") setAvatarState(key, "thinking");
       }
     });
+    ensureTestHooks();
   }
 
   function renderDailyStats() {
@@ -447,6 +555,7 @@
     dailyMode = opts.demo ? "demo" : "live";
     if (opts.demo) applyDemoFixtures();
     else renderDailyStats();
+    ensureTestHooks();
     return api;
   }
 
@@ -456,6 +565,9 @@
     setActive: setActive,
     setStatus: setStatus,
     setAvatarState: setAvatarState,
+    celebrateShip: celebrateShip,
+    getRoleActiveStarted: getRoleActiveStarted,
+    getActiveStartMs: getActiveStartMs,
     noteSensitivePath: noteSensitivePath,
     detectPrivacyLevel: detectPrivacyLevel,
     isPrivacySafeExample: isPrivacySafeExample,
@@ -476,6 +588,9 @@
     getStatusEls: function () {
       return statusEls;
     },
+    getAvatarState: function (role) {
+      return role ? avatarState[role] || null : Object.assign({}, avatarState);
+    },
     getDailyStats: function () {
       ensureDay();
       return {
@@ -493,4 +608,5 @@
   };
 
   global.AgentCards = api;
+  ensureTestHooks();
 })(typeof window !== "undefined" ? window : globalThis);

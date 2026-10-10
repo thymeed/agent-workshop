@@ -21,6 +21,9 @@
   var modeDemo = document.getElementById("modeDemo");
   var modeLive = document.getElementById("modeLive");
   var liveHint = document.getElementById("liveHint");
+  var livePresenceBanner = document.getElementById("livePresenceBanner");
+  var liveCoach = document.getElementById("liveCoach");
+  var liveCoachDismiss = document.getElementById("liveCoachDismiss");
   var projectPicker = document.getElementById("projectPicker");
   var footerProject = document.getElementById("footerProject");
   var sessionLog = document.getElementById("sessionLog");
@@ -84,9 +87,23 @@
       "title",
       "Near-real file polling · last bridge transcript scan (not hook-level realtime)"
     );
+    chip.setAttribute("data-tip", "Sync age");
+    chip.setAttribute(
+      "data-tip-detail",
+      "Near-real file polling · last bridge transcript scan (not hook-level realtime)"
+    );
     chip.innerHTML = 'sync <strong id="hudSyncAge">—</strong>';
     chips.appendChild(chip);
     hudSyncAge = document.getElementById("hudSyncAge");
+  })();
+  (function tipExistingSyncAge() {
+    var chip = hudSyncAge && hudSyncAge.closest ? hudSyncAge.closest(".hud-chip") : null;
+    if (!chip || chip.hasAttribute("data-tip")) return;
+    chip.setAttribute("data-tip", "Sync age");
+    chip.setAttribute(
+      "data-tip-detail",
+      "Near-real file polling · last bridge transcript scan (not hook-level realtime)"
+    );
   })();
   var crateTooltip = document.getElementById("crateTooltip");
   var stageToast = document.getElementById("stageToast");
@@ -173,6 +190,15 @@
   var liveSseBacklogReplay = false;
   var liveSseBacklogEndTimer = null;
   var LIVE_SSE_BACKLOG_QUIET_MS = 80;
+  /** Live presence: file-origin | connecting | bridge-down | no-projects | quiet-healthy | streaming */
+  var livePresence = null;
+  var lastLiveEventAt = 0;
+  var quietHealthyTimer = null;
+  var QUIET_AFTER_MS = 45000;
+  var LIVE_ONBOARD_KEY = "ca.liveOnboard.v1";
+  var lastShipCelebrateAt = 0;
+  var lastSessionCostForShip = 0;
+  var jumpHighlightTimer = null;
 
   function scheduleLiveSseBacklogEnd() {
     if (liveSseBacklogEndTimer) clearTimeout(liveSseBacklogEndTimer);
@@ -541,19 +567,30 @@
   }
 
   function hideTooltip() {
+    if (window.TipLayer && typeof window.TipLayer.hide === "function") {
+      window.TipLayer.hide();
+    }
     if (crateTooltip) crateTooltip.hidden = true;
   }
 
   function showCrateTooltip(ev, el) {
+    if (!el) return;
+    var tip = el.dataset.path || "—";
+    var detail = (el.dataset.role || "") + (el.dataset.detail ? " · " + el.dataset.detail : "");
+    if (window.TipLayer && typeof window.TipLayer.show === "function") {
+      if (crateTooltip) crateTooltip.hidden = true;
+      window.TipLayer.show({ tip: tip, detail: detail }, ev);
+      return;
+    }
     if (!crateTooltip || !workshop) return;
     var wr = workshop.getBoundingClientRect();
     crateTooltip.hidden = false;
     crateTooltip.innerHTML =
       '<div class="tt-path">' +
-      escapeHtml(el.dataset.path || "—") +
+      escapeHtml(tip) +
       "</div>" +
       '<div class="tt-detail">' +
-      escapeHtml((el.dataset.role || "") + (el.dataset.detail ? " · " + el.dataset.detail : "")) +
+      escapeHtml(detail) +
       "</div>";
     var x = ev.clientX - wr.left + 12;
     var y = ev.clientY - wr.top + 12;
@@ -566,6 +603,279 @@
     if (drawerActivity) drawerActivity.open = true;
     renderActivity();
     sound.play("click");
+  }
+
+  function normalizeJumpRole(role) {
+    var r = String(role || "").toLowerCase();
+    if (r === "parent" || r === "opus") return "opus";
+    if (r === "advisor" || r === "fable") return "advisor";
+    if (r === "worker" || r === "sonnet") return "worker";
+    if (r === "explorer") return "explorer";
+    if (r === "researcher") return "researcher";
+    return "";
+  }
+
+  /**
+   * Shared stage focus: select character, Activity filter, scroll card, toast.
+   * @param {{ role?: string, agentId?: string, name?: string, model?: string }} opts
+   */
+  function jumpToAgent(opts) {
+    opts = opts || {};
+    var role = normalizeJumpRole(opts.role);
+    if (!role && ReplayStage && typeof ReplayStage.roleFromHistory === "function") {
+      role = normalizeJumpRole(
+        ReplayStage.roleFromHistory({
+          agentId: opts.agentId,
+          name: opts.name,
+          model: opts.model
+        })
+      );
+    }
+    if (!role) role = "opus";
+
+    stageDirector.selectCharacter(role);
+    openActivityDrawer(role);
+    if (drawerStations) drawerStations.open = true;
+
+    var label = opts.name || ROLE_LABEL[role] || role;
+    showToast(label + " · filtering Activity");
+
+    var card = cards[role];
+    if (card) {
+      card.scrollIntoView({
+        block: "nearest",
+        behavior: prefersReducedMotion() ? "auto" : "smooth"
+      });
+      card.classList.add("jump-highlight");
+      if (jumpHighlightTimer) clearTimeout(jumpHighlightTimer);
+      jumpHighlightTimer = setTimeout(
+        function () {
+          card.classList.remove("jump-highlight");
+          jumpHighlightTimer = null;
+        },
+        prefersReducedMotion() ? 400 : 1400
+      );
+    }
+    return role;
+  }
+
+  function onJumpToAgentEvent(ev) {
+    var d = (ev && ev.detail) || {};
+    jumpToAgent({
+      role: d.role,
+      agentId: d.agentId,
+      name: d.name,
+      model: d.model
+    });
+  }
+
+  function sessionCostTotal() {
+    var u = state.usage;
+    return (
+      modelCost("opus", u.opus.in, u.opus.out) +
+      modelCost("fable", u.fable.in, u.fable.out) +
+      modelCost("sonnet", u.sonnet.in, u.sonnet.out) +
+      modelCost("haiku", u.haiku.in, u.haiku.out)
+    );
+  }
+
+  function triggerShipCelebration(roles, label) {
+    var now = Date.now();
+    if (now - lastShipCelebrateAt < 8000) return;
+    lastShipCelebrateAt = now;
+    var cost = sessionCostTotal();
+    var delta = Math.max(0, cost - lastSessionCostForShip);
+    lastSessionCostForShip = cost;
+
+    stageDirector.pulsePortal();
+    var roleLabel = label || "";
+    if (!roleLabel && roles && roles.length) {
+      roleLabel = ROLE_LABEL[roles[0]] || roles[0];
+    }
+    if (!roleLabel) roleLabel = "Session";
+    var toast = roleLabel + " · shipped";
+    if (delta > 0.0005) toast += " · +" + formatMoney(delta);
+    showToast(toast);
+    if (AgentCards && typeof AgentCards.celebrateShip === "function") {
+      AgentCards.celebrateShip(roles);
+    }
+    sound.play("chime");
+  }
+
+  function looksLikeShipEvent(ev, role, cardRole) {
+    if (!ev) return false;
+    if (ev.kind === "done" || ev.type === "done") return true;
+    var msg = String(ev.message || "");
+    if (/\b(Reviewed · shipped|shipped|ship it)\b/i.test(msg)) return true;
+    if (/\bmerge(d)?\b/i.test(msg) && (role === "parent" || cardRole === "opus")) return true;
+    return false;
+  }
+
+  function hasSeenLiveOnboard() {
+    try {
+      return localStorage.getItem(LIVE_ONBOARD_KEY) === "1";
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function markLiveOnboardSeen() {
+    try {
+      localStorage.setItem(LIVE_ONBOARD_KEY, "1");
+    } catch (_) {}
+  }
+
+  function setLiveCoachVisible(show) {
+    if (!liveCoach) return;
+    liveCoach.hidden = !show;
+  }
+
+  function maybeShowLiveCoach() {
+    if (mode !== "live") {
+      setLiveCoachVisible(false);
+      return;
+    }
+    if (livePresence === "file-origin" || livePresence === "bridge-down") {
+      setLiveCoachVisible(false);
+      return;
+    }
+    setLiveCoachVisible(!hasSeenLiveOnboard());
+  }
+
+  function clearQuietHealthyTimer() {
+    if (quietHealthyTimer) {
+      clearTimeout(quietHealthyTimer);
+      quietHealthyTimer = null;
+    }
+  }
+
+  function scheduleQuietHealthy() {
+    clearQuietHealthyTimer();
+    if (mode !== "live") return;
+    if (
+      livePresence === "bridge-down" ||
+      livePresence === "file-origin" ||
+      livePresence === "connecting" ||
+      livePresence === "no-projects"
+    ) {
+      return;
+    }
+    quietHealthyTimer = setTimeout(function () {
+      quietHealthyTimer = null;
+      if (mode !== "live") return;
+      if (!demoBtn.classList.contains("live-connected")) return;
+      if (livePresence === "no-projects") return;
+      setLivePresence("quiet-healthy");
+    }, QUIET_AFTER_MS);
+  }
+
+  function presenceHintLabel() {
+    return currentProjectLabel || "agent-transcripts";
+  }
+
+  function refreshEmptyLogIfIdle() {
+    if (!sessionLog) return;
+    if (sessionLog.querySelector(".log-line")) return;
+    var empty = document.getElementById("logEmpty") || logEmpty;
+    if (empty) empty.textContent = emptyLogMessage();
+  }
+
+  /**
+   * Single source of truth for Live hint + stage banner + empty log copy.
+   */
+  function setLivePresence(state, detail) {
+    livePresence = state || null;
+    if (appEl) {
+      if (mode === "live" && livePresence) appEl.setAttribute("data-live-presence", livePresence);
+      else appEl.removeAttribute("data-live-presence");
+    }
+
+    if (mode !== "live") {
+      if (livePresenceBanner) {
+        livePresenceBanner.hidden = true;
+        livePresenceBanner.textContent = "";
+        livePresenceBanner.className = "live-presence-banner";
+      }
+      setLiveCoachVisible(false);
+      return;
+    }
+
+    var hint = liveHint;
+    var banner = livePresenceBanner;
+    var label = presenceHintLabel();
+    var bannerText = "";
+    var bannerClass = "live-presence-banner";
+    var showBanner = false;
+
+    if (state === "file-origin") {
+      if (hint) {
+        hint.hidden = false;
+        hint.className = "live-hint err";
+        hint.textContent =
+          detail ||
+          "Live needs the bridge — open " + BRIDGE.replace(/\/$/, "") + "/ (or run npm start)";
+      }
+      bannerText =
+        "Open Electron (npm start) or " +
+        BRIDGE.replace(/\/$/, "") +
+        "/ — file:// cannot stream Live.";
+      bannerClass += " file-origin";
+      showBanner = true;
+    } else if (state === "connecting") {
+      if (hint) {
+        hint.hidden = false;
+        hint.className = "live-hint";
+        hint.textContent = detail || "Connecting to " + BRIDGE + "…";
+      }
+      bannerText = "Connecting to the Live bridge…";
+      bannerClass += " connecting";
+      showBanner = true;
+    } else if (state === "bridge-down") {
+      if (hint) {
+        hint.hidden = false;
+        hint.className = "live-hint err";
+        hint.textContent = detail || "Bridge offline — use npm start or node live-bridge.js";
+      }
+      bannerText =
+        "Bridge offline · stations may look idle. Start the bridge, then click Reconnect.";
+      bannerClass += " bridge-down";
+      showBanner = true;
+    } else if (state === "no-projects") {
+      if (hint) {
+        hint.hidden = false;
+        hint.className = "live-hint err";
+        hint.textContent = detail || "Connected · no Cursor projects found";
+      }
+      bannerText =
+        "No Cursor projects found under agent-transcripts. Open a project in Cursor, then Reconnect.";
+      bannerClass += " no-projects";
+      showBanner = true;
+    } else if (state === "quiet-healthy") {
+      if (hint) {
+        hint.hidden = false;
+        hint.className = "live-hint quiet";
+        hint.textContent = "Quiet · waiting for transcript activity · " + label;
+      }
+      bannerText = "Workshop idle · bridge online, waiting for transcript activity.";
+      bannerClass += " quiet-healthy";
+      showBanner = true;
+    } else if (state === "streaming") {
+      if (hint) {
+        hint.hidden = false;
+        hint.className = "live-hint ok";
+        hint.textContent = "Streaming · " + label;
+      }
+      showBanner = false;
+    }
+
+    if (banner) {
+      banner.className = bannerClass;
+      banner.textContent = bannerText;
+      banner.hidden = !showBanner;
+    }
+
+    refreshEmptyLogIfIdle();
+    maybeShowLiveCoach();
   }
 
   function normalizeViewMode(mode) {
@@ -1227,9 +1537,23 @@
   }
 
   function emptyLogMessage() {
-    return mode === "live"
-      ? "Live mode · waiting for transcript events from the bridge…"
-      : "Waiting for session… choose Demo · Play or Live.";
+    if (mode !== "live") return "Waiting for session… choose Demo · Play or Live.";
+    if (livePresence === "file-origin") {
+      return "Live needs the bridge — open via npm start or http://127.0.0.1…";
+    }
+    if (livePresence === "bridge-down") {
+      return "Bridge offline · click Reconnect after starting the bridge.";
+    }
+    if (livePresence === "no-projects") {
+      return "No Cursor projects found · open a project in Cursor, then Reconnect.";
+    }
+    if (livePresence === "connecting") {
+      return "Connecting to the Live bridge…";
+    }
+    if (livePresence === "quiet-healthy") {
+      return "Workshop idle · waiting for transcript activity…";
+    }
+    return "Live mode · waiting for transcript events from the bridge…";
   }
 
   function updateFooterProject() {
@@ -1260,9 +1584,24 @@
       projectPicker.appendChild(opt);
       projectPicker.disabled = true;
       updateFooterProject();
+      if (
+        mode === "live" &&
+        demoBtn.classList.contains("live-connected") &&
+        livePresence !== "bridge-down" &&
+        livePresence !== "file-origin"
+      ) {
+        setLivePresence("no-projects");
+      }
       return;
     }
     projectPicker.disabled = false;
+    if (mode === "live" && livePresence === "no-projects") {
+      setLivePresence(
+        Date.now() - lastLiveEventAt < QUIET_AFTER_MS && lastLiveEventAt > 0
+          ? "streaming"
+          : "quiet-healthy"
+      );
+    }
     projects.forEach(function (p) {
       var opt = document.createElement("option");
       opt.value = p.id;
@@ -1350,12 +1689,14 @@
     stageDirector.reset();
     demoBtn.classList.remove("playing");
     demoBtn.setAttribute("aria-pressed", "false");
+    lastSessionCostForShip = 0;
     if (mode === "demo") {
       demoBtn.textContent = "Play";
       demoBtn.hidden = false;
       liveHint.hidden = true;
       setProjectPickerVisible(false);
       updateFooterProject();
+      setLivePresence(null);
     } else {
       demoBtn.textContent = "Reconnect";
       demoBtn.hidden = false;
@@ -1503,6 +1844,30 @@
 
     var logRole = role === "parent" ? "parent" : role;
     appendLog(logRole, msg, ev.replayError ? "err" : null, ev.ts);
+
+    if (!isReplay && !alreadySeen && mode === "live") {
+      lastLiveEventAt = Date.now();
+      if (
+        demoBtn.classList.contains("live-connected") &&
+        livePresence !== "no-projects" &&
+        livePresence !== "bridge-down" &&
+        livePresence !== "file-origin"
+      ) {
+        setLivePresence("streaming");
+        scheduleQuietHealthy();
+      }
+    }
+
+    if (
+      !isReplay &&
+      !alreadySeen &&
+      !skipMotion &&
+      !liveSseBacklogReplay &&
+      looksLikeShipEvent(ev, role, cardRole)
+    ) {
+      var shipRoles = active && active.length ? active.slice() : [cardRole];
+      triggerShipCelebration(shipRoles, ROLE_LABEL[cardRole] || cardRole);
+    }
   }
 
   function resetReplaySession() {
@@ -1661,8 +2026,12 @@
       livePoll = null;
     }
     clearLiveSseBacklogReplay();
+    clearQuietHealthyTimer();
     clearStickyActive();
     demoBtn.classList.remove("live-connected");
+    if (window.AlertCenter && typeof window.AlertCenter.attachEventSource === "function") {
+      window.AlertCenter.attachEventSource(null);
+    }
     refreshSyncAgeChip();
   }
 
@@ -1674,24 +2043,18 @@
 
     // file:// cannot use Live (Origin "null" is rejected by the bridge on purpose).
     if (location.protocol === "file:") {
-      liveHint.className = "live-hint err";
-      liveHint.textContent =
-        "Live needs the bridge — open " + BRIDGE.replace(/\/$/, "") + "/ (or run npm start)";
       demoBtn.classList.remove("live-connected");
       demoBtn.textContent = "Reconnect";
       setProjectPickerVisible(false);
+      setLivePresence("file-origin");
       refreshSyncAgeChip();
       return;
     }
 
-    liveHint.textContent = "Connecting to " + BRIDGE + "…";
+    setLivePresence("connecting");
     setProjectPickerVisible(true);
     loadProjects();
     startSyncAgePoll();
-
-    function hintLabel() {
-      return currentProjectLabel || "agent-transcripts";
-    }
 
     function onOk(meta) {
       if (meta && meta.projectLabel) {
@@ -1703,17 +2066,31 @@
         }
       }
       applyBridgeSyncMeta(meta);
-      liveHint.className = "live-hint ok";
-      liveHint.textContent = "Streaming · " + hintLabel();
       demoBtn.classList.add("live-connected");
       demoBtn.textContent = "Connected";
+      if (
+        projectPicker &&
+        projectPicker.disabled &&
+        projectPicker.options.length === 1 &&
+        !projectPicker.options[0].value
+      ) {
+        setLivePresence("no-projects");
+      } else if (Date.now() - lastLiveEventAt < QUIET_AFTER_MS && lastLiveEventAt > 0) {
+        setLivePresence("streaming");
+        scheduleQuietHealthy();
+      } else {
+        setLivePresence("quiet-healthy");
+      }
+      if (window.AlertCenter && typeof window.AlertCenter.hydrate === "function") {
+        window.AlertCenter.hydrate(BRIDGE);
+      }
     }
 
     function onErr(msg) {
-      liveHint.className = "live-hint err";
-      liveHint.textContent = msg || "Bridge offline — use npm start or node live-bridge.js";
       demoBtn.classList.remove("live-connected");
       demoBtn.textContent = "Reconnect";
+      clearQuietHealthyTimer();
+      setLivePresence("bridge-down", msg);
     }
 
     function onReset(meta) {
@@ -1723,13 +2100,14 @@
         if (meta.projectId) currentProjectId = meta.projectId;
       }
       resetUI({ keepActive: false });
-      liveHint.hidden = false;
-      liveHint.className = "live-hint ok";
-      liveHint.textContent = "Switched · " + hintLabel();
       demoBtn.classList.add("live-connected");
       demoBtn.textContent = "Connected";
       updateFooterProject();
+      setLivePresence("quiet-healthy");
       loadProjects();
+      if (window.AlertCenter && typeof window.AlertCenter.hydrate === "function") {
+        window.AlertCenter.hydrate(BRIDGE);
+      }
     }
 
     if (typeof EventSource === "undefined") {
@@ -1743,6 +2121,10 @@
     } catch (_e) {
       onErr("Cannot open SSE — start the app (npm start)");
       return;
+    }
+
+    if (window.AlertCenter && typeof window.AlertCenter.attachEventSource === "function") {
+      window.AlertCenter.attachEventSource(es);
     }
 
     es.addEventListener("hello", function (msg) {
@@ -2044,6 +2426,7 @@
         "reviewed · shipped · Session Bill shows multi-model savings vs all-Opus"
       );
       setEffort("done");
+      triggerShipCelebration(["opus", "worker", "explorer", "researcher"], ROLE_LABEL.opus);
       playing = false;
       demoBtn.textContent = "Play";
       demoBtn.classList.remove("playing");
@@ -2182,16 +2565,7 @@
     var el = stageDirector.chars[role];
     if (!el) return;
     function onChar() {
-      stageDirector.selectCharacter(role);
-      openActivityDrawer(role);
-      if (drawerStations) drawerStations.open = true;
-      showToast((ROLE_LABEL[role] || role) + " · filtering Activity");
-      if (cards[role]) {
-        cards[role].scrollIntoView({
-          block: "nearest",
-          behavior: prefersReducedMotion() ? "auto" : "smooth"
-        });
-      }
+      jumpToAgent({ role: role, name: ROLE_LABEL[role] || role });
     }
     el.addEventListener("click", onChar);
     el.addEventListener("keydown", function (e) {
@@ -2201,6 +2575,36 @@
       }
     });
   });
+
+  window.addEventListener("cursor-agents:jump-to-agent", onJumpToAgentEvent);
+
+  if (liveCoachDismiss) {
+    liveCoachDismiss.addEventListener("click", function () {
+      markLiveOnboardSeen();
+      setLiveCoachVisible(false);
+    });
+  }
+
+  if (window.AlertCenter && typeof window.AlertCenter.init === "function") {
+    window.AlertCenter.init({
+      bridge: BRIDGE,
+      isQuiet: function () {
+        return !!liveSseBacklogReplay;
+      },
+      onJump: function (detail) {
+        jumpToAgent(detail || {});
+      }
+    });
+  }
+
+  globalThis.__cursorAgentsDash = {
+    jumpToAgent: jumpToAgent,
+    setLivePresence: setLivePresence,
+    getLivePresence: function () {
+      return livePresence;
+    },
+    triggerShipCelebration: triggerShipCelebration
+  };
 
   var mergePortal = document.getElementById("mergePortal");
   if (mergePortal) {
@@ -2271,6 +2675,12 @@
   /* Test hooks for Playwright (localhost dashboard only). */
   globalThis.__cursorAgentsDashTest = {
     applyLiveEvent: applyLiveEvent,
+    jumpToAgent: jumpToAgent,
+    getLivePresence: function () {
+      return livePresence;
+    },
+    setLivePresence: setLivePresence,
+    triggerShipCelebration: triggerShipCelebration,
     setViewMode: setViewMode,
     getViewMode: function () {
       return viewMode;

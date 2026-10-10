@@ -502,6 +502,11 @@
         });
       }
     });
+    out.sort(function (a, b) {
+      var d = (b.savings || 0) - (a.savings || 0);
+      if (d !== 0) return d;
+      return String(a.name || "").localeCompare(String(b.name || ""));
+    });
     return out;
   }
 
@@ -828,21 +833,128 @@
         "</div>";
     }
 
+    function jumpToAgentDetail(s) {
+      return {
+        agentId: s.agentId,
+        name: s.name,
+        model: s.model,
+        suggestion: s.suggestion,
+        savings: s.savings
+      };
+    }
+
+    function dispatchJumpToAgent(s) {
+      if (!s || !s.agentId) return;
+      try {
+        window.dispatchEvent(
+          new CustomEvent("cursor-agents:jump-to-agent", {
+            detail: jumpToAgentDetail(s)
+          })
+        );
+      } catch (_) {}
+    }
+
+    function suggestionsNotesText(list) {
+      return list
+        .map(function (s, i) {
+          return (
+            i +
+            1 +
+            ". " +
+            (s.name || s.agentId) +
+            " · " +
+            s.model +
+            " → " +
+            s.suggestion +
+            " · save " +
+            formatMoney(s.savings) +
+            (s.reason ? " — " + s.reason : "")
+          );
+        })
+        .join("\n");
+    }
+
+    function bindSuggestionsPanel(panel, list) {
+      panel.querySelectorAll("[data-agent-id]").forEach(function (row) {
+        var id = row.getAttribute("data-agent-id");
+        var item = null;
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].agentId === id) {
+            item = list[i];
+            break;
+          }
+        }
+        if (!item) return;
+        row.addEventListener("click", function () {
+          dispatchJumpToAgent(item);
+        });
+        row.addEventListener("keydown", function (ev) {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            dispatchJumpToAgent(item);
+          }
+        });
+      });
+      var copyBtn = panel.querySelector("[data-suggestions-copy]");
+      if (copyBtn) {
+        copyBtn.addEventListener("click", function () {
+          var text = suggestionsNotesText(list);
+          var done = function (ok) {
+            copyBtn.textContent = ok ? "Copied" : "Copy failed";
+            setTimeout(function () {
+              copyBtn.textContent = "Copy as notes";
+            }, 1600);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(
+              function () {
+                done(true);
+              },
+              function () {
+                done(false);
+              }
+            );
+          } else {
+            done(false);
+          }
+        });
+      }
+    }
+
     function renderSuggestions() {
       var panel = root.querySelector('[data-panel="suggestions"]');
       var list = routingSuggestions(activeEvents());
       if (!list.length) {
         panel.innerHTML =
+          '<p class="insights-suggest-honesty" data-suggestions-honesty>' +
+          "Does not change Cursor routing — estimates only." +
+          "</p>" +
           '<p class="insights-empty" data-suggestions-empty>No cheaper-route flags for this session.</p>';
         return;
       }
       panel.innerHTML =
+        '<div class="insights-suggest-toolbar">' +
+        '<p class="insights-suggest-honesty" data-suggestions-honesty>' +
+        "Does not change Cursor routing — click a row to jump to that agent on the stage." +
+        "</p>" +
+        '<button type="button" class="insights-suggest-copy" data-suggestions-copy>' +
+        "Copy as notes" +
+        "</button>" +
+        "</div>" +
         '<ul class="insights-suggest-list" data-suggestions-list>' +
         list
           .map(function (s) {
+            var saveLabel = "Save " + formatMoney(s.savings);
             return (
-              "<li>" +
+              '<li class="insights-suggest-row" data-agent-id="' +
+              escapeHtml(s.agentId) +
+              '" tabindex="0" role="button" aria-label="' +
+              escapeHtml(saveLabel + " · " + s.name + " · " + s.model + " to " + s.suggestion) +
+              '">' +
               '<div class="insights-suggest-head">' +
+              '<span class="insights-save" data-suggest-savings>' +
+              escapeHtml(saveLabel) +
+              "</span>" +
               "<strong>" +
               escapeHtml(s.name) +
               "</strong>" +
@@ -853,9 +965,6 @@
               '<span class="insights-badge to">' +
               escapeHtml(s.suggestion) +
               "</span>" +
-              '<span class="insights-save">save ' +
-              formatMoney(s.savings) +
-              "</span>" +
               "</div>" +
               '<p class="insights-suggest-reason">' +
               escapeHtml(s.reason) +
@@ -865,6 +974,7 @@
           })
           .join("") +
         "</ul>";
+      bindSuggestionsPanel(panel, list);
     }
 
     function notifyReplayIndex(source) {
