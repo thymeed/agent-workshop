@@ -527,12 +527,16 @@ async function smokeCardsDemo(browser) {
     const meters = Array.from(document.querySelectorAll(".privacy-meter"));
     const lit = meters.some((el) => /level-(low|med|high)/.test(el.className));
     const heuristicLabels = meters.every((el) => {
-      const label = ((el.querySelector(".privacy-label") || {}).textContent || "").trim();
+      const tip = el.getAttribute("data-tip") || "";
+      const detail = el.getAttribute("data-tip-detail") || "";
       const title = el.getAttribute("title") || "";
+      const aria = el.getAttribute("aria-label") || "";
+      const corpus = [tip, detail, title, aria].join(" ");
       return (
-        /heuristic/i.test(label) &&
-        /path-based heuristic/i.test(title) &&
-        /not ground truth/i.test(title)
+        /heuristic/i.test(corpus) &&
+        /path-based heuristic/i.test(corpus) &&
+        /not ground truth/i.test(corpus) &&
+        /nook/i.test(corpus)
       );
     });
     const runs = (document.getElementById("dailyRuns") || {}).textContent || "0";
@@ -556,6 +560,54 @@ async function smokeCardsDemo(browser) {
   if (!ui.privacyLit) errors.push("Demo fixtures did not light any privacy meter");
   if (!ui.heuristicLabels) {
     errors.push("privacy meters missing heuristic / not-ground-truth labeling");
+  }
+
+  const tipCoverage = await page.evaluate(() => {
+    const need = [
+      ".agent-avatar[data-tip]",
+      ".privacy-meter[data-tip]",
+      ".card-name[data-tip]",
+      ".card-role[data-tip]",
+      ".status[data-tip]",
+      ".effort[data-tip]",
+      ".price[data-tip]",
+      "#dailyStatsCard[data-tip]",
+      ".daily-stat[data-tip]"
+    ];
+    const missing = need.filter((sel) => !document.querySelector(sel));
+    const scout = document.querySelectorAll(".readonly-pill[data-tip]").length;
+    const chips = document.querySelectorAll(".trigger-chips .chip[data-tip]").length;
+    return { missing, scout, chips };
+  });
+  if (tipCoverage.missing.length) {
+    errors.push("TipLayer gaps: " + tipCoverage.missing.join(", "));
+  }
+  if (tipCoverage.scout < 2) errors.push("scout pills missing data-tip");
+  if (tipCoverage.chips < 3) errors.push("advisor chips missing data-tip");
+
+  const pretty = await page.evaluate(() => {
+    const h = window.AgentCards;
+    if (!h || typeof h.prettyStatusText !== "function") return { ok: false, reason: "no prettyStatusText" };
+    const worker = h.prettyStatusText(
+      "working · **Commit:** 'ced9811405e4b9f01b2ee368cb3cc1fa45742696' **Message:** 'docs: note_hooks'"
+    );
+    const opus = h.prettyStatusText(
+      "reply · Done - [Update stale comment headers](c35a2e43-1a3f-4538-8886-9c6f1fab3302) pushed"
+    );
+    const explorer = h.prettyStatusText("delegates · explore · Check commit and comments");
+    const fails = [];
+    if (/\*\*/.test(worker)) fails.push("worker still has markdown bold");
+    if (/ced9811405e4b9f01b2ee368cb3cc1fa45742696/i.test(worker)) fails.push("worker kept full SHA");
+    if (!/ced9811/i.test(worker)) fails.push("worker missing short SHA");
+    if (/c35a2e43-1a3f-4538-8886-9c6f1fab3302/i.test(opus)) fails.push("opus kept full UUID");
+    if (/^\s*delegates/i.test(explorer)) fails.push("explorer kept delegates prefix");
+    if (worker.length > 80) fails.push("worker status still too long: " + worker.length);
+    return { ok: fails.length === 0, fails, worker, opus, explorer };
+  });
+  if (!pretty.ok) {
+    errors.push(
+      "prettyStatusText: " + ((pretty.fails && pretty.fails.join("; ")) || pretty.reason || "failed")
+    );
   }
   if (ui.runs === "0") errors.push("Demo daily runs still 0");
   if (ui.tokens === "0") errors.push("Demo daily tokens still 0");

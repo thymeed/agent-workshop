@@ -16,14 +16,6 @@
     researcher: "Research"
   };
 
-  var INITIALS = {
-    opus: "Op",
-    advisor: "Fb",
-    worker: "Sn",
-    explorer: "Ex",
-    researcher: "Rs"
-  };
-
   /** Short model name for avatar tips (TipLayer). */
   var MODEL_LABEL = {
     opus: "Opus",
@@ -34,14 +26,100 @@
   };
 
   var STATE_TIP = {
-    idle: "idle",
-    typing: "working",
-    thinking: "thinking",
-    blocked: "blocked",
-    done: "done",
-    celebrating: "celebrating",
-    error: "error"
+    idle: "hanging out",
+    typing: "hard at work",
+    thinking: "pondering",
+    blocked: "paused",
+    done: "all smiles",
+    celebrating: "ship party",
+    error: "oops"
   };
+
+  /** Cute nook words — CSS classes stay none/low/med/high. */
+  var PRIVACY_WORD = {
+    none: "cozy",
+    low: "peek",
+    med: "hush",
+    high: "yikes"
+  };
+
+  var STATUS_MAX_CHARS = 68;
+
+  var ROLE_CARD_TIPS = {
+    opus: {
+      name: "Opus",
+      nameDetail: "Main session lead · Cursor Agents parent",
+      role: "Main session",
+      roleDetail: "Routes the workshop, calls Fable, ships the story",
+      effort: "Effort · high",
+      effortDetail: "Opus usually runs a high-effort band",
+      price: "Opus rates",
+      priceDetail: "Illustrative $ per 1M tokens in/out · not a bill"
+    },
+    advisor: {
+      name: "Fable",
+      nameDetail: "Cute advisor · steps in at sticky moments",
+      role: "Advisor",
+      roleDetail: "Before plan · same error ×2 · before done",
+      effort: "Effort · high",
+      effortDetail: "Advisor reviews run a high-effort band",
+      price: "Fable rates",
+      priceDetail: "Illustrative $ per 1M tokens in/out · not a bill",
+      calls: "Advisor calls",
+      callsDetail: "How many times Fable has been asked this session",
+      last: "Last advice",
+      lastDetail: "Most recent tip from Fable"
+    },
+    worker: {
+      name: "Worker",
+      nameDetail: "Sonnet · edits, tests, and fixes",
+      role: "Sonnet · edits",
+      roleDetail: "The workshop hands that change the code",
+      effort: "Effort · medium",
+      effortDetail: "Worker usually runs a medium-effort band",
+      price: "Sonnet rates",
+      priceDetail: "Illustrative $ per 1M tokens in/out · not a bill"
+    },
+    explorer: {
+      name: "Explorer",
+      nameDetail: "Haiku scout · search & map the repo",
+      role: "Haiku · search",
+      roleDetail: "Read-only explore · finds paths and patterns",
+      effort: "Effort · low",
+      effortDetail: "Explorer keeps it light and fast",
+      price: "Haiku rates",
+      priceDetail: "Illustrative $ per 1M tokens in/out · not a bill",
+      scout: "Scout mode",
+      scoutDetail: "Read-only explore — no edits from this station"
+    },
+    researcher: {
+      name: "Researcher",
+      nameDetail: "Haiku bookworm · docs and references",
+      role: "Haiku · docs",
+      roleDetail: "Read-only research · pulls docs and patterns",
+      effort: "Effort · low",
+      effortDetail: "Researcher keeps it light and fast",
+      price: "Haiku rates",
+      priceDetail: "Illustrative $ per 1M tokens in/out · not a bill",
+      scout: "Scout mode",
+      scoutDetail: "Read-only research — no edits from this station"
+    }
+  };
+
+  var CHIP_TIPS = [
+    {
+      tip: "Before plan",
+      detail: "Fable reviews the approach before the big plan"
+    },
+    {
+      tip: "Same error ×2",
+      detail: "Fable jumps in when the same failure loops"
+    },
+    {
+      tip: "Before done",
+      detail: "Fable does a final pass before ship"
+    }
+  ];
 
   /**
    * Demo fixtures for privacy + daily-stats without a live bridge.
@@ -157,11 +235,124 @@
     return String(n);
   }
 
+  function decodeBasicEntities(s) {
+    return String(s || "")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'");
+  }
+
+  function escapeHtmlText(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  /**
+   * Card status copy: strip markdown noise, collapse SHAs/links, ellipsis on a word edge.
+   */
+  function prettyStatusText(raw) {
+    var s = decodeBasicEntities(String(raw || ""));
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1");
+    s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+    s = s.replace(/__([^_]+)__/g, "$1");
+    s = s.replace(/\*([^*]+)\*/g, "$1");
+    s = s.replace(/_([^_]+)_/g, "$1");
+    s = s.replace(/`([^`]+)`/g, "$1");
+    s = s.replace(/https?:\/\/\S+/gi, "link");
+    s = s.replace(
+      /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
+      function (m) {
+        return m.slice(0, 8);
+      }
+    );
+    s = s.replace(/\b[0-9a-f]{40}\b/gi, function (m) {
+      return m.slice(0, 7);
+    });
+    s = s.replace(/\b[0-9a-f]{12,39}\b/gi, function (m) {
+      return m.slice(0, 7);
+    });
+    s = s.replace(/\bCommit:\s*/gi, "");
+    s = s.replace(/\bMessage:\s*/gi, "");
+    s = s.replace(/^delegates\s*[·•|-]+\s*/i, "");
+    s = s.replace(/\bexplore\s*[·•|-]+\s*/i, "scout · ");
+    s = s.replace(/\s+/g, " ").trim();
+    s = s.replace(/\s+'[^']*$/g, "");
+    s = s.replace(/\s+\S+_$/g, "");
+    s = s.replace(/[\s·,;:]+$/g, "").trim();
+
+    if (s.length > STATUS_MAX_CHARS) {
+      var cut = s.slice(0, STATUS_MAX_CHARS);
+      var sp = cut.lastIndexOf(" ");
+      if (sp > Math.floor(STATUS_MAX_CHARS * 0.55)) cut = cut.slice(0, sp);
+      cut = cut.replace(/[\s·,;:'"-]+$/g, "");
+      if (/^[a-z0-9]{1,3}$/i.test(cut.split(/\s+/).pop() || "")) {
+        cut = cut.replace(/\s+\S+$/, "");
+      }
+      s = cut + "…";
+    }
+    return s;
+  }
+
+  function formatStatusHtml(html) {
+    var raw = String(html == null ? "" : html);
+    var cls = null;
+    var inner = raw;
+    var m = raw.match(/^<span\s+class="([^"]*)">([\s\S]*)<\/span>\s*$/i);
+    if (m) {
+      cls = m[1];
+      inner = m[2];
+    }
+    var plain = prettyStatusText(inner.replace(/<[^>]+>/g, " "));
+    var safe = escapeHtmlText(plain);
+    if (cls) return '<span class="' + cls + '">' + safe + "</span>";
+    return safe;
+  }
+
+  function privacyCopy(level) {
+    var lv = level || "none";
+    var word = PRIVACY_WORD[lv] || lv;
+    var detail =
+      "Path-based heuristic · not ground truth · sensitive paths never shown on the badge · " +
+      word;
+    return {
+      word: word,
+      tip: "Nook · " + word,
+      detail: detail,
+      title: "Nook · path-based heuristic · not ground truth · " + word,
+      aria: "Nook privacy meter (heuristic): " + word
+    };
+  }
+
+  function applyPrivacyChrome(el, level) {
+    if (!el) return;
+    var copy = privacyCopy(level);
+    el.className = "privacy-meter level-" + level;
+    var label = el.querySelector(".privacy-level");
+    if (label) label.textContent = copy.word;
+    setTip(el, copy.tip, copy.detail);
+    el.setAttribute("title", copy.title);
+    el.setAttribute("aria-label", copy.aria);
+  }
+
+  function setTip(el, tip, detail) {
+    if (!el) return;
+    el.setAttribute("data-tip", String(tip || ""));
+    if (detail) el.setAttribute("data-tip-detail", String(detail));
+    else el.removeAttribute("data-tip-detail");
+    if (el.hasAttribute("title")) el.removeAttribute("title");
+  }
+
   function avatarTipText(role, state) {
     var label = ROLE_LABEL[role] || role;
-    var model = MODEL_LABEL[role] || "";
-    var st = STATE_TIP[state] || state || "idle";
-    return label + (model ? " · " + model : "") + " · " + st;
+    var st = STATE_TIP[state] || state || "hanging out";
+    return label + " is " + st;
   }
 
   function syncAvatarTip(role) {
@@ -169,11 +360,95 @@
     if (!el) return;
     var state = avatarState[role] || "idle";
     var tip = avatarTipText(role, state);
-    el.setAttribute("data-tip", tip);
-    el.setAttribute(
-      "data-tip-detail",
-      (ROLE_LABEL[role] || role) + " station · " + (STATE_TIP[state] || state)
+    var model = MODEL_LABEL[role] || "";
+    var detail =
+      (ROLE_LABEL[role] || role) +
+      (model ? " · " + model : "") +
+      " · Cursor Agents station · " +
+      (STATE_TIP[state] || state);
+    setTip(el, tip, detail);
+    el.setAttribute("aria-label", tip);
+  }
+
+  function syncStatusTip(role, plain) {
+    var el = statusEls[role];
+    if (!el) return;
+    var label = ROLE_LABEL[role] || role;
+    var text = String(plain || "").trim() || "Quiet for now";
+    var tip = text.length > 44 ? text.slice(0, 42).replace(/[\s·,;:]+$/, "") + "…" : text;
+    setTip(el, label + " · " + tip, text);
+  }
+
+  function decorateCardTips(role) {
+    var card = cards[role];
+    var tips = ROLE_CARD_TIPS[role];
+    if (!card || !tips) return;
+
+    var nameEl = card.querySelector(".card-name");
+    var roleEl = card.querySelector(".card-role");
+    var effortEl = card.querySelector(".effort");
+    var priceEl = card.querySelector(".price");
+    var scoutEl = card.querySelector(".readonly-pill");
+    var callsEl = card.querySelector(".call-count");
+    var lastEl = card.querySelector("#advisorLast, .advisor-quiet");
+    var chips = card.querySelectorAll(".trigger-chips .chip");
+
+    setTip(nameEl, tips.name, tips.nameDetail);
+    setTip(roleEl, tips.role, tips.roleDetail);
+    setTip(effortEl, tips.effort, tips.effortDetail);
+    setTip(priceEl, tips.price, tips.priceDetail);
+    if (scoutEl && tips.scout) setTip(scoutEl, tips.scout, tips.scoutDetail);
+    if (callsEl && tips.calls) setTip(callsEl, tips.calls, tips.callsDetail);
+    if (lastEl && tips.last) setTip(lastEl, tips.last, tips.lastDetail);
+
+    for (var i = 0; i < chips.length; i++) {
+      var chipTip = CHIP_TIPS[i] || {
+        tip: chips[i].textContent || "Trigger",
+        detail: "Advisor trigger chip"
+      };
+      setTip(chips[i], chipTip.tip, chipTip.detail);
+    }
+
+    if (statusEls[role] && !statusEls[role].getAttribute("data-tip")) {
+      syncStatusTip(role, (statusEls[role].textContent || "").trim());
+    }
+  }
+
+  function decorateDailyTips() {
+    var article = dailyStatsEl || document.getElementById("dailyStatsCard");
+    if (!article) return;
+    setTip(
+      article,
+      "Daily bench",
+      "Cute client-side totals for today · resets with the calendar day"
     );
+    setTip(
+      article.querySelector(".card-name"),
+      "Daily bench",
+      "Workshop chalkboard for today's runs"
+    );
+    setTip(
+      article.querySelector(".card-role"),
+      "On the floor today",
+      "What the stations have been up to since midnight"
+    );
+    var runs = document.getElementById("dailyRuns");
+    var tokens = document.getElementById("dailyTokens");
+    var fastest = document.getElementById("dailyFastest");
+    if (runs && runs.parentElement) {
+      setTip(runs.parentElement, "Runs today", "How many agent runs hit the floor today");
+    }
+    if (tokens && tokens.parentElement) {
+      setTip(tokens.parentElement, "Tokens spun", "Illustrative token total from Demo or Live");
+    }
+    if (fastest && fastest.parentElement) {
+      setTip(fastest.parentElement, "Quickest hand", "Who wrapped a turn the fastest today");
+    }
+  }
+
+  function decorateAllTips() {
+    ROLE_KEYS.forEach(decorateCardTips);
+    decorateDailyTips();
   }
 
   function mountAvatar(card, role) {
@@ -183,15 +458,13 @@
     var wrap = document.createElement("div");
     wrap.className = "agent-avatar state-idle";
     wrap.setAttribute("data-avatar", role);
-    wrap.setAttribute("aria-hidden", "true");
+    wrap.setAttribute("role", "img");
     wrap.innerHTML =
       '<span class="avatar-chrome" aria-hidden="true"></span>' +
       '<span class="avatar-face">' +
-      '<span class="avatar-initials">' +
-      (INITIALS[role] || "?") +
-      "</span>" +
-      '<span class="avatar-eyes"></span>' +
-      '<span class="avatar-mouth"></span>' +
+      '<span class="avatar-blush" aria-hidden="true"></span>' +
+      '<span class="avatar-eyes" aria-hidden="true"></span>' +
+      '<span class="avatar-mouth" aria-hidden="true"></span>' +
       "</span>";
     head.insertBefore(wrap, head.firstChild);
     avatarEls[role] = wrap;
@@ -204,19 +477,14 @@
     var row = card.querySelector(".badge-row");
     if (!row) return;
     var badge = document.createElement("span");
-    badge.className = "privacy-meter level-none";
     badge.setAttribute("data-privacy", role);
-    badge.setAttribute(
-      "title",
-      "Privacy · path-based heuristic · not ground truth · no sensitive paths"
-    );
-    badge.setAttribute("aria-label", "Privacy meter (heuristic): none");
     badge.innerHTML =
-      '<span class="privacy-label">Privacy · heuristic</span>' +
+      '<span class="privacy-label" aria-hidden="true">nook</span>' +
       '<span class="privacy-dots" aria-hidden="true">' +
       "<i></i><i></i><i></i>" +
       "</span>" +
-      '<span class="privacy-level">none</span>';
+      '<span class="privacy-level">cozy</span>';
+    applyPrivacyChrome(badge, "none");
     row.insertBefore(badge, row.firstChild);
     privacyEls[role] = badge;
     privacyLevel[role] = "none";
@@ -227,6 +495,7 @@
     var existing = document.getElementById("dailyStatsCard");
     if (existing) {
       dailyStatsEl = existing;
+      decorateDailyTips();
       return dailyStatsEl;
     }
     var host =
@@ -235,18 +504,18 @@
     var article = document.createElement("article");
     article.className = "card daily-stats-card";
     article.id = "dailyStatsCard";
-    article.setAttribute("aria-label", "Daily stats");
+    article.setAttribute("aria-label", "Daily bench");
     article.innerHTML =
       '<div class="card-head">' +
-      '<div><div class="card-name">Daily stats</div>' +
-      '<div class="card-role">Today · client totals</div></div>' +
+      '<div><div class="card-name">Daily bench</div>' +
+      '<div class="card-role">On the floor today</div></div>' +
       "</div>" +
       '<div class="daily-stats-grid">' +
-      '<div class="daily-stat"><span class="daily-stat-label">Runs today</span>' +
+      '<div class="daily-stat"><span class="daily-stat-label">Runs</span>' +
       '<strong id="dailyRuns">0</strong></div>' +
-      '<div class="daily-stat"><span class="daily-stat-label">Total tokens</span>' +
+      '<div class="daily-stat"><span class="daily-stat-label">Tokens spun</span>' +
       '<strong id="dailyTokens">0</strong></div>' +
-      '<div class="daily-stat"><span class="daily-stat-label">Fastest agent</span>' +
+      '<div class="daily-stat"><span class="daily-stat-label">Quickest</span>' +
       '<strong id="dailyFastest">—</strong></div>' +
       "</div>";
     var mid = host.querySelector(".row.mid") || host;
@@ -256,6 +525,7 @@
       host.appendChild(article);
     }
     dailyStatsEl = article;
+    decorateDailyTips();
     return article;
   }
 
@@ -266,11 +536,7 @@
     var prev = privacyLevel[role] || "none";
     if ((rank[level] || 0) <= (rank[prev] || 0)) return;
     privacyLevel[role] = level;
-    el.className = "privacy-meter level-" + level;
-    var label = el.querySelector(".privacy-level");
-    if (label) label.textContent = level;
-    el.setAttribute("title", "Privacy · path-based heuristic · not ground truth · " + level);
-    el.setAttribute("aria-label", "Privacy meter (heuristic): " + level);
+    applyPrivacyChrome(el, level);
   }
 
   function noteSensitivePath(role, path) {
@@ -375,7 +641,9 @@
     var el = statusEls[role];
     if (!el) return;
     el.className = "status" + (cls ? " " + cls : "");
-    el.innerHTML = html;
+    var fullPlain = prettyStatusText(String(html || "").replace(/<[^>]+>/g, " "));
+    el.innerHTML = formatStatusHtml(html);
+    syncStatusTip(role, fullPlain);
     setAvatarState(role, inferAvatarFromStatus(role, html, cls));
   }
 
@@ -481,16 +749,7 @@
     dayStats = emptyDayStats();
     ROLE_KEYS.forEach(function (role) {
       privacyLevel[role] = "none";
-      if (privacyEls[role]) {
-        privacyEls[role].className = "privacy-meter level-none";
-        var label = privacyEls[role].querySelector(".privacy-level");
-        if (label) label.textContent = "none";
-        privacyEls[role].setAttribute(
-          "title",
-          "Privacy · path-based heuristic · not ground truth · no sensitive paths"
-        );
-        privacyEls[role].setAttribute("aria-label", "Privacy meter (heuristic): none");
-      }
+      if (privacyEls[role]) applyPrivacyChrome(privacyEls[role], "none");
     });
     if (dailyMode === "demo") applyDemoFixtures();
     else renderDailyStats();
@@ -518,16 +777,7 @@
     ROLE_KEYS.forEach(function (role) {
       if (cards[role]) cards[role].classList.remove("active");
       privacyLevel[role] = "none";
-      if (privacyEls[role]) {
-        privacyEls[role].className = "privacy-meter level-none";
-        var label = privacyEls[role].querySelector(".privacy-level");
-        if (label) label.textContent = "none";
-        privacyEls[role].setAttribute(
-          "title",
-          "Privacy · path-based heuristic · not ground truth · no sensitive paths"
-        );
-        privacyEls[role].setAttribute("aria-label", "Privacy meter (heuristic): none");
-      }
+      if (privacyEls[role]) applyPrivacyChrome(privacyEls[role], "none");
       setAvatarState(role, "idle");
     });
     if (!opts.keepDaily) {
@@ -551,11 +801,15 @@
       }
     });
     mountDailyStats();
+    decorateAllTips();
     ready = true;
     dailyMode = opts.demo ? "demo" : "live";
     if (opts.demo) applyDemoFixtures();
     else renderDailyStats();
     ensureTestHooks();
+    if (global.TipLayer && typeof global.TipLayer.bind === "function") {
+      global.TipLayer.bind(document);
+    }
     return api;
   }
 
@@ -564,6 +818,8 @@
     onModeChange: onModeChange,
     setActive: setActive,
     setStatus: setStatus,
+    prettyStatusText: prettyStatusText,
+    formatStatusHtml: formatStatusHtml,
     setAvatarState: setAvatarState,
     celebrateShip: celebrateShip,
     getRoleActiveStarted: getRoleActiveStarted,
