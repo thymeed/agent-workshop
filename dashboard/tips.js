@@ -2,13 +2,16 @@
  * Unified hover/focus tip layer.
  * Markup: data-tip="…" data-tip-detail="…"
  * window.TipLayer.init / show / hide / bind
+ *
+ * Auto-binds document with pointerover/focusin delegation so dynamically
+ * inserted [data-tip] nodes (alerts, cards, insights) work without rebinding.
  */
 (function (global) {
   "use strict";
 
-  var SHOW_DELAY_MS = 300;
-  var OFFSET = 12;
-  var EDGE = 8;
+  var SHOW_DELAY_MS = 280;
+  var OFFSET = 14;
+  var EDGE = 10;
 
   var host = null;
   var pathEl = null;
@@ -28,20 +31,20 @@
   var onKeyDownBound = null;
   var onScrollBound = null;
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
+  /** Walk up from any node (incl. text) to the nearest [data-tip] with copy. */
   function tipTargetFrom(node) {
-    if (!node || node.nodeType !== 1) return null;
-    if (typeof node.closest === "function") return node.closest("[data-tip]");
-    var el = node;
+    if (!node) return null;
+    var el = node.nodeType === 1 ? node : node.parentElement;
+    if (!el) return null;
+    if (typeof el.closest === "function") {
+      var hit = el.closest("[data-tip]");
+      if (hit && String(hit.getAttribute("data-tip") || "").trim()) return hit;
+      return null;
+    }
     while (el && el.nodeType === 1) {
-      if (el.hasAttribute && el.hasAttribute("data-tip")) return el;
+      if (el.hasAttribute && el.hasAttribute("data-tip")) {
+        if (String(el.getAttribute("data-tip") || "").trim()) return el;
+      }
       el = el.parentElement;
     }
     return null;
@@ -117,13 +120,13 @@
     ensureHost();
     var tip = content.tip || "";
     var detail = content.detail || "";
-    pathEl.innerHTML = escapeHtml(tip);
+    pathEl.textContent = tip;
     if (detail) {
       detailEl.hidden = false;
-      detailEl.innerHTML = escapeHtml(detail);
+      detailEl.textContent = detail;
     } else {
       detailEl.hidden = true;
-      detailEl.innerHTML = "";
+      detailEl.textContent = "";
     }
   }
 
@@ -131,7 +134,10 @@
     clearShowTimer();
     activeEl = null;
     followPointer = false;
-    if (host) host.hidden = true;
+    if (host) {
+      host.hidden = true;
+      host.classList.remove("is-visible");
+    }
   }
 
   /**
@@ -151,7 +157,7 @@
       content = readTip(null, targetOrContent);
     }
 
-    if (!content.tip) {
+    if (!content.tip || !String(content.tip).trim()) {
       hide();
       return;
     }
@@ -159,6 +165,7 @@
     activeEl = el;
     render(content);
     host.hidden = false;
+    host.classList.add("is-visible");
 
     var hasPointer = ev && typeof ev.clientX === "number" && typeof ev.clientY === "number";
     if (hasPointer) {
@@ -177,9 +184,9 @@
 
   function scheduleShow(el, ev) {
     clearShowTimer();
-    if (!el) return;
+    if (!el || !el.isConnected) return;
     var tip = el.getAttribute("data-tip");
-    if (!tip) return;
+    if (!tip || !String(tip).trim()) return;
 
     if (ev && typeof ev.clientX === "number") {
       lastPointer.x = ev.clientX;
@@ -188,8 +195,14 @@
 
     showTimer = setTimeout(function () {
       showTimer = null;
+      /* Dropped nodes (list re-render) are disconnected — skip stale tips. */
       if (!el.isConnected) return;
-      show(el, ev && typeof ev.clientX === "number" ? ev : null);
+      show(
+        el,
+        ev && typeof ev.clientX === "number"
+          ? { clientX: lastPointer.x, clientY: lastPointer.y }
+          : null
+      );
       if (!(ev && typeof ev.clientX === "number")) {
         placeForElement(el);
         followPointer = false;
@@ -219,6 +232,10 @@
     lastPointer.x = e.clientX;
     lastPointer.y = e.clientY;
     if (!followPointer || !host || host.hidden) return;
+    if (activeEl && !activeEl.isConnected) {
+      hide();
+      return;
+    }
     var el = tipTargetFrom(e.target);
     if (activeEl && el !== activeEl && !activeEl.contains(e.target)) return;
     placeAt(e.clientX, e.clientY);
@@ -248,11 +265,11 @@
 
   function unbind() {
     if (!boundRoot) return;
-    boundRoot.removeEventListener("pointerover", onPointerOverBound, false);
-    boundRoot.removeEventListener("pointerout", onPointerOutBound, false);
-    boundRoot.removeEventListener("pointermove", onPointerMoveBound, false);
-    boundRoot.removeEventListener("focusin", onFocusInBound, false);
-    boundRoot.removeEventListener("focusout", onFocusOutBound, false);
+    boundRoot.removeEventListener("pointerover", onPointerOverBound, true);
+    boundRoot.removeEventListener("pointerout", onPointerOutBound, true);
+    boundRoot.removeEventListener("pointermove", onPointerMoveBound, true);
+    boundRoot.removeEventListener("focusin", onFocusInBound, true);
+    boundRoot.removeEventListener("focusout", onFocusOutBound, true);
     global.removeEventListener("keydown", onKeyDownBound, true);
     global.removeEventListener("scroll", onScrollBound, true);
     boundRoot = null;
@@ -260,6 +277,8 @@
 
   /**
    * Delegated listeners for [data-tip] under root (default: document).
+   * Capture-phase pointerover covers nodes inserted later and survives
+   * stopPropagation on descendants.
    */
   function bind(root) {
     var next = root || document;
@@ -275,11 +294,11 @@
     onScrollBound = onScroll;
 
     boundRoot = next;
-    boundRoot.addEventListener("pointerover", onPointerOverBound, false);
-    boundRoot.addEventListener("pointerout", onPointerOutBound, false);
-    boundRoot.addEventListener("pointermove", onPointerMoveBound, false);
-    boundRoot.addEventListener("focusin", onFocusInBound, false);
-    boundRoot.addEventListener("focusout", onFocusOutBound, false);
+    boundRoot.addEventListener("pointerover", onPointerOverBound, true);
+    boundRoot.addEventListener("pointerout", onPointerOutBound, true);
+    boundRoot.addEventListener("pointermove", onPointerMoveBound, true);
+    boundRoot.addEventListener("focusin", onFocusInBound, true);
+    boundRoot.addEventListener("focusout", onFocusOutBound, true);
     global.addEventListener("keydown", onKeyDownBound, true);
     global.addEventListener("scroll", onScrollBound, true);
     return api;
@@ -288,6 +307,7 @@
   function init(options) {
     options = options || {};
     ensureHost();
+    /* Prefer document so every worker’s dynamic data-tip attrs are covered. */
     bind(options.root || document);
     ready = true;
     return api;

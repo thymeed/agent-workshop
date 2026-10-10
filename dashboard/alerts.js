@@ -113,42 +113,91 @@
     if (bell) bell.classList.add("has-unread");
   }
 
+  function tipCopy(el, tip, detail) {
+    if (!el) return;
+    el.setAttribute("data-tip", tip);
+    if (detail) el.setAttribute("data-tip-detail", detail);
+    else el.removeAttribute("data-tip-detail");
+  }
+
+  function statusTipDetail(it) {
+    var status = statusLabel(it.status);
+    var bits = [];
+    if (status === "finished") bits.push("Shipped a crate — tap to visit their station");
+    else if (status === "error") bits.push("Ouch — tap to check their station");
+    else if (status === "stalled") bits.push("Stuck in traffic — tap to peek");
+    else bits.push("Ping from the workshop");
+    if (it.read) bits.push("already peeked");
+    else bits.push("fresh unread");
+    return bits.join(" · ");
+  }
+
+  function applyChromeTips() {
+    tipCopy(
+      bell,
+      "Alert bell",
+      isSnoozed()
+        ? "Snoozing — badge is napping, new pings still file quietly"
+        : "Finished, error & stalled pals ping here"
+    );
+    tipCopy(badge, "Unread sparkle", "How many alerts you haven’t peeked yet");
+    tipCopy(
+      document.getElementById("alertMarkRead"),
+      "Mark all read",
+      "Clears the unread sparkle — list stays for history"
+    );
+    tipCopy(
+      document.getElementById("alertSnooze"),
+      "Snooze 15 min",
+      "Badge takes a nap · alerts keep filing in the background"
+    );
+    tipCopy(
+      document.getElementById("alertClear"),
+      "Clear all",
+      "Toss every alert in the bin — fresh empty tray"
+    );
+    tipCopy(emptyEl, "All quiet", "No pings yet — your agents are behaving (for now)");
+  }
+
   function renderList() {
     if (!listEl) return;
+    if (global.TipLayer && typeof global.TipLayer.hide === "function") {
+      global.TipLayer.hide();
+    }
     listEl.innerHTML = "";
     if (!items.length) {
       if (emptyEl) emptyEl.hidden = false;
+      applyChromeTips();
       renderBadge();
       return;
     }
     if (emptyEl) emptyEl.hidden = true;
     items.forEach(function (it) {
       var li = document.createElement("li");
+      var name = it.name || "agent";
+      var status = statusLabel(it.status);
       li.className = "alert-item" + (it.read ? " read" : " unread");
       li.setAttribute("data-alert-id", String(it.id));
       if (it.agentId) li.setAttribute("data-agent-id", it.agentId);
       li.setAttribute("tabindex", "0");
       li.setAttribute("role", "button");
-      li.setAttribute("aria-label", statusLabel(it.status) + " · " + (it.name || "agent"));
-      li.setAttribute("data-tip", it.name || "agent");
-      li.setAttribute(
-        "data-tip-detail",
-        statusLabel(it.status) + (it.agentId ? " · jump to station" : "")
-      );
+      li.setAttribute("aria-label", status + " · " + name);
+      tipCopy(li, name + " · " + status, statusTipDetail(it));
       li.innerHTML =
         '<span class="alert-status alert-status-' +
-        escapeHtml(statusLabel(it.status)) +
+        escapeHtml(status) +
         '">' +
-        escapeHtml(statusLabel(it.status)) +
+        escapeHtml(status) +
         "</span>" +
         '<span class="alert-name">' +
-        escapeHtml(it.name || "agent") +
+        escapeHtml(name) +
         "</span>" +
         '<span class="alert-ts">' +
         escapeHtml(formatTs(it.ts)) +
         "</span>";
       listEl.appendChild(li);
     });
+    applyChromeTips();
     renderBadge();
   }
 
@@ -322,6 +371,7 @@
       snoozeBtn.addEventListener("click", function () {
         setSnooze(SNOOZE_MS);
         markAllRead();
+        applyChromeTips();
         renderBadge();
         setOpen(false);
       });
@@ -346,6 +396,7 @@
 
     document.addEventListener("click", onDocClick);
     document.addEventListener("keydown", onKeyDown);
+    applyChromeTips();
     renderList();
     return api;
   }
@@ -359,6 +410,7 @@
     clear: clearAll,
     snooze: function (ms) {
       setSnooze(ms || SNOOZE_MS);
+      applyChromeTips();
       renderBadge();
     },
     setOpen: setOpen,
