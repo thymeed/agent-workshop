@@ -132,6 +132,22 @@ body::after {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.view-mode-seg {
+  border-color: rgba(62, 207, 255, 0.22);
+}
+
+/* View modes: Stage | Insights | History — hooks for sheet focus (drawers land later) */
+#app[data-view-mode="stage"] .view-mode-seg #viewStage.on,
+#app[data-view-mode="insights"] .view-mode-seg #viewInsights.on,
+#app[data-view-mode="history"] .view-mode-seg #viewHistory.on {
+  color: var(--text);
+}
+
+#app[data-view-mode="insights"] .drawer[data-panel="insights"],
+#app[data-view-mode="history"] .drawer[data-panel="history"] {
+  outline: 1px solid rgba(62, 207, 255, 0.22);
+}
+
 .seg button {
   appearance: none;
   border: 0;

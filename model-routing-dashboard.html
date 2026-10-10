@@ -27,7 +27,7 @@
     <link rel="stylesheet" href="dashboard/insights.css" />
   </head>
   <body>
-    <div class="wrap">
+    <div class="wrap" id="app" data-view-mode="stage">
       <header>
         <div class="header-top">
           <div class="title-row">
@@ -35,9 +35,20 @@
             <span class="pill-new">NEW · HAIKU 5.5</span>
           </div>
           <div class="mode-bar">
-            <div class="seg" role="group" aria-label="Mode">
+            <div class="seg" role="group" aria-label="Source">
               <button type="button" id="modeDemo" class="on">Demo</button>
               <button type="button" id="modeLive">Live</button>
+            </div>
+            <div class="seg view-mode-seg" id="viewMode" role="group" aria-label="View">
+              <button type="button" id="viewStage" class="on" aria-pressed="true" data-view="stage">
+                Stage
+              </button>
+              <button type="button" id="viewInsights" aria-pressed="false" data-view="insights">
+                Insights
+              </button>
+              <button type="button" id="viewHistory" aria-pressed="false" data-view="history">
+                History
+              </button>
             </div>
             <button type="button" class="action-btn" id="demoBtn" aria-pressed="false">Play</button>
             <select
@@ -51,7 +62,8 @@
               class="panels-btn"
               id="panelsBtn"
               aria-pressed="false"
-              title="Open Bill &amp; Log drawers"
+              title="Open panels"
+              aria-label="Open panels"
             >
               Panels
             </button>

@@ -73,15 +73,23 @@
   var hudSubs = document.getElementById("hudSubs");
   var crateTooltip = document.getElementById("crateTooltip");
   var stageToast = document.getElementById("stageToast");
+  var appEl = document.getElementById("app");
   var drawersEl = document.getElementById("drawers");
   var drawerActivity = document.getElementById("drawerActivity");
   var drawerBill = document.getElementById("drawerBill");
   var drawerLog = document.getElementById("drawerLog");
   var drawerStations = document.getElementById("drawerStations");
+  var drawerInsights = document.getElementById("drawerInsights");
+  var drawerHistory = document.getElementById("drawerHistory");
   var panelsBtn = document.getElementById("panelsBtn");
   var soundBtn = document.getElementById("soundBtn");
+  var viewStageBtn = document.getElementById("viewStage");
+  var viewInsightsBtn = document.getElementById("viewInsights");
+  var viewHistoryBtn = document.getElementById("viewHistory");
   var activityFilterRole = null;
   var toastTimer = null;
+  var viewMode = "stage";
+  var VIEW_MODE_KEY = "cursorAgents.viewMode";
 
   /* Move station cards into Stations drawer (keep same card/status IDs). */
   (function relocateStations() {
@@ -539,6 +547,63 @@
     sound.play("click");
   }
 
+  function normalizeViewMode(mode) {
+    var m = String(mode || "").toLowerCase();
+    if (m === "insights" || m === "history") return m;
+    return "stage";
+  }
+
+  function syncViewModeButtons(mode) {
+    var buttons = [
+      { el: viewStageBtn, mode: "stage" },
+      { el: viewInsightsBtn, mode: "insights" },
+      { el: viewHistoryBtn, mode: "history" }
+    ];
+    buttons.forEach(function (b) {
+      if (!b.el) return;
+      var on = b.mode === mode;
+      b.el.classList.toggle("on", on);
+      b.el.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+
+  /**
+   * Primary nav: Stage | Insights | History.
+   * Slice 1: shell only (data-view-mode + persist). Drawer open/close lands in later slices.
+   */
+  function setViewMode(mode, opts) {
+    opts = opts || {};
+    viewMode = normalizeViewMode(mode);
+    if (appEl) appEl.setAttribute("data-view-mode", viewMode);
+    syncViewModeButtons(viewMode);
+    if (!opts.skipPersist) {
+      try {
+        sessionStorage.setItem(VIEW_MODE_KEY, viewMode);
+      } catch (_) {}
+    }
+
+    /* Drawer focus — no-ops until Insights/History drawers exist */
+    if (viewMode === "stage") {
+      if (drawerInsights) drawerInsights.open = false;
+      if (drawerHistory) drawerHistory.open = false;
+      if (drawerActivity) drawerActivity.open = true;
+    } else if (viewMode === "insights") {
+      if (drawerHistory) drawerHistory.open = false;
+      if (drawerActivity) drawerActivity.open = false;
+      if (drawerInsights) drawerInsights.open = true;
+      if (insightsPanel && typeof insightsPanel.showTab === "function") {
+        insightsPanel.showTab("forecast");
+      }
+    } else if (viewMode === "history") {
+      if (drawerInsights) drawerInsights.open = false;
+      if (drawerActivity) drawerActivity.open = false;
+      if (drawerHistory) drawerHistory.open = true;
+      if (insightsPanel && typeof insightsPanel.showTab === "function") {
+        insightsPanel.showTab("replay");
+      }
+    }
+  }
+
   function openPanels() {
     if (drawerBill) drawerBill.open = true;
     if (drawerLog) drawerLog.open = true;
@@ -546,6 +611,8 @@
     if (panelsBtn) {
       panelsBtn.classList.add("on");
       panelsBtn.setAttribute("aria-pressed", "true");
+      panelsBtn.setAttribute("title", "Open panels");
+      panelsBtn.setAttribute("aria-label", "Open panels");
     }
   }
 
@@ -1894,7 +1961,20 @@
     panelsBtn.addEventListener("click", function () {
       togglePanels();
     });
+    panelsBtn.setAttribute("title", "Open panels");
+    panelsBtn.setAttribute("aria-label", "Open panels");
   }
+
+  function bindViewModeButton(btn, mode) {
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      setViewMode(mode);
+      sound.play("click");
+    });
+  }
+  bindViewModeButton(viewStageBtn, "stage");
+  bindViewModeButton(viewInsightsBtn, "insights");
+  bindViewModeButton(viewHistoryBtn, "history");
 
   Object.keys(stageDirector.chars).forEach(function (role) {
     var el = stageDirector.chars[role];
@@ -1963,6 +2043,13 @@
   clearActivity();
   updateFooterProject();
   sound.syncBtn();
+  (function restoreViewMode() {
+    var stored = null;
+    try {
+      stored = sessionStorage.getItem(VIEW_MODE_KEY);
+    } catch (_) {}
+    setViewMode(normalizeViewMode(stored || "stage"), { skipPersist: true });
+  })();
   requestAnimationFrame(function () {
     layoutFlow();
   });
@@ -1975,6 +2062,10 @@
   /* Test hooks for Playwright (localhost dashboard only). */
   globalThis.__cursorAgentsDashTest = {
     applyLiveEvent: applyLiveEvent,
+    setViewMode: setViewMode,
+    getViewMode: function () {
+      return viewMode;
+    },
     demoUsageTokenTotal: function () {
       return usageGrandTotal(state.usage);
     },
