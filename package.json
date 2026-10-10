@@ -69,7 +69,7 @@
       "shortcutName": "Cursor Agents Model Routing"
     },
     "portable": {
-      "artifactName": "CursorAgentsModelRouting-Portable.exe"
+      "artifactName": "AgentWorkshop.exe"
     },
     "afterAllArtifactBuild": "./scripts/copy-exe.js"
   },

@@ -4,7 +4,7 @@ Desktop dashboard for visualizing how a Cursor Agents session routes work across
 
 The first viewport is a soft **agent workshop**: five cute Claude-agent-style station figures (Opus desk, Fable consult, Sonnet build, Explore / Research shelves) — **Cursor Agents** branding, not Claude Code product UI — walk paths and carry code crates into a central **Merge portal**. Demo Play and Live SSE drive the stage; Session Bill, Activity, Insights, History/Replay, Session Log, and **Stations** live as **drawer sheets** under the stage. Header **Stage | Insights | History** switches which sheet owns the lower chrome (workshop stays visible). Station cards use the same soft faces/avatars as the stage. HUD chips are the single status strip (session $, active role, subs, effort, haiku tokens). **History** Replay play/pause/scrub/speed drives the same workshop engine (crates/characters); leaving History stops transport and leaves the last replay frame until Demo/Live runs again. Estimates remain illustrative · not official usage. Optional cute Web Audio blips are **muted by default** — toggle 🔊/🔇 in the header (persisted in `localStorage`).
 
-**Primary launch:** double-click repo-root **`CursorAgentsModelRouting-Portable.exe`** (produced by `npm run build` / `npm run pack` via `scripts/copy-exe.js` from `dist\`; gitignored `*.exe`), or run `npm start` while developing. Window title: **Cursor Agents · Model Routing**. The live bridge runs **in-process** inside Electron — no CMD popup, no separate `node.exe` console.
+**Primary launch:** double-click repo-root **`AgentWorkshop.exe`** (produced by `npm run build` / `npm run pack` via `scripts/copy-exe.js` from `dist\`; gitignored `*.exe`), or run `npm start` while developing. Window title: **Cursor Agents · Model Routing**. The live bridge runs **in-process** inside Electron — no CMD popup, no separate `node.exe` console.
 
 A second launch focuses the existing window (single-instance lock); it does not start another bridge on the same port.
 
@@ -39,7 +39,7 @@ Artifacts in `dist\` (and a root copy of the portable exe for easy double-click)
 
 | File                                          | Use                                         |
 | --------------------------------------------- | ------------------------------------------- |
-| `CursorAgentsModelRouting-Portable.exe`       | Portable GUI app — double-click, no install |
+| `AgentWorkshop.exe`                           | Portable GUI app — double-click, no install |
 | `Cursor Agents Model Routing Setup x.x.x.exe` | Optional NSIS installer                     |
 
 Packaged apps use the Windows GUI subsystem: **no console window** on launch. There is no `.cmd` wrapper.

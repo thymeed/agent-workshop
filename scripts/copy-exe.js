@@ -8,12 +8,14 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
-const ROOT_NAME = "CursorAgentsModelRouting-Portable.exe";
+const ROOT_NAME = "AgentWorkshop.exe";
 const DIST = path.join(ROOT, "dist");
 const DEST = path.join(ROOT, ROOT_NAME);
+const LEGACY_ROOT_NAME = "CursorAgentsModelRouting-Portable.exe";
 
 const CANDIDATES = [
   path.join(DIST, ROOT_NAME),
+  path.join(DIST, LEGACY_ROOT_NAME),
   path.join(DIST, "Cursor Agents Model Routing.exe"),
   path.join(DIST, "win-unpacked", "Cursor Agents Model Routing.exe")
 ];
@@ -23,6 +25,13 @@ function findSource() {
     if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
   }
   return null;
+}
+
+function removeLegacyRootCopy() {
+  const legacy = path.join(ROOT, LEGACY_ROOT_NAME);
+  if (!fs.existsSync(legacy) || !fs.statSync(legacy).isFile()) return;
+  fs.unlinkSync(legacy);
+  console.log("copy-exe: removed legacy", path.relative(ROOT, legacy));
 }
 
 function copyRootExe() {
@@ -35,6 +44,7 @@ function copyRootExe() {
     return false;
   }
   fs.copyFileSync(src, DEST);
+  removeLegacyRootCopy();
   console.log("copy-exe: refreshed", path.relative(ROOT, DEST), "←", path.relative(ROOT, src));
   return true;
 }
