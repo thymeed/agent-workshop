@@ -400,10 +400,10 @@
                 <ellipse class="agent-cheek" cx="192" cy="118" rx="3.2" ry="2.2" />
                 <ellipse class="agent-eye" cx="173" cy="112" rx="2.2" ry="2.6" />
                 <ellipse class="agent-eye" cx="187" cy="112" rx="2.2" ry="2.6" />
-                <!-- Calm lead smile — wider, flatter -->
-                <path class="agent-mouth" d="M171 122 Q180 125.5 189 122" />
+                <!-- Calm lead smile — wide + flat (shallow arc, not a deep grin) -->
+                <path class="agent-mouth agent-mouth-flat" d="M168 123.2 Q180 125.2 192 123.2" />
                 <g class="agent-accent" aria-hidden="true">
-                  <rect x="174" y="92" width="12" height="5" rx="2.5" />
+                  <rect x="173" y="90" width="14" height="6" rx="2.5" />
                 </g>
               </g>
               <text class="char-label" x="180" y="198" text-anchor="middle">Opus</text>
@@ -439,10 +439,10 @@
                 <ellipse class="agent-cheek" cx="832" cy="118" rx="3.2" ry="2.2" />
                 <ellipse class="agent-eye" cx="813" cy="112" rx="2.2" ry="2.6" />
                 <ellipse class="agent-eye" cx="827" cy="112" rx="2.2" ry="2.6" />
-                <!-- Warm advisor grin — deeper curve -->
-                <path class="agent-mouth" d="M812 120 Q820 128 828 120" />
+                <!-- Warm advisor grin — deep bowl, clearly warmer than Opus flat -->
+                <path class="agent-mouth agent-mouth-grin" d="M809 119.5 Q820 133 831 119.5" />
                 <g class="agent-accent" aria-hidden="true">
-                  <path d="M820 90 L826 100 L814 100 Z" />
+                  <path d="M820 88 L827 101 L813 101 Z" />
                 </g>
               </g>
               <text class="char-label" x="820" y="198" text-anchor="middle">Fable</text>
@@ -478,10 +478,10 @@
                 <ellipse class="agent-cheek" cx="511" cy="252" rx="2.8" ry="2" />
                 <ellipse class="agent-eye" cx="494" cy="246" rx="2" ry="2.4" />
                 <ellipse class="agent-eye" cx="506" cy="246" rx="2" ry="2.4" />
-                <!-- Determined worker dash — compact upturn -->
-                <path class="agent-mouth" d="M496 255.5 Q500 257.5 504 255.5" />
+                <!-- Determined worker dash — straight line, not a smile curve -->
+                <path class="agent-mouth agent-mouth-dash" d="M495 256 L505 256" />
                 <g class="agent-accent" aria-hidden="true">
-                  <rect x="512" y="276" width="8" height="8" rx="2" />
+                  <rect x="512" y="274" width="9" height="9" rx="2" />
                 </g>
               </g>
               <text class="char-label" x="500" y="326" text-anchor="middle">Sonnet</text>
@@ -519,10 +519,13 @@
                 <ellipse class="agent-cheek" cx="289" cy="330" rx="2.4" ry="1.8" />
                 <ellipse class="agent-eye" cx="275" cy="324" rx="1.7" ry="2.1" />
                 <ellipse class="agent-eye" cx="285" cy="324" rx="1.7" ry="2.1" />
-                <!-- Curious scout smile — open soft U -->
-                <path class="agent-mouth" d="M275 331.5 Q280 337.5 285 331.5" />
+                <!-- Curious scout U — open mouth with vertical risers (not a smile arc) -->
+                <path
+                  class="agent-mouth agent-mouth-u"
+                  d="M274 330.2 L274 334.2 Q280 339.5 286 334.2 L286 330.2"
+                />
                 <g class="agent-accent" aria-hidden="true">
-                  <ellipse cx="272" cy="312" rx="4" ry="3.5" transform="rotate(-28 272 312)" />
+                  <ellipse cx="271" cy="311" rx="5" ry="4" transform="rotate(-28 271 311)" />
                 </g>
               </g>
               <text class="char-label" x="280" y="420" text-anchor="middle">Explore</text>
@@ -566,11 +569,11 @@
                 <ellipse class="agent-cheek" cx="729" cy="330" rx="2.4" ry="1.8" />
                 <ellipse class="agent-eye" cx="715" cy="324" rx="1.7" ry="2.1" />
                 <ellipse class="agent-eye" cx="725" cy="324" rx="1.7" ry="2.1" />
-                <!-- Thoughtful library o -->
-                <circle class="agent-mouth agent-mouth-o" cx="720" cy="333.5" r="1.7" />
+                <!-- Thoughtful library o — filled circle (structurally unique vs arcs) -->
+                <circle class="agent-mouth agent-mouth-o" cx="720" cy="333.8" r="2.1" />
                 <g class="agent-accent" aria-hidden="true">
-                  <circle cx="730" cy="314" r="3.5" />
-                  <circle cx="724" cy="318" r="2.5" />
+                  <circle cx="731" cy="313" r="4" />
+                  <circle cx="723" cy="317" r="2.8" />
                 </g>
               </g>
               <text class="char-label" x="720" y="420" text-anchor="middle">Research</text>

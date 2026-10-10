@@ -654,29 +654,34 @@ h1.headline em {
 .agent-mouth {
   fill: none;
   stroke: #0a0e0f;
-  stroke-width: 1.6;
+  stroke-width: 1.85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/*
+ * Per-role stage mouths — geometry lives in the SVG paths; CSS only reinforces
+ * stroke/fill so shapes stay readable at workshop scale (flat / grin / dash / U / o).
+ */
+.char[data-role="opus"] .agent-mouth-flat {
+  stroke-width: 2;
+}
+.char[data-role="advisor"] .agent-mouth-grin {
+  stroke-width: 2.15;
+}
+.char[data-role="worker"] .agent-mouth-dash {
+  stroke-width: 2.35;
   stroke-linecap: round;
 }
-/* Per-role stage mouths — match card cast expressions */
-.char[data-role="opus"] .agent-mouth {
-  stroke-width: 1.7;
+.char[data-role="explorer"] .agent-mouth-u {
+  stroke-width: 1.95;
 }
-.char[data-role="advisor"] .agent-mouth {
-  stroke-width: 1.85;
-}
-.char[data-role="worker"] .agent-mouth {
-  stroke-width: 1.55;
-}
-.char[data-role="explorer"] .agent-mouth {
-  stroke-width: 1.75;
-}
-.char[data-role="researcher"] .agent-mouth.agent-mouth-o {
+.char[data-role="researcher"] .agent-mouth-o {
   fill: #0a0e0f;
   stroke: none;
-  opacity: 0.75;
+  opacity: 0.82;
 }
 .agent-accent {
-  opacity: 0.9;
+  opacity: 1;
 }
 
 .char[data-role="opus"] .agent-head {
@@ -691,7 +696,9 @@ h1.headline em {
   fill: rgba(255, 170, 180, 0.55);
 }
 .char[data-role="opus"] .agent-accent rect {
-  fill: rgba(242, 244, 244, 0.75);
+  fill: #f7f8fa;
+  stroke: rgba(20, 24, 28, 0.28);
+  stroke-width: 1;
 }
 
 .char[data-role="advisor"] .agent-head {
@@ -706,7 +713,9 @@ h1.headline em {
   fill: rgba(255, 120, 90, 0.45);
 }
 .char[data-role="advisor"] .agent-accent path {
-  fill: #ffc85a;
+  fill: #ffd27a;
+  stroke: rgba(120, 60, 0, 0.35);
+  stroke-width: 0.9;
 }
 
 .char[data-role="worker"] .agent-head {
@@ -721,7 +730,9 @@ h1.headline em {
   fill: rgba(255, 160, 180, 0.5);
 }
 .char[data-role="worker"] .agent-accent rect {
-  fill: rgba(184, 240, 0, 0.85);
+  fill: #b8f000;
+  stroke: rgba(40, 80, 0, 0.35);
+  stroke-width: 0.9;
 }
 
 .char[data-role="explorer"] .agent-head {
@@ -736,7 +747,9 @@ h1.headline em {
   fill: rgba(255, 150, 120, 0.45);
 }
 .char[data-role="explorer"] .agent-accent ellipse {
-  fill: rgba(184, 240, 0, 0.85);
+  fill: #9ed420;
+  stroke: rgba(40, 70, 0, 0.4);
+  stroke-width: 0.9;
 }
 
 .char[data-role="researcher"] .agent-head {
@@ -751,9 +764,9 @@ h1.headline em {
   fill: rgba(255, 150, 140, 0.45);
 }
 .char[data-role="researcher"] .agent-accent circle {
-  fill: none;
-  stroke: rgba(140, 220, 180, 0.9);
-  stroke-width: 1.4;
+  fill: rgba(255, 255, 255, 0.18);
+  stroke: rgba(16, 52, 40, 0.65);
+  stroke-width: 1.5;
 }
 
 .char.busy .agent-cheek,

@@ -93,7 +93,7 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 
 - **Cute station characters** — stage figures + card avatars stay soft/Claude-agent-like; keep Cursor Agents naming (Opus / Fable / Worker / Explore / Research).
 - **Unique card faces** — Stations avatars (`data-avatar` + `cards.css`) are per-role (tuft/band/hat/glasses accents), not one shared face tinted by color.
-- **Per-role mouths** — idle mouths differ by cast (Opus calm wide smile, Fable warm deep grin, Worker compact dash, Explore curious open U, Research thoughtful o) on both card avatars and stage SVG figures; keep expressions soft/cute, not identical.
+- **Per-role mouths** — idle mouths must be *structurally* different (not one smile arc + stroke tweak): Opus calm wide flat path, Fable deep grin bowl, Worker/Sonnet straight dash line, Explore open U with risers, Research filled o — on stage SVG (`#char-*` + `.agent-mouth-*` in `styles.css`) and Stations card avatars (`cards.css`). Accents (crown/star/tool/hat/glasses) stay visible on stage.
 - **Inbound route tokens** — `stageDirector.spawnRouteToken(role)` flies a small role-shaped glyph along the pulse path into the station on ask/delegate (`animateRoute`); cap concurrent tokens; respect reduced motion / narrow layouts.
 - **TipLayer** (`tips.js`) — one floating tip host for chrome, stage, cards, Insights, History, alerts; prefer `data-tip` / `data-tip-detail` over bare `title=` on primary controls.
 - **Alert center** (`alerts.js`) — header bell; bridge SSE `event: alert` + `GET /api/alerts` (name/status/`agentId` only); Electron desktop Notification stays on the same emit path.

@@ -453,7 +453,8 @@
 
   /**
    * Mount the per-role cute face (`data-avatar`) into the card head.
-   * Mouth shapes are CSS-driven per role in cards.css (idle + state overrides).
+   * Idle mouths are CSS per role in cards.css (flat / grin / dash / U / o) —
+   * keep in sync with stage SVG mouths in model-routing-dashboard.html.
    */
   function mountAvatar(card, role) {
     if (!card || avatarEls[role]) return;

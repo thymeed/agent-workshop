@@ -20,11 +20,19 @@ const CANDIDATES = [
   path.join(DIST, "win-unpacked", "Cursor Agents Model Routing.exe")
 ];
 
+/** Prefer the newest candidate so `npm run pack` (--dir) beats a stale portable. */
 function findSource() {
+  let best = null;
+  let bestMtime = -1;
   for (const p of CANDIDATES) {
-    if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
+    if (!fs.existsSync(p) || !fs.statSync(p).isFile()) continue;
+    const mtime = fs.statSync(p).mtimeMs;
+    if (mtime >= bestMtime) {
+      best = p;
+      bestMtime = mtime;
+    }
   }
-  return null;
+  return best;
 }
 
 function removeLegacyRootCopy() {
