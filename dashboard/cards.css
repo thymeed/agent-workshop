@@ -118,6 +118,11 @@
     inset 0 4px 8px rgba(255, 255, 255, 0.35);
 }
 
+/* Legacy letter-circle fallback — never show initials (Op/Fb/…) */
+.avatar-initials {
+  display: none !important;
+}
+
 .avatar-blush {
   position: absolute;
   left: 50%;
@@ -142,14 +147,25 @@
   z-index: 2;
 }
 
+/* Real eye dots (not gradient paint) — readable at card + alert sizes */
 .avatar-eyes {
-  top: 14px;
-  width: 18px;
-  height: 6px;
-  background:
-    radial-gradient(circle at 3.5px 3px, var(--avatar-ink) 2.2px, transparent 2.35px),
-    radial-gradient(circle at 14.5px 3px, var(--avatar-ink) 2.2px, transparent 2.35px);
+  top: 13px;
+  width: 20px;
+  height: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
   opacity: 1;
+}
+
+.avatar-eye {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--avatar-ink);
+  flex: 0 0 auto;
 }
 
 .avatar-mouth {
@@ -160,6 +176,92 @@
   border: none;
   border-bottom: 2px solid var(--avatar-ink);
   opacity: 0.9;
+}
+
+/* Mini faces for alert chips / dense rows */
+.agent-avatar.avatar-sm {
+  --avatar-size: 22px;
+  margin-right: 0;
+  flex: 0 0 var(--avatar-size);
+}
+.agent-avatar.avatar-sm .avatar-eyes {
+  top: 6px;
+  width: 10px;
+  height: 5px;
+}
+.agent-avatar.avatar-sm .avatar-eye {
+  width: 2.5px;
+  height: 2.5px;
+}
+.agent-avatar.avatar-sm .avatar-mouth {
+  top: 12px;
+  width: 5px;
+  height: 3px;
+  border-bottom-width: 1.5px;
+}
+.agent-avatar.avatar-sm .avatar-blush {
+  top: 52%;
+  width: 14px;
+  height: 4px;
+}
+.agent-avatar.avatar-sm[data-avatar="opus"] .avatar-chrome::before {
+  width: 8px;
+  height: 5px;
+  top: 0;
+  box-shadow:
+    -3px 2px 0 -1px #d4d8e0,
+    3px 2px 0 -1px #d4d8e0;
+}
+.agent-avatar.avatar-sm[data-avatar="advisor"] .avatar-chrome::before {
+  width: 7px;
+  height: 6px;
+  top: -1px;
+}
+.agent-avatar.avatar-sm[data-avatar="worker"] .avatar-chrome::before {
+  top: 5px;
+  height: 3px;
+}
+.agent-avatar.avatar-sm[data-avatar="explorer"] .avatar-chrome::before {
+  width: 12px;
+  height: 5px;
+  top: -1px;
+}
+.agent-avatar.avatar-sm[data-avatar="researcher"] .avatar-chrome::before,
+.agent-avatar.avatar-sm[data-avatar="researcher"] .avatar-chrome::after {
+  top: 7px;
+  width: 5px;
+  height: 5px;
+}
+.agent-avatar.avatar-sm[data-avatar="researcher"] .avatar-chrome::before {
+  left: 4px;
+}
+.agent-avatar.avatar-sm[data-avatar="researcher"] .avatar-chrome::after {
+  right: 4px;
+}
+.agent-avatar.avatar-sm[data-avatar].state-idle .avatar-mouth,
+.agent-avatar.avatar-sm[data-avatar] .avatar-mouth {
+  top: 12px;
+  width: 6px !important;
+  height: 3px !important;
+  border-bottom-width: 1.5px;
+}
+.agent-avatar.avatar-sm[data-avatar="worker"].state-idle .avatar-mouth {
+  background: var(--avatar-ink);
+  border-bottom: none;
+  border-radius: 1px;
+}
+.agent-avatar.avatar-sm[data-avatar="researcher"].state-idle .avatar-mouth {
+  width: 3px !important;
+  height: 3px !important;
+  border-radius: 50%;
+  background: var(--avatar-ink);
+  border: none;
+}
+.agent-avatar.avatar-sm[data-avatar="worker"] .avatar-chrome::after {
+  width: 5px;
+  height: 5px;
+  right: -1px;
+  bottom: 2px;
 }
 
 /* Opus — soft pearl lead, tiny crown tuft */
@@ -184,7 +286,7 @@
     0 2px 0 rgba(0, 0, 0, 0.08);
 }
 
-/* Fable — warm amber advisor, soft star tuft */
+/* Fable — warm amber advisor, clear star triangle (matches stage accent) */
 .agent-avatar[data-avatar="advisor"] {
   --avatar-accent: #f6b24a;
   --avatar-ink: rgba(62, 36, 8, 0.85);
@@ -193,17 +295,18 @@
 .agent-avatar[data-avatar="advisor"] .avatar-chrome::before {
   content: "";
   position: absolute;
-  top: 0;
+  top: -2px;
   left: 50%;
-  width: 10px;
+  width: 12px;
   height: 10px;
-  transform: translateX(-50%) rotate(20deg);
-  border-radius: 3px;
+  transform: translateX(-50%);
   background: #ffd27a;
-  box-shadow: 0 2px 0 rgba(120, 60, 0, 0.15);
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  border-radius: 0;
+  box-shadow: 0 2px 0 rgba(120, 60, 0, 0.12);
 }
 
-/* Worker — soft sky helper, little band */
+/* Worker — soft sky helper, visor band + tool square */
 .agent-avatar[data-avatar="worker"] {
   --avatar-accent: #5ecfff;
   --avatar-ink: rgba(12, 48, 68, 0.88);
@@ -220,8 +323,19 @@
   right: 2px;
   height: 5px;
   border-radius: 4px;
-  background: rgba(20, 90, 130, 0.22);
+  background: rgba(20, 90, 130, 0.28);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.agent-avatar[data-avatar="worker"] .avatar-chrome::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(184, 240, 0, 0.85);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.15);
 }
 
 /* Explorer — lime scout, floppy hat blob */
@@ -248,7 +362,7 @@
     8px 5px 0 -2px #8fc418;
 }
 
-/* Researcher — mint bookworm, soft glasses */
+/* Researcher — mint bookworm, soft glasses + bridge */
 .agent-avatar[data-avatar="researcher"] {
   --avatar-accent: #8fd9b8;
   --avatar-ink: rgba(16, 52, 40, 0.88);
@@ -258,18 +372,19 @@
 .agent-avatar[data-avatar="researcher"] .avatar-chrome::after {
   content: "";
   position: absolute;
-  top: 15px;
-  width: 9px;
-  height: 9px;
+  top: 14px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  border: 1.5px solid rgba(16, 52, 40, 0.45);
-  background: rgba(255, 255, 255, 0.12);
+  border: 1.6px solid rgba(16, 52, 40, 0.5);
+  background: rgba(255, 255, 255, 0.14);
 }
 .agent-avatar[data-avatar="researcher"] .avatar-chrome::before {
-  left: 9px;
+  left: 8px;
+  box-shadow: 6px 3px 0 -3.5px rgba(16, 52, 40, 0.45);
 }
 .agent-avatar[data-avatar="researcher"] .avatar-chrome::after {
-  right: 9px;
+  right: 8px;
   left: auto;
 }
 
@@ -340,7 +455,7 @@
 
 /* Working — chatty mouth */
 .agent-avatar.state-typing .avatar-eyes {
-  top: 13px;
+  top: 12px;
 }
 .agent-avatar.state-typing .avatar-mouth {
   width: 7px;
@@ -363,18 +478,11 @@
 }
 .agent-avatar.state-thinking .avatar-eyes {
   top: 15px;
-  height: 3px;
-  background: linear-gradient(
-    90deg,
-    transparent 0,
-    var(--avatar-ink) 2px,
-    var(--avatar-ink) 6px,
-    transparent 6px,
-    transparent 12px,
-    var(--avatar-ink) 12px,
-    var(--avatar-ink) 16px,
-    transparent 16px
-  );
+}
+.agent-avatar.state-thinking .avatar-eye {
+  height: 2px;
+  width: 6px;
+  border-radius: 2px;
 }
 .agent-avatar.state-thinking .avatar-mouth {
   width: 5px;
@@ -386,23 +494,18 @@
   opacity: 0.55;
 }
 
-/* Blocked — pause eyes */
+/* Blocked — pause-bar eyes */
 .agent-avatar.state-blocked .avatar-face {
   filter: saturate(0.85);
 }
 .agent-avatar.state-blocked .avatar-eyes {
-  top: 14px;
-  width: 14px;
-  height: 8px;
-  background: linear-gradient(
-    90deg,
-    var(--avatar-ink) 0,
-    var(--avatar-ink) 3px,
-    transparent 3px,
-    transparent 11px,
-    var(--avatar-ink) 11px,
-    var(--avatar-ink) 14px
-  );
+  top: 13px;
+  width: 16px;
+}
+.agent-avatar.state-blocked .avatar-eye {
+  width: 3px;
+  height: 7px;
+  border-radius: 1.5px;
 }
 .agent-avatar.state-blocked .avatar-mouth {
   width: 6px;
@@ -414,46 +517,17 @@
   opacity: 0.55;
 }
 
-/* Done — happy closed smile */
-.agent-avatar.state-done .avatar-eyes {
-  top: 15px;
-  height: 4px;
-  background: linear-gradient(
-    90deg,
-    transparent 0,
-    transparent 1px,
-    var(--avatar-ink) 1px,
-    var(--avatar-ink) 2px,
-    transparent 2px,
-    transparent 7px,
-    transparent 11px,
-    var(--avatar-ink) 11px,
-    var(--avatar-ink) 12px,
-    transparent 12px,
-    transparent 16px,
-    transparent 18px
-  );
-  /* ^ fallback; prefer arc eyes via border trick below */
-}
+/* Done — happy closed smile arcs */
 .agent-avatar.state-done .avatar-eyes {
   top: 14px;
-  width: 18px;
-  height: 6px;
-  background:
-    radial-gradient(
-      ellipse 4px 3px at 4px 4px,
-      transparent 60%,
-      var(--avatar-ink) 61%,
-      var(--avatar-ink) 72%,
-      transparent 73%
-    ),
-    radial-gradient(
-      ellipse 4px 3px at 14px 4px,
-      transparent 60%,
-      var(--avatar-ink) 61%,
-      var(--avatar-ink) 72%,
-      transparent 73%
-    );
+}
+.agent-avatar.state-done .avatar-eye {
+  width: 6px;
+  height: 4px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--avatar-ink);
+  border-radius: 0 0 6px 6px;
 }
 .agent-avatar.state-done .avatar-mouth {
   width: 12px;
@@ -475,21 +549,14 @@
 }
 .agent-avatar.state-celebrating .avatar-eyes {
   top: 12px;
-  background:
-    radial-gradient(
-      ellipse 4px 3px at 4px 4px,
-      transparent 60%,
-      var(--avatar-ink) 61%,
-      var(--avatar-ink) 72%,
-      transparent 73%
-    ),
-    radial-gradient(
-      ellipse 4px 3px at 14px 4px,
-      transparent 60%,
-      var(--avatar-ink) 61%,
-      var(--avatar-ink) 72%,
-      transparent 73%
-    );
+}
+.agent-avatar.state-celebrating .avatar-eye {
+  width: 6px;
+  height: 4px;
+  background: transparent;
+  border: none;
+  border-bottom: 2.2px solid var(--avatar-ink);
+  border-radius: 0 0 6px 6px;
 }
 .agent-avatar.state-celebrating .avatar-mouth {
   width: 14px;
@@ -510,9 +577,12 @@
 }
 .agent-avatar.state-error .avatar-eyes {
   top: 15px;
-  background:
-    radial-gradient(circle at 3.5px 3.5px, var(--avatar-ink) 2px, transparent 2.15px),
-    radial-gradient(circle at 14.5px 3.5px, var(--avatar-ink) 2px, transparent 2.15px);
+}
+.agent-avatar.state-error .avatar-eye {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--avatar-ink);
 }
 .agent-avatar.state-error .avatar-mouth {
   width: 10px;
@@ -521,6 +591,8 @@
   border: none;
   border-top: 2px solid var(--avatar-ink);
   border-radius: 10px 10px 0 0;
+  border-bottom: none;
+  background: transparent;
   opacity: 0.8;
 }
 
@@ -551,7 +623,8 @@
 @media (prefers-reduced-motion: reduce) {
   .agent-avatar .avatar-face,
   .agent-avatar .avatar-mouth,
-  .agent-avatar .avatar-eyes {
+  .agent-avatar .avatar-eyes,
+  .agent-avatar .avatar-eye {
     animation: none !important;
   }
 }

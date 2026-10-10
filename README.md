@@ -214,7 +214,7 @@ When an agent **finishes**, **errors**, or **stalls** (no activity for ~2 minute
 1. Broadcasts SSE `event: alert` with `{ id, ts, name, status, agentId? }` and keeps the last ~50 for `GET /api/alerts`.
 2. In Electron, also fires a desktop Notification (name + status only).
 
-The in-app **alert center** (header bell) lists the same alerts — mark read, snooze, clear, click to jump when a role/agent is mappable. Alerts show **only agent name and status** — never prompt text or file paths. Backlog/SSE replay quiet gates skip spam the same way card timing does.
+The in-app **alert center** (header bell) lists the same alerts — mark read, snooze, clear, click to jump when a role/agent is mappable. Mappable roles show a small cute face beside the status (same cast as Stations — never letter initials). Alerts show **only agent name and status** — never prompt text or file paths. Backlog/SSE replay quiet gates skip spam the same way card timing does.
 
 ### Limits
 

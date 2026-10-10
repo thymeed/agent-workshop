@@ -136,6 +136,21 @@
   outline: none;
 }
 
+.alert-item.has-face {
+  grid-template-columns: auto auto 1fr auto;
+}
+
+.alert-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.alert-face .agent-avatar {
+  margin-right: 0;
+}
+
 .alert-item:hover,
 .alert-item:focus-visible {
   background: rgba(255, 255, 255, 0.05);

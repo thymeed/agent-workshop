@@ -556,6 +556,53 @@ async function smokeCardsDemo(browser) {
 
   if (ui.avatars < 5) errors.push("expected 5 agent avatars, got " + ui.avatars);
   if (ui.privacyMeters < 5) errors.push("expected 5 privacy meters, got " + ui.privacyMeters);
+
+  const faces = await page.evaluate(() => {
+    const roles = ["opus", "advisor", "worker", "explorer", "researcher"];
+    const initials = document.querySelectorAll(".avatar-initials").length;
+    const initialText = Array.from(document.querySelectorAll(".agent-avatar"))
+      .map((el) => (el.textContent || "").trim())
+      .filter(Boolean);
+    const perRole = roles.map((role) => {
+      const el = document.querySelector('.agent-avatar[data-avatar="' + role + '"]');
+      if (!el) return { role, ok: false, reason: "missing" };
+      const blush = !!el.querySelector(".avatar-blush");
+      const eyes = el.querySelectorAll(".avatar-eye").length;
+      const mouth = !!el.querySelector(".avatar-mouth");
+      const chrome = !!el.querySelector(".avatar-chrome");
+      if (!blush) return { role, ok: false, reason: "no blush" };
+      if (eyes < 2) return { role, ok: false, reason: "need 2 eye dots, got " + eyes };
+      if (!mouth) return { role, ok: false, reason: "no mouth" };
+      if (!chrome) return { role, ok: false, reason: "no chrome props" };
+      return { role, ok: true };
+    });
+    const faceMarkup =
+      window.AgentCards && typeof window.AgentCards.faceMarkup === "function"
+        ? window.AgentCards.faceMarkup("advisor", { size: "sm" })
+        : "";
+    return {
+      initials,
+      initialText,
+      perRole,
+      faceMarkupHasInitials: /avatar-initials|>\s*Fb\s*</.test(faceMarkup),
+      faceMarkupHasEyes: /avatar-eye/.test(faceMarkup)
+    };
+  });
+  if (faces.initials > 0) {
+    errors.push("letter-circle initials must not render (found " + faces.initials + ")");
+  }
+  if (faces.initialText.length) {
+    errors.push("avatar text content must be empty (got " + faces.initialText.join(",") + ")");
+  }
+  faces.perRole.forEach((r) => {
+    if (!r.ok) errors.push("cute face " + r.role + ": " + r.reason);
+  });
+  if (faces.faceMarkupHasInitials) {
+    errors.push("AgentCards.faceMarkup must not emit initials");
+  }
+  if (!faces.faceMarkupHasEyes) {
+    errors.push("AgentCards.faceMarkup should emit avatar-eye dots");
+  }
   if (!ui.hasDaily) errors.push("daily stats card missing");
   if (!ui.privacyLit) errors.push("Demo fixtures did not light any privacy meter");
   if (!ui.heuristicLabels) {

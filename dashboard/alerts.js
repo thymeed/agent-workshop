@@ -183,7 +183,25 @@
       li.setAttribute("role", "button");
       li.setAttribute("aria-label", status + " · " + name);
       tipCopy(li, name + " · " + status, statusTipDetail(it));
+      var faceRole = "";
+      if (global.AgentCards && typeof global.AgentCards.roleFromAgentHint === "function") {
+        faceRole = global.AgentCards.roleFromAgentHint({
+          name: name,
+          agentId: it.agentId
+        });
+      }
+      var faceHtml = "";
+      if (
+        faceRole &&
+        global.AgentCards &&
+        typeof global.AgentCards.faceMarkup === "function"
+      ) {
+        faceHtml = global.AgentCards.faceMarkup(faceRole, { size: "sm" });
+      }
       li.innerHTML =
+        (faceHtml
+          ? '<span class="alert-face" aria-hidden="true">' + faceHtml + "</span>"
+          : "") +
         '<span class="alert-status alert-status-' +
         escapeHtml(status) +
         '">' +
@@ -195,6 +213,7 @@
         '<span class="alert-ts">' +
         escapeHtml(formatTs(it.ts)) +
         "</span>";
+      if (faceHtml) li.classList.add("has-face");
       listEl.appendChild(li);
     });
     applyChromeTips();

@@ -452,6 +452,82 @@
   }
 
   /**
+   * Cute face markup for a role — soft blush + real eye dots + mouth.
+   * Never letter-circle initials (Op/Fb/…). Props (crown/star/band/hat/glasses)
+   * live on `.avatar-chrome` via cards.css. Keep mouths in sync with stage SVG.
+   */
+  function faceMarkup(role, opts) {
+    opts = opts || {};
+    var r = ROLE_KEYS.indexOf(role) >= 0 ? role : "opus";
+    var size = opts.size === "sm" ? " avatar-sm" : "";
+    var state = opts.state ? " state-" + opts.state : " state-idle";
+    return (
+      '<span class="agent-avatar' +
+      size +
+      state +
+      '" data-avatar="' +
+      r +
+      '" aria-hidden="true">' +
+      '<span class="avatar-chrome" aria-hidden="true"></span>' +
+      '<span class="avatar-face">' +
+      '<span class="avatar-blush" aria-hidden="true"></span>' +
+      '<span class="avatar-eyes" aria-hidden="true">' +
+      '<span class="avatar-eye"></span>' +
+      '<span class="avatar-eye"></span>' +
+      "</span>" +
+      '<span class="avatar-mouth" aria-hidden="true"></span>' +
+      "</span>" +
+      "</span>"
+    );
+  }
+
+  /** Map alert / history hints → card role key (opus/advisor/worker/explorer/researcher). */
+  function roleFromAgentHint(hint) {
+    if (!hint) return "";
+    if (typeof hint === "string") {
+      hint = { name: hint, agentId: hint };
+    }
+    var name = String(hint.name || hint.role || "").toLowerCase();
+    var agentId = String(hint.agentId || "").toLowerCase();
+    var model = String(hint.model || "").toLowerCase();
+    if (
+      name.indexOf("advisor") >= 0 ||
+      name.indexOf("fable") >= 0 ||
+      model.indexOf("fable") >= 0 ||
+      agentId.indexOf("advisor") >= 0
+    ) {
+      return "advisor";
+    }
+    if (
+      name.indexOf("worker") >= 0 ||
+      name.indexOf("sonnet") >= 0 ||
+      model.indexOf("sonnet") >= 0 ||
+      agentId.indexOf("worker") >= 0
+    ) {
+      return "worker";
+    }
+    if (name.indexOf("research") >= 0 || agentId.indexOf("research") >= 0) {
+      return "researcher";
+    }
+    if (
+      name.indexOf("explor") >= 0 ||
+      agentId.indexOf("explor") >= 0 ||
+      (model.indexOf("haiku") >= 0 && name.indexOf("research") < 0)
+    ) {
+      return "explorer";
+    }
+    if (
+      name.indexOf("parent") >= 0 ||
+      name.indexOf("opus") >= 0 ||
+      model.indexOf("opus") >= 0 ||
+      agentId.indexOf("parent") >= 0
+    ) {
+      return "opus";
+    }
+    return "";
+  }
+
+  /**
    * Mount the per-role cute face (`data-avatar`) into the card head.
    * Idle mouths are CSS per role in cards.css (flat / grin / dash / U / o) —
    * keep in sync with stage SVG mouths in model-routing-dashboard.html.
@@ -468,7 +544,10 @@
       '<span class="avatar-chrome" aria-hidden="true"></span>' +
       '<span class="avatar-face">' +
       '<span class="avatar-blush" aria-hidden="true"></span>' +
-      '<span class="avatar-eyes" aria-hidden="true"></span>' +
+      '<span class="avatar-eyes" aria-hidden="true">' +
+      '<span class="avatar-eye"></span>' +
+      '<span class="avatar-eye"></span>' +
+      "</span>" +
       '<span class="avatar-mouth" aria-hidden="true"></span>' +
       "</span>";
     head.insertBefore(wrap, head.firstChild);
@@ -825,6 +904,8 @@
     setStatus: setStatus,
     prettyStatusText: prettyStatusText,
     formatStatusHtml: formatStatusHtml,
+    faceMarkup: faceMarkup,
+    roleFromAgentHint: roleFromAgentHint,
     setAvatarState: setAvatarState,
     celebrateShip: celebrateShip,
     getRoleActiveStarted: getRoleActiveStarted,
