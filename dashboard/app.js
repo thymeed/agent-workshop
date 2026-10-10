@@ -64,7 +64,6 @@
     shareSonnet: document.getElementById("shareSonnet"),
     shareHaiku: document.getElementById("shareHaiku")
   };
-  var workshop = document.getElementById("workshop");
   var asksLabel = document.getElementById("asksLabel");
   var delegatesLabel = document.getElementById("delegatesLabel");
   var hudSessionCost = document.getElementById("hudSessionCost");
@@ -105,7 +104,6 @@
       "Near-real file polling · last bridge transcript scan (not hook-level realtime)"
     );
   })();
-  var crateTooltip = document.getElementById("crateTooltip");
   var stageToast = document.getElementById("stageToast");
   var appEl = document.getElementById("app");
   var drawersEl = document.getElementById("drawers");
@@ -570,32 +568,13 @@
     if (window.TipLayer && typeof window.TipLayer.hide === "function") {
       window.TipLayer.hide();
     }
-    if (crateTooltip) crateTooltip.hidden = true;
   }
 
   function showCrateTooltip(ev, el) {
-    if (!el) return;
+    if (!el || !window.TipLayer || typeof window.TipLayer.show !== "function") return;
     var tip = el.dataset.path || "—";
     var detail = (el.dataset.role || "") + (el.dataset.detail ? " · " + el.dataset.detail : "");
-    if (window.TipLayer && typeof window.TipLayer.show === "function") {
-      if (crateTooltip) crateTooltip.hidden = true;
-      window.TipLayer.show({ tip: tip, detail: detail }, ev);
-      return;
-    }
-    if (!crateTooltip || !workshop) return;
-    var wr = workshop.getBoundingClientRect();
-    crateTooltip.hidden = false;
-    crateTooltip.innerHTML =
-      '<div class="tt-path">' +
-      escapeHtml(tip) +
-      "</div>" +
-      '<div class="tt-detail">' +
-      escapeHtml(detail) +
-      "</div>";
-    var x = ev.clientX - wr.left + 12;
-    var y = ev.clientY - wr.top + 12;
-    crateTooltip.style.left = Math.min(x, wr.width - 200) + "px";
-    crateTooltip.style.top = Math.min(y, wr.height - 60) + "px";
+    window.TipLayer.show({ tip: tip, detail: detail }, ev);
   }
 
   function openActivityDrawer(filterRole) {

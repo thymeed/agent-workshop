@@ -846,31 +846,6 @@ h1.headline em {
   color: var(--advisor, #f5a524);
 }
 
-.crate-tooltip {
-  position: absolute;
-  z-index: 5;
-  max-width: 260px;
-  padding: 7px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(10, 14, 15, 0.94);
-  color: var(--text);
-  font-size: 11px;
-  pointer-events: none;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.crate-tooltip .tt-path {
-  color: var(--haiku);
-  margin-bottom: 2px;
-  word-break: break-all;
-}
-
-.crate-tooltip .tt-detail {
-  color: var(--muted);
-  font-size: 10px;
-}
-
 .stage-toast {
   position: absolute;
   top: 12px;
