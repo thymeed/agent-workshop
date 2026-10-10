@@ -9,9 +9,9 @@ Whenever you ship a **product or behavior** change in this repo, update the matc
 
 ## What to update
 
-- **`CLAUDE.md`** — key files table and **Product surfaces** when a new surface, module, or notable stage/card/chrome behavior lands.
-- **`README.md`** — only when the change is **user-facing** (how to run, Demo/Live behavior, visible UI, limits).
-- **Inline docs** — brief JSDoc or a one-line comment on new/changed **public helpers** and non-obvious APIs (e.g. `stageDirector.*` exports).
+- **`CLAUDE.md`.** Key files table and **Product surfaces** when a new surface, module, or notable stage/card/chrome behavior lands.
+- **`README.md`.** Only when the change is **user-facing** (how to run, Demo/Live behavior, visible UI, limits).
+- **Inline docs.** Brief JSDoc or a one-line comment on new/changed **public helpers** and non-obvious APIs (e.g. `stageDirector.*` exports).
 - Prefer **repo docs** over plan files; skip or lightly note plans unless the user asked for them.
 
 ## Checklist (before “done”)

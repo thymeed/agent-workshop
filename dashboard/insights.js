@@ -7,7 +7,7 @@
 (function (global) {
   "use strict";
 
-  /* —— Single configurable price table + spend limit —— */
+  /* Single configurable price table + spend limit */
   var CONFIG = {
     /** USD per 1M tokens */
     prices: {
@@ -321,7 +321,7 @@
   }
 
   function formatMoney(n) {
-    if (!isFinite(n)) return "$—";
+    if (!isFinite(n)) return "$n/a";
     if (n < 0.01 && n > 0) return "$" + n.toFixed(4);
     return "$" + n.toFixed(2);
   }
@@ -497,21 +497,21 @@
       if (model === "fable" && (lookUpOnly || readHeavy || lightEdit)) {
         suggestion = lookUpOnly || readHeavy ? "haiku" : "sonnet";
         reason = lookUpOnly
-          ? "Lookup-style agent on Fable — Haiku is enough for file scans."
+          ? "Lookup-style agent on Fable. Haiku is enough for file scans."
           : readHeavy
-            ? "Read-heavy turns with little output — cheaper model fits."
-            : "Light edit volume — Sonnet or Auto could cover this.";
+            ? "Read-heavy turns with little output. A cheaper model fits."
+            : "Light edit volume. Sonnet or Auto could cover this.";
       } else if (model === "opus" && a.parentId && (lightEdit || readHeavy)) {
         suggestion = readHeavy ? "haiku" : "auto";
         reason = readHeavy
-          ? "Child agent mostly reading — Haiku or Auto instead of Opus."
-          : "Non-parent Opus on a small edit — Auto is a plausible fit.";
+          ? "Child agent mostly reading. Haiku or Auto instead of Opus."
+          : "Non-parent Opus on a small edit. Auto is a plausible fit.";
       } else if (model === "sonnet" && readHeavy && a.outputTokens < 2000) {
         suggestion = "haiku";
-        reason = "Mostly input tokens, tiny output — Haiku is enough.";
+        reason = "Mostly input tokens, tiny output. Haiku is enough.";
       } else if (model === "opus" && !a.parentId && lightEdit && a.inputTokens < 12000) {
         suggestion = "auto";
-        reason = "Short parent turn — Auto could have handled planning lightly.";
+        reason = "Short parent turn. Auto could have handled planning lightly.";
       }
 
       if (suggestion && suggestion !== model) {
@@ -627,12 +627,12 @@
             escapeHtml(n.model) +
             " agent · " +
             (n.state === "active"
-              ? "mid-turn — crayons flying"
+              ? "Turn in progress"
               : n.state === "done"
-                ? "done — stretch break"
+                ? "Finished"
                 : n.state === "error"
-                  ? "oops — something stubbed a toe"
-                  : "spawned — saying hi to the bench");
+                  ? "Error"
+                  : "Spawned");
           return (
             '<div class="insights-tree-node state-' +
             escapeHtml(n.state) +
@@ -663,10 +663,10 @@
     }
     if (!roots.length) {
       return (
-        '<div class="insights-empty" data-tree-empty data-tip="Quiet workshop" data-tip-detail="No agents on the bench yet — spawn one and this little tree sprouts leaves.">' +
+        '<div class="insights-empty" data-tree-empty data-tip="Quiet workshop" data-tip-detail="No agents in this frame yet. Run a session with subagents to populate the tree.">' +
         emptyBlockFace() +
-        "<strong>Workshop is quiet</strong>" +
-        "No agents on the bench yet — spawn one and the tree grows here." +
+        "<strong>No agents yet</strong>" +
+        "Spawn a subagent in Cursor and replay will list it here." +
         "</div>"
       );
     }
@@ -695,7 +695,7 @@
   }
 
   async function loadDemoEvents() {
-    /* file:// and the live bridge do not ship test/fixtures — use inlined copy */
+    /* file:// and the live bridge do not ship test/fixtures. use inlined copy */
     if (useInlinedDemoHistory()) {
       return DEMO_HISTORY.events.slice();
     }
@@ -751,27 +751,27 @@
       '<section class="insights-root" data-insights="1" aria-label="Insights">' +
         '<header class="insights-header">' +
         '<div class="insights-brand">' +
-        '<div class="insights-mascot" aria-hidden="true" data-tip="Workshop buddy" data-tip-detail="Your cute cost coach — same Cursor Agents workshop energy as the stage."><span class="insights-mascot-mouth"></span></div>' +
+        '<div class="insights-mascot" aria-hidden="true" data-tip="Insights mascot" data-tip-detail="Decorative block agent. Cost numbers come from transcript token estimates."><span class="insights-mascot-mouth"></span></div>' +
         "<div>" +
-        '<div class="insights-eyebrow" data-tip="Cursor Agents" data-tip-detail="Insights lives in the same workshop as the stage and stations.">Cursor Agents · Workshop</div>' +
-        '<h2 class="insights-title" data-tip="Insights" data-tip-detail="Forecast, thrifty reroutes, replay, and what-if daydreams.">Insights</h2>' +
-        '<p class="insights-config-hint" data-estimates-glossary data-tip="Estimates glossary" data-tip-detail="Playful math from transcript activity — never an official invoice.">' +
+        '<div class="insights-eyebrow" data-tip="Cursor Agents" data-tip-detail="Same app shell as the stage and station cards.">Cursor Agents · Workshop</div>' +
+        '<h2 class="insights-title" data-tip="Insights" data-tip-detail="Forecast spend, cheaper-model suggestions, session replay, and what-if pricing.">Insights</h2>' +
+        '<p class="insights-config-hint" data-estimates-glossary data-tip="Estimates glossary" data-tip-detail="Token math from transcript activity. Not an official invoice.">' +
         "Estimates · not official invoices" +
         "</p>" +
         "</div>" +
         "</div>" +
         '<div class="insights-controls">' +
         '<label class="insights-session-label" data-tip="Session picker" data-tip-detail="Replay &amp; suggestions follow this session; forecast KPIs stay all-sessions.">Session ' +
-        '<select class="insights-session" aria-label="Session" data-tip="Session picker" data-tip-detail="Pick which chat tape to inspect — thrifty tips &amp; replay tag along."></select>' +
+        '<select class="insights-session" aria-label="Session" data-tip="Session picker" data-tip-detail="Replay and suggestions use the selected session. Forecast KPIs stay all-sessions."></select>' +
         "</label>" +
-        '<span class="insights-mode-pill" data-mode data-tip="Insights mode" data-tip-detail="Demo = inlined playbook toys; Live = bridge history from your machine."></span>' +
+        '<span class="insights-mode-pill" data-mode data-tip="Insights mode" data-tip-detail="Demo uses inlined fixture data. Live reads history from the bridge on this machine."></span>' +
         "</div>" +
         "</header>" +
         '<nav class="insights-tabs" role="tablist" aria-label="Insights sheets">' +
-        '<button type="button" class="insights-tab on" data-tab="forecast" role="tab" aria-selected="true" data-tip="Forecast sheet" data-tip-detail="Piggy-bank pace, soft limit, and per-model snack tallies.">Forecast</button>' +
-        '<button type="button" class="insights-tab" data-tab="suggestions" role="tab" aria-selected="false" data-tip="Suggestions sheet" data-tip-detail="Cute reroutes ranked by $ — click a card to jump that agent on stage.">Suggestions</button>' +
-        '<button type="button" class="insights-tab" data-tab="replay" role="tab" aria-selected="false" data-tip="Replay sheet" data-tip-detail="Scrub the agent tree like a tiny workshop film strip.">Replay</button>' +
-        '<button type="button" class="insights-tab" data-tab="whatif" role="tab" aria-selected="false" data-tip="What-if sheet" data-tip-detail="Same tokens, silly price daydreams — never rewires real routing.">What-if</button>' +
+        '<button type="button" class="insights-tab on" data-tab="forecast" role="tab" aria-selected="true" data-tip="Forecast sheet" data-tip-detail="Spend pace, soft limit, and per-model token tallies for the Insights window.">Forecast</button>' +
+        '<button type="button" class="insights-tab" data-tab="suggestions" role="tab" aria-selected="false" data-tip="Suggestions sheet" data-tip-detail="Cheaper-model ideas ranked by estimated savings. Click a row to jump that agent on stage.">Suggestions</button>' +
+        '<button type="button" class="insights-tab" data-tab="replay" role="tab" aria-selected="false" data-tip="Replay sheet" data-tip-detail="Scrub the session timeline and inspect the agent tree at each event.">Replay</button>' +
+        '<button type="button" class="insights-tab" data-tab="whatif" role="tab" aria-selected="false" data-tip="What-if sheet" data-tip-detail="Same token counts with alternate model prices. Does not change live routing.">What-if</button>' +
         "</nav>" +
         '<div class="insights-panels">' +
         '<div class="insights-panel on" data-panel="forecast" role="tabpanel"></div>' +
@@ -873,7 +873,7 @@
         })
         .join("");
       var hitLabel = !isFinite(period.daysToLimit)
-        ? "No spend pace yet — cannot project limit."
+        ? "No spend pace yet. Cannot project limit."
         : period.remaining <= 0
           ? "Limit already reached at current tally."
           : "All sessions · avg " +
@@ -889,17 +889,17 @@
       panel.innerHTML =
         '<div class="insights-forecast">' +
         '<div class="insights-kpi-row">' +
-        '<div class="insights-kpi" data-tip="Period spend" data-tip-detail="Piggy-bank total for every session in this Insights window — estimates only."><span>Period spend</span><strong data-forecast-spend>' +
+        '<div class="insights-kpi" data-tip="Period spend" data-tip-detail="Total estimated spend for every session in this Insights window."><span>Period spend</span><strong data-forecast-spend>' +
         formatMoney(period.spend) +
         "</strong></div>" +
-        '<div class="insights-kpi" data-tip="Soft limit" data-tip-detail="A friendly ceiling from Insights CONFIG — pace math only, not a hard billing stop."><span>Limit</span><strong data-forecast-limit>' +
+        '<div class="insights-kpi" data-tip="Soft limit" data-tip-detail="Ceiling from Insights CONFIG. Used for pace math only, not a billing stop."><span>Limit</span><strong data-forecast-limit>' +
         formatMoney(period.limit) +
         "</strong></div>" +
-        '<div class="insights-kpi" data-tip="Average daily" data-tip-detail="How fast the piggy fills: period spend ÷ span days (all sessions)."><span>Avg daily</span><strong data-forecast-pace>' +
+        '<div class="insights-kpi" data-tip="Average daily" data-tip-detail="Period spend divided by span days (all sessions)."><span>Avg daily</span><strong data-forecast-pace>' +
         formatMoney(period.usdPerDay) +
         "/day</strong></div>" +
         "</div>" +
-        '<p class="insights-forecast-note" data-forecast-hit data-forecast-scope="all-sessions" data-tip="Limit forecast" data-tip-detail="When the soft limit might wave hello if the all-session pace keeps humming.">' +
+        '<p class="insights-forecast-note" data-forecast-hit data-forecast-scope="all-sessions" data-tip="Limit forecast" data-tip-detail="Projected date the soft limit is hit if all-session pace continues.">' +
         escapeHtml(hitLabel) +
         "</p>" +
         '<p class="insights-session-breakdown" data-tip="Session slice" data-tip-detail="Model rows follow the session picker; the KPI strip stays all-sessions.">Session breakdown' +
@@ -909,9 +909,9 @@
         "<thead><tr><th>Model</th><th>In</th><th>Out</th><th>Cost</th></tr></thead>" +
         "<tbody>" +
         (rows ||
-          '<tr data-tip="No turns yet" data-tip-detail="This session is on standby — costs show up after agents chat."><td colspan="4"><div class="insights-empty" style="border:none;background:transparent;padding:8px 0">' +
+          '<tr data-tip="No turns yet" data-tip-detail="No billable turns in this session yet."><td colspan="4"><div class="insights-empty" style="border:none;background:transparent;padding:8px 0">' +
             emptyBlockFace() +
-            "<strong>No turns yet</strong>This session is on standby — costs show up after agents chat.</div></td></tr>") +
+            "<strong>No turns yet</strong>No billable turns in this session yet.</div></td></tr>") +
         "</tbody></table>" +
         '<p class="insights-config-hint" data-tip="CONFIG prices" data-tip-detail="Tweak $/1M rates and the soft limit (' +
         formatMoney(CONFIG.limitUsd) +
@@ -956,7 +956,7 @@
             s.suggestion +
             " · save " +
             formatMoney(s.savings) +
-            (s.reason ? " — " + s.reason : "")
+            (s.reason ? ". " + s.reason : "")
           );
         })
         .join("\n");
@@ -1015,13 +1015,13 @@
       if (!list.length) {
         panel.innerHTML =
           '<div class="insights-suggest">' +
-          '<p class="insights-suggest-honesty" data-suggestions-honesty data-tip="Honesty chip" data-tip-detail="These tips never rewire Cursor routing — they are playful cost daydreams only.">' +
-          "Does not change Cursor routing — estimates only." +
+          '<p class="insights-suggest-honesty" data-suggestions-honesty data-tip="Honesty chip" data-tip-detail="Suggestions do not change Cursor routing. Estimates only.">' +
+          "Does not change Cursor routing. Estimates only." +
           "</p>" +
-          '<div class="insights-empty" data-suggestions-empty data-tip="All clear" data-tip-detail="No cheaper-route flags this session — the crew already looks thrifty (or still warming up).">' +
+          '<div class="insights-empty" data-suggestions-empty data-tip="All clear" data-tip-detail="No cheaper-model flags for this session.">' +
           emptyBlockFace() +
-          "<strong>Routing looks snug</strong>" +
-          "No cheaper-route flags for this session." +
+          "<strong>No suggestions</strong>" +
+          "No cheaper-model flags for this session." +
           "</div>" +
           "</div>";
         return;
@@ -1031,22 +1031,22 @@
       }, 0);
       panel.innerHTML =
         '<div class="insights-suggest">' +
-        '<div class="insights-suggest-hero" data-tip="Potential savings" data-tip-detail="Sum of estimated $ if every ranked suggestion were applied — still estimates, still not invoices.">' +
+        '<div class="insights-suggest-hero" data-tip="Potential savings" data-tip-detail="Sum of estimated savings if every ranked suggestion were applied. Not an invoice.">' +
         '<div class="insights-suggest-hero-copy">' +
-        '<span class="insights-suggest-hero-label">Could stash</span>' +
+        '<span class="insights-suggest-hero-label">Est. savings</span>' +
         '<span class="insights-suggest-hero-value">' +
         formatMoney(totalSave) +
         "</span>" +
         '<p class="insights-suggest-hero-sub">' +
         list.length +
-        " cute reroute" +
+        " suggestion" +
         (list.length === 1 ? "" : "s") +
         " · ranked by $</p>" +
         "</div>" +
         "</div>" +
         '<div class="insights-suggest-toolbar">' +
-        '<p class="insights-suggest-honesty" data-suggestions-honesty data-tip="Honesty chip" data-tip-detail="Does not change Cursor routing — click a card to jump that agent on the workshop stage.">' +
-        "Does not change Cursor routing — click a row to jump to that agent on the stage." +
+        '<p class="insights-suggest-honesty" data-suggestions-honesty data-tip="Honesty chip" data-tip-detail="Does not change Cursor routing. Click a row to jump that agent on the workshop stage.">' +
+        "Does not change Cursor routing. Click a row to jump to that agent on the stage." +
         "</p>" +
         '<button type="button" class="insights-suggest-copy" data-suggestions-copy data-tip="Copy as notes" data-tip-detail="Clipboard a numbered list of savings tips for your own notes.">' +
         "Copy as notes" +
@@ -1063,7 +1063,7 @@
               escapeHtml(s.suggestion) +
               " · " +
               escapeHtml(saveLabel) +
-              (s.reason ? " — " + escapeHtml(s.reason) : "");
+              (s.reason ? ". " + escapeHtml(s.reason) : "");
             return (
               '<li class="insights-suggest-row" data-agent-id="' +
               escapeHtml(s.agentId) +
@@ -1127,13 +1127,13 @@
       host.innerHTML =
         '<div class="insights-replay">' +
         (showTransport
-          ? '<div class="insights-transport" data-transport data-tip="Replay transport" data-tip-detail="Play, pause, or zip through the session like a tiny workshop film.">' +
-            '<button type="button" class="insights-transport-btn" data-replay-play aria-pressed="false" data-tip="Play" data-tip-detail="Advance the timeline automatically — agents pop onto the tree.">Play</button>' +
-            '<button type="button" class="insights-transport-btn" data-replay-pause data-tip="Pause" data-tip-detail="Freeze the timeline right here.">Pause</button>' +
+          ? '<div class="insights-transport" data-transport data-tip="Replay transport" data-tip-detail="Play, pause, and change replay speed for this session.">' +
+            '<button type="button" class="insights-transport-btn" data-replay-play aria-pressed="false" data-tip="Play" data-tip-detail="Advance the timeline automatically.">Play</button>' +
+            '<button type="button" class="insights-transport-btn" data-replay-pause data-tip="Pause" data-tip-detail="Freeze the timeline at this event.">Pause</button>' +
             '<div class="insights-speed" role="group" aria-label="Replay speed">' +
-            '<button type="button" data-speed="0.5" aria-pressed="false" data-tip="0.5× speed" data-tip-detail="Slo-mo — savor every spawn.">0.5×</button>' +
-            '<button type="button" data-speed="1" aria-pressed="true" data-tip="1× speed" data-tip-detail="Normal workshop tempo.">1×</button>' +
-            '<button type="button" data-speed="2" aria-pressed="false" data-tip="2× speed" data-tip-detail="Double-time — zoom past the chatter.">2×</button>' +
+            '<button type="button" data-speed="0.5" aria-pressed="false" data-tip="0.5× speed" data-tip-detail="Half speed.">0.5×</button>' +
+            '<button type="button" data-speed="1" aria-pressed="true" data-tip="1× speed" data-tip-detail="Normal speed.">1×</button>' +
+            '<button type="button" data-speed="2" aria-pressed="false" data-tip="2× speed" data-tip-detail="Double speed.">2×</button>' +
             "</div>" +
             "</div>"
           : "") +
@@ -1160,7 +1160,7 @@
             escapeHtml(normalizeModel(ev.model))
           : "No events") +
         "</p>" +
-        '<div data-replay-tree data-tip="Agent tree" data-tip-detail="Who is on the bench at this frame — hover a node for cute status gossip.">' +
+        '<div data-replay-tree data-tip="Agent tree" data-tip-detail="Agents active at this scrubber frame. Hover a node for status.">' +
         renderTree(snap.roots) +
         "</div>" +
         "</div>";
@@ -1409,7 +1409,7 @@
               formatMoney(s.cost) +
               " · bar is " +
               pct +
-              "% of the priciest daydream here.";
+              "% of the highest-cost scenario in this list.";
             return (
               '<li data-tip="' +
               tip +

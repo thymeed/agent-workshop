@@ -1,5 +1,5 @@
 /**
- * Cards module smoke — file:// Demo fixtures, avatars, privacy meter, daily stats.
+ * Cards module smoke: file:// Demo fixtures, avatars, privacy meter, daily stats.
  * Does not modify demo-smoke.test.js (owned elsewhere).
  */
 "use strict";
@@ -320,7 +320,7 @@ async function smokeLiveReplaySkipsFastestTiming(browser) {
       { timeout: liveWaitTimeout }
     );
     // Wait on the app's active-start clock (same Date.now used by setActive), not a
-    // separate wall-clock probe — Windows timer/poll jitter made a 55ms+≥40 SLA flaky.
+    // separate wall-clock probe. Windows timer/poll jitter made a 55ms+≥40 SLA flaky.
     const minActiveMs = process.platform === "win32" ? 200 : 150;
     await page.waitForFunction(
       (minMs) => {
@@ -578,12 +578,12 @@ async function smokeCardsDemo(browser) {
         /heuristic/i.test(corpus) &&
         /path-based heuristic/i.test(corpus) &&
         /not ground truth/i.test(corpus) &&
-        /nook/i.test(corpus)
+        /privacy/i.test(corpus)
       );
     });
     const runs = (document.getElementById("dailyRuns") || {}).textContent || "0";
     const tokens = (document.getElementById("dailyTokens") || {}).textContent || "0";
-    const fastest = (document.getElementById("dailyFastest") || {}).textContent || "—";
+    const fastest = (document.getElementById("dailyFastest") || {}).textContent || "n/a";
     return {
       avatars,
       privacyMeters,
@@ -697,7 +697,7 @@ async function smokeCardsDemo(browser) {
   }
   if (ui.runs === "0") errors.push("Demo daily runs still 0");
   if (ui.tokens === "0") errors.push("Demo daily tokens still 0");
-  if (!ui.fastest || ui.fastest === "—") errors.push("Demo fastest agent missing");
+  if (!ui.fastest || ui.fastest === "n/a") errors.push("Demo fastest agent missing");
 
   const demoTokensBeforeLive = ui.tokens;
 

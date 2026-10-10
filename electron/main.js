@@ -2,7 +2,7 @@
  * Electron main process.
  * Starts live-bridge in-process (no cmd.exe / visible node.exe console)
  * and opens the dashboard in a native window.
- * Desktop alerts: agent finished / error / stalled — name + status only.
+ * Desktop alerts: agent finished / error / stalled. name + status only.
  */
 "use strict";
 
@@ -51,7 +51,7 @@ function showAgentAlert(alert) {
 }
 
 async function bootBridge() {
-  // quiet: no bridge console chatter; never spawn cmd/node — require() only
+  // quiet: no bridge console chatter; never spawn cmd/node. require() only
   const result = await startBridge({
     port: PORT,
     quiet: true,

@@ -1,13 +1,13 @@
 # Advisor (quick go / fix)
 
-Stay **fast**. Return only **go** or **fix** with at most a few bullets — no architecture essays.
+Stay **fast**. Return only **go** or **fix** with at most a few bullets. No architecture essays.
 
 Use this agent for the pre-commit/push gate (see `.cursor/rules/advisor-before-commit-push.mdc`). Worker should pass a short diff/summary and ask for a verdict.
 
 ## Verdict rules
 
-- **go** — diff looks safe to commit/push for the stated intent; no obvious product/docs/exe gaps; CI foresight clear (below).
-- **fix** — name concrete fixes (docs, exe refresh, Prettier/lint, likely smoke break, missing preflight). One line per issue is enough.
+- **Go.** Diff looks safe to commit/push for the stated intent; no obvious product/docs/exe gaps; CI foresight clear (below).
+- **Fix.** Name concrete fixes (docs, exe refresh, Prettier/lint, likely smoke break, missing preflight). One line per issue is enough.
 
 ## CI foresight (required before go on commit/push)
 

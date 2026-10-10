@@ -1,5 +1,5 @@
 /**
- * Agent card rendering — avatars, privacy meter, daily stats, ship celebration.
+ * Agent card rendering: avatars, privacy meter, daily stats, ship celebration.
  * Loaded before app.js; exposes window.AgentCards.
  * Works from file:// (Demo) and bridge-served Live.
  */
@@ -26,21 +26,21 @@
   };
 
   var STATE_TIP = {
-    idle: "hanging out",
-    typing: "hard at work",
-    thinking: "pondering",
-    blocked: "paused",
-    done: "all smiles",
-    celebrating: "ship party",
-    error: "oops"
+    idle: "Idle",
+    typing: "Working",
+    thinking: "Thinking",
+    blocked: "Blocked",
+    done: "Done",
+    celebrating: "Done",
+    error: "Error"
   };
 
-  /** Cute nook words — CSS classes stay none/low/med/high. */
+  /** Privacy meter labels. CSS classes stay none/low/med/high. */
   var PRIVACY_WORD = {
-    none: "cozy",
-    low: "peek",
-    med: "hush",
-    high: "yikes"
+    none: "none",
+    low: "low",
+    med: "med",
+    high: "high"
   };
 
   var STATUS_MAX_CHARS = 68;
@@ -48,9 +48,9 @@
   var ROLE_CARD_TIPS = {
     opus: {
       name: "Opus",
-      nameDetail: "Main session lead · Cursor Agents parent",
+      nameDetail: "Main session lead (Cursor Agents parent)",
       role: "Main session",
-      roleDetail: "Routes the workshop, calls Fable, ships the story",
+      roleDetail: "Parent agent that routes work and delegates to subagents",
       effort: "Effort · high",
       effortDetail: "Opus usually runs a high-effort band",
       price: "Opus rates",
@@ -58,9 +58,9 @@
     },
     advisor: {
       name: "Fable",
-      nameDetail: "Cute advisor · steps in at sticky moments",
+      nameDetail: "Advisor subagent (Fable)",
       role: "Advisor",
-      roleDetail: "Before plan · same error ×2 · before done",
+      roleDetail: "Review at plan, repeated errors, and before done",
       effort: "Effort · high",
       effortDetail: "Advisor reviews run a high-effort band",
       price: "Fable rates",
@@ -72,9 +72,9 @@
     },
     worker: {
       name: "Worker",
-      nameDetail: "Sonnet · edits, tests, and fixes",
+      nameDetail: "Worker subagent (Sonnet)",
       role: "Sonnet · edits",
-      roleDetail: "The workshop hands that change the code",
+      roleDetail: "Edits, tests, and fixes in the repo",
       effort: "Effort · medium",
       effortDetail: "Worker usually runs a medium-effort band",
       price: "Sonnet rates",
@@ -82,27 +82,27 @@
     },
     explorer: {
       name: "Explorer",
-      nameDetail: "Haiku scout · search & map the repo",
+      nameDetail: "Explorer subagent (Haiku)",
       role: "Haiku · search",
-      roleDetail: "Read-only explore · finds paths and patterns",
+      roleDetail: "Read-only search and repo mapping",
       effort: "Effort · low",
       effortDetail: "Explorer keeps it light and fast",
       price: "Haiku rates",
       priceDetail: "Illustrative $ per 1M tokens in/out · not a bill",
       scout: "Scout mode",
-      scoutDetail: "Read-only explore — no edits from this station"
+      scoutDetail: "Read-only explore. No edits from this station."
     },
     researcher: {
       name: "Researcher",
-      nameDetail: "Haiku bookworm · docs and references",
+      nameDetail: "Researcher subagent (Haiku)",
       role: "Haiku · docs",
-      roleDetail: "Read-only research · pulls docs and patterns",
+      roleDetail: "Read-only research and doc lookup",
       effort: "Effort · low",
       effortDetail: "Researcher keeps it light and fast",
       price: "Haiku rates",
       priceDetail: "Illustrative $ per 1M tokens in/out · not a bill",
       scout: "Scout mode",
-      scoutDetail: "Read-only research — no edits from this station"
+      scoutDetail: "Read-only research. No edits from this station."
     }
   };
 
@@ -323,10 +323,10 @@
       word;
     return {
       word: word,
-      tip: "Nook · " + word,
+      tip: "Privacy · " + word,
       detail: detail,
-      title: "Nook · path-based heuristic · not ground truth · " + word,
-      aria: "Nook privacy meter (heuristic): " + word
+      title: "Privacy · path-based heuristic · not ground truth · " + word,
+      aria: "Privacy meter (heuristic): " + word
     };
   }
 
@@ -417,20 +417,16 @@
   function decorateDailyTips() {
     var article = dailyStatsEl || document.getElementById("dailyStatsCard");
     if (!article) return;
-    setTip(
-      article,
-      "Daily bench",
-      "Cute client-side totals for today · resets with the calendar day"
-    );
+    setTip(article, "Daily bench", "Client-side totals for today. Resets at local midnight.");
     setTip(
       article.querySelector(".card-name"),
       "Daily bench",
-      "Workshop chalkboard for today's runs"
+      "Run count and token estimates for today"
     );
     setTip(
       article.querySelector(".card-role"),
       "On the floor today",
-      "What the stations have been up to since midnight"
+      "Activity since local midnight"
     );
     var runs = document.getElementById("dailyRuns");
     var tokens = document.getElementById("dailyTokens");
@@ -453,7 +449,7 @@
 
   /**
    * Pixel-cast block agent SVG innards (shared by cards, alerts, optional tokens).
-   * @param {{ limbs?: boolean, compact?: boolean }} shape — stage adds arms; compact drops limbs for dense rows
+   * @param {{ limbs?: boolean, compact?: boolean }} shape. stage adds arms; compact drops limbs for dense rows
    */
   function blockAgentSvgInner(shape) {
     shape = shape || {};
@@ -475,7 +471,7 @@
   }
 
   /**
-   * Block-agent face markup — rect body, square eyes, role tint via `data-avatar` only.
+   * Block-agent face markup. rect body, square eyes, role tint via `data-avatar` only.
    */
   function faceMarkup(role, opts) {
     opts = opts || {};
@@ -567,11 +563,11 @@
     var badge = document.createElement("span");
     badge.setAttribute("data-privacy", role);
     badge.innerHTML =
-      '<span class="privacy-label" aria-hidden="true">nook</span>' +
+      '<span class="privacy-label" aria-hidden="true">privacy</span>' +
       '<span class="privacy-dots" aria-hidden="true">' +
       "<i></i><i></i><i></i>" +
       "</span>" +
-      '<span class="privacy-level">cozy</span>';
+      '<span class="privacy-level">none</span>';
     applyPrivacyChrome(badge, "none");
     row.insertBefore(badge, row.firstChild);
     privacyEls[role] = badge;
@@ -604,7 +600,7 @@
       '<div class="daily-stat"><span class="daily-stat-label">Tokens spun</span>' +
       '<strong id="dailyTokens">0</strong></div>' +
       '<div class="daily-stat"><span class="daily-stat-label">Quickest</span>' +
-      '<strong id="dailyFastest">—</strong></div>' +
+      '<strong id="dailyFastest">n/a</strong></div>' +
       "</div>";
     var mid = host.querySelector(".row.mid") || host;
     if (mid.parentNode && mid !== host) {
@@ -701,7 +697,7 @@
 
   /**
    * Ship / merge payoff for avatars only (portal + toast stay in app.js).
-   * @param {string[]|string} [roles] — roles to celebrate; defaults to currently active cards
+   * @param {string[]|string} [roles]. roles to celebrate; defaults to currently active cards
    */
   function celebrateShip(roles) {
     var list = [];
@@ -822,7 +818,7 @@
     if (fastestEl) {
       fastestEl.textContent = dayStats.fastestAgent
         ? ROLE_LABEL[dayStats.fastestAgent] || dayStats.fastestAgent
-        : "—";
+        : "n/a";
     }
   }
 

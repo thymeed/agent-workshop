@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cursor Agents · Model Routing</title>
     <!--
-  Model Routing Dashboard — Cursor Agents
+  Model Routing Dashboard. Cursor Agents
 
   Demo (static):
     Double-click this file, or open it in a browser (file://).
@@ -14,7 +14,7 @@
     Logic: dashboard/{app,cards,insights,tips,alerts,replay-stage}.js
 
   Live (session events):
-    Preferred: npm start (Electron) — bridge runs in-process, no CMD window.
+    Preferred: npm start (Electron). Bridge runs in-process, no CMD window.
     Or packaged .exe (see README). Headless: node live-bridge.js then open
     http://127.0.0.1:3847/ (or any localhost port) and click Live.
     Live-only project picker: GET /api/projects, switch via POST /api/select;
@@ -54,7 +54,7 @@
                 id="modeDemo"
                 class="on"
                 data-tip="Demo mode"
-                data-tip-detail="Scripted workshop story · no bridge, just vibes"
+                data-tip-detail="Scripted routing story. No bridge required."
               >
                 Demo
               </button>
@@ -75,7 +75,7 @@
                 aria-pressed="true"
                 data-view="stage"
                 data-tip="Stage view"
-                data-tip-detail="Cute workshop · stations bounce when busy"
+                data-tip-detail="Workshop stage and station cards"
               >
                 Stage
               </button>
@@ -239,12 +239,12 @@
           <div class="live-coach-inner">
             <h2 class="live-coach-title">Live workshop</h2>
             <ul class="live-coach-list">
-              <li>Pick a Cursor project — the bridge tails that project’s agent-transcripts.</li>
+              <li>Pick a Cursor project. The bridge tails that project's agent-transcripts.</li>
               <li>
                 Live sees near-real file activity, not hook-level realtime. Idle stations can mean
                 healthy quiet.
               </li>
-              <li>Session Bill and HUD costs are estimates — not official invoices.</li>
+              <li>Session Bill and HUD costs are estimates, not official invoices.</li>
             </ul>
             <button
               type="button"
@@ -367,7 +367,7 @@
             <g id="cratesLayer"></g>
             <g id="sparksLayer"></g>
 
-            <!-- Opus desk — pixel-cast block agent -->
+            <!-- Opus desk. pixel-cast block agent -->
             <g
               class="char"
               id="char-opus"
@@ -376,7 +376,7 @@
               role="button"
               aria-label="Opus station"
               data-tip="Opus"
-              data-tip-detail="Cute lead at the desk · plans, reviews, and ships"
+              data-tip-detail="Parent agent: plans, reviews, and ships work"
             >
               <ellipse
                 class="station-glow"
@@ -406,7 +406,7 @@
               <text class="char-sub" x="180" y="212" text-anchor="middle">desk</text>
             </g>
 
-            <!-- Fable consult — pixel-cast block agent -->
+            <!-- Fable consult. pixel-cast block agent -->
             <g
               class="char"
               id="char-advisor"
@@ -445,7 +445,7 @@
               <text class="char-sub" x="820" y="212" text-anchor="middle">consult</text>
             </g>
 
-            <!-- Sonnet build bench — pixel-cast block agent -->
+            <!-- Sonnet build bench. pixel-cast block agent -->
             <g
               class="char"
               id="char-worker"
@@ -484,7 +484,7 @@
               <text class="char-sub" x="500" y="340" text-anchor="middle">build</text>
             </g>
 
-            <!-- Explore shelves — pixel-cast block agent -->
+            <!-- Explore shelves. pixel-cast block agent -->
             <g
               class="char"
               id="char-explorer"
@@ -524,7 +524,7 @@
               <text class="char-label" x="280" y="420" text-anchor="middle">Explore</text>
             </g>
 
-            <!-- Research library — pixel-cast block agent -->
+            <!-- Research library. pixel-cast block agent -->
             <g
               class="char"
               id="char-researcher"
@@ -577,7 +577,7 @@
               id="mergePortal"
               tabindex="0"
               role="button"
-              aria-label="Merge portal — open Activity"
+              aria-label="Merge portal, open Activity"
               data-tip="Merge portal"
               data-tip-detail="Where crates land · click to open Activity and cheer ships"
             >
@@ -609,7 +609,7 @@
                 class="hud-chip active-role"
                 data-tip="Active role"
                 data-tip-detail="Who’s bouncing on stage right now"
-                >active <strong id="hudActiveRole">—</strong></span
+                >active <strong id="hudActiveRole">n/a</strong></span
               >
               <span
                 class="hud-chip"
@@ -686,7 +686,7 @@
                 <span class="price">$10.00 / $50.00 <strong>per 1M in/out</strong></span>
                 <span class="call-count">Calls <strong id="advisorCalls">0</strong></span>
               </div>
-              <div class="advisor-quiet" id="advisorLast">Last advice: —</div>
+              <div class="advisor-quiet" id="advisorLast">Last advice: none</div>
             </article>
           </section>
 
@@ -722,7 +722,7 @@
                   <span
                     class="readonly-pill"
                     data-tip="Scout mode"
-                    data-tip-detail="Read-only explore — no edits from this station"
+                    data-tip-detail="Read-only explore. No edits from this station."
                     >scout</span
                   >
                   <div class="effort" title="Effort: low">
@@ -749,7 +749,7 @@
                   <span
                     class="readonly-pill"
                     data-tip="Scout mode"
-                    data-tip-detail="Read-only research — no edits from this station"
+                    data-tip-detail="Read-only research. No edits from this station."
                     >scout</span
                   >
                   <div class="effort" title="Effort: low">
@@ -874,7 +874,7 @@
                     <div class="all-opus">
                       same work all-Opus <strong id="billAllOpus">$0.00</strong>
                     </div>
-                    <div class="savings-x" id="billMultiplier">—</div>
+                    <div class="savings-x" id="billMultiplier">n/a</div>
                     <div class="savings-note" id="billSavingsNote">savings vs all-Opus</div>
                   </div>
                 </div>
