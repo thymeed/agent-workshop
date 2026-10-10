@@ -168,6 +168,19 @@
   flex: 0 0 auto;
 }
 
+/* Idle = awake open dots (match workshop stage); never squint arcs here */
+.agent-avatar.state-idle .avatar-eyes {
+  top: 13px;
+  width: 20px;
+}
+.agent-avatar.state-idle .avatar-eye {
+  width: 5px;
+  height: 5px;
+  border: none;
+  border-radius: 50%;
+  background: var(--avatar-ink);
+}
+
 .avatar-mouth {
   top: 24px;
   width: 9px;
@@ -395,12 +408,12 @@
  */
 .agent-avatar[data-avatar="opus"].state-idle .avatar-mouth {
   width: 13px;
-  height: 3px;
+  height: 2.4px;
   top: 26px;
   border: none;
-  border-radius: 0 0 14px 14px;
-  border-bottom: 2.4px solid var(--avatar-ink);
-  background: transparent;
+  border-radius: 1px;
+  border-bottom: none;
+  background: var(--avatar-ink);
   opacity: 0.9;
 }
 
@@ -435,6 +448,22 @@
   border-radius: 0 0 9px 9px;
   background: rgba(40, 52, 8, 0.14);
   opacity: 0.92;
+}
+.agent-avatar[data-avatar="explorer"].state-idle .avatar-mouth::before,
+.agent-avatar[data-avatar="explorer"].state-idle .avatar-mouth::after {
+  content: "";
+  position: absolute;
+  bottom: -0.5px;
+  width: 1.6px;
+  height: 3px;
+  background: var(--avatar-ink);
+  border-radius: 0.5px;
+}
+.agent-avatar[data-avatar="explorer"].state-idle .avatar-mouth::before {
+  left: -0.5px;
+}
+.agent-avatar[data-avatar="explorer"].state-idle .avatar-mouth::after {
+  right: -0.5px;
 }
 
 .agent-avatar[data-avatar="researcher"].state-idle .avatar-mouth {

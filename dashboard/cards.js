@@ -645,19 +645,26 @@
       void el.offsetWidth;
     }
     el.className = cls;
+    el.setAttribute("data-avatar", role);
     syncAvatarTip(role);
   }
 
+  /**
+   * Map card status copy → avatar expression. Idle uses open eye dots + per-role mouths
+   * (Standby/Quiet/replay idle). Squint (thinking) only for active review/analyze copy.
+   * Closed eyes stay on done / celebrating — not routine idle.
+   */
   function inferAvatarFromStatus(role, html, cls) {
     var text = String(html || "").replace(/<[^>]+>/g, " ");
     var fail = cls === "fail" || /\bFAIL\b/i.test(text);
     var blocked = /\b(Blocked|Stalled|Stall|stuck)\b/i.test(text);
     var celebrating = /\b(shipped|ship|merge[d]?)\b/i.test(text);
-    var done =
-      cls === "pass" ||
-      /\b(Done|PASS|complete|Quiet)\b/i.test(text) ||
-      /Idle · waiting/i.test(text);
-    var thinking = /Reviewing|Analyzing|Awaiting|waiting|Standby|Quiet/i.test(text);
+    var idle =
+      /\b(Standby|Quiet|idle)\b/i.test(text) ||
+      /Idle · waiting/i.test(text) ||
+      /Replay · idle/i.test(text);
+    var done = cls === "pass" || /\b(Done|PASS|complete)\b/i.test(text);
+    var thinking = /\b(Reviewing|Analyzing)\b/i.test(text);
     var typing = /Editing|Searching|Pulling|Calling|Task received|Plan approved|Fix applied/i.test(
       text
     );
@@ -666,10 +673,10 @@
     if (blocked) return "blocked";
     if (celebrating) return "celebrating";
     if (typing) return "typing";
-    if (thinking && !done) return "thinking";
-    if (/\b(Done|PASS)\b/i.test(text) || cls === "pass") return "done";
-    if (done) return "idle";
-    return "thinking";
+    if (thinking) return "thinking";
+    if (done) return "done";
+    if (idle) return "idle";
+    return "idle";
   }
 
   /**
