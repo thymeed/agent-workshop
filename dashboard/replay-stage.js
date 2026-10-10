@@ -35,7 +35,11 @@
     ) {
       return "explorer";
     }
-    if (name.indexOf("parent") >= 0 || model.indexOf("opus") >= 0 || agentId.indexOf("parent") >= 0) {
+    if (
+      name.indexOf("parent") >= 0 ||
+      model.indexOf("opus") >= 0 ||
+      agentId.indexOf("parent") >= 0
+    ) {
       return "opus";
     }
     return "opus";
@@ -102,8 +106,7 @@
       };
       if (Array.isArray(ev.files) && ev.files.length) {
         var path = String(ev.files[0] || "");
-        var kind =
-          cardRole === "worker" || /\.(js|ts|css|html|md)$/i.test(path) ? "edit" : "read";
+        var kind = cardRole === "worker" || /\.(js|ts|css|html|md)$/i.test(path) ? "edit" : "read";
         if (cardRole === "explorer" || cardRole === "researcher") kind = "read";
         if (cardRole === "worker") kind = "edit";
         turnEv.activity = {
