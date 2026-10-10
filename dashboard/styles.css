@@ -889,6 +889,126 @@ h1.headline em {
   }
 }
 
+.route-token {
+  pointer-events: none;
+  opacity: 0;
+}
+
+.route-token.role-advisor {
+  fill: var(--advisor);
+  stroke: rgba(245, 165, 36, 0.55);
+  stroke-width: 1.2;
+}
+.route-token.role-worker {
+  fill: var(--sonnet);
+  stroke: rgba(62, 207, 255, 0.5);
+  stroke-width: 1;
+}
+.route-token.role-explorer {
+  fill: var(--haiku);
+  stroke: rgba(184, 240, 0, 0.55);
+  stroke-width: 1.1;
+}
+.route-token.role-researcher {
+  fill: #7dffc4;
+  stroke: rgba(125, 255, 196, 0.5);
+  stroke-width: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .route-token.flying {
+    animation: route-token-fade 0.85s ease-out forwards;
+  }
+  .char.catching .body-bob {
+    animation: catch-squash 0.25s ease-out;
+  }
+  .char.catching.catch-hop .body-bob {
+    animation: catch-hop 0.25s ease-out;
+  }
+  .char[data-role="advisor"].catching .agent-accent {
+    animation: catch-accent-star 0.25s ease-out;
+  }
+  .char[data-role="worker"].catching .agent-accent {
+    animation: catch-accent-tool 0.25s ease-out;
+  }
+  .char[data-role="explorer"].catching .agent-accent,
+  .char[data-role="researcher"].catching .agent-accent {
+    animation: catch-accent-wiggle 0.25s ease-out;
+  }
+}
+
+@keyframes route-token-fade {
+  0% {
+    opacity: 0.15;
+  }
+  12% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes catch-squash {
+  0% {
+    transform: translateY(0) scale(1, 1);
+  }
+  40% {
+    transform: translateY(2px) scale(1.08, 0.88);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+}
+
+@keyframes catch-hop {
+  0% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-6px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes catch-accent-star {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.25);
+  }
+}
+
+@keyframes catch-accent-tool {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  40% {
+    transform: translate(1px, -2px);
+  }
+}
+
+@keyframes catch-accent-wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  40% {
+    transform: rotate(-12deg);
+  }
+  70% {
+    transform: rotate(8deg);
+  }
+}
+
 .tip-spark {
   pointer-events: none;
   opacity: 0;
@@ -1083,6 +1203,15 @@ h1.headline em {
   }
   .crate.flying {
     animation: none;
+    opacity: 0.7;
+  }
+  .route-token.flying,
+  .char.catching .body-bob,
+  .char.catching.catch-hop .body-bob,
+  .char.catching .agent-accent {
+    animation: none;
+  }
+  .route-token.flying {
     opacity: 0.7;
   }
 }
@@ -1832,9 +1961,13 @@ h1.headline em {
   .char.busy .body-bob,
   .char.walking .body-bob,
   .char:not(.busy):not(.walking) .body-bob,
+  .char.catching .body-bob,
+  .char.catching.catch-hop .body-bob,
+  .char.catching .agent-accent,
   .portal.inhale .portal-ring,
   .portal.idle-pulse .portal-core,
   .crate.flying,
+  .route-token.flying,
   .tip-spark.pop,
   .stage-toast {
     animation: none;
@@ -1844,7 +1977,8 @@ h1.headline em {
   .char.selected .station-glow {
     opacity: 0.7;
   }
-  .crate.flying {
+  .crate.flying,
+  .route-token.flying {
     opacity: 0.65;
   }
   .tip-spark.pop {

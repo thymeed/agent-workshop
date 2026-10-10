@@ -515,6 +515,159 @@
       }
     }
 
+    var ROUTE_TOKEN_PATH = {
+      advisor: "path-asks-pulse",
+      worker: "path-d-worker-pulse",
+      explorer: "path-d-explorer-pulse",
+      researcher: "path-d-researcher-pulse"
+    };
+    var ROUTE_TOKEN_CFG = {
+      advisor: {
+        duration: 880,
+        easePow: 2.6,
+        bobAmp: 7,
+        bobFreq: 1.4,
+        wiggleAmp: 0,
+        liftAmp: 0,
+        landHop: false
+      },
+      worker: {
+        duration: 700,
+        easePow: 1.7,
+        bobAmp: 3,
+        bobFreq: 2.2,
+        wiggleAmp: 0,
+        liftAmp: 0,
+        landHop: true
+      },
+      explorer: {
+        duration: 920,
+        easePow: 2.2,
+        bobAmp: 0,
+        bobFreq: 1,
+        wiggleAmp: 9,
+        liftAmp: 18,
+        landHop: false
+      },
+      researcher: {
+        duration: 900,
+        easePow: 2.9,
+        bobAmp: 5,
+        bobFreq: 1.1,
+        wiggleAmp: 0,
+        liftAmp: 4,
+        landHop: false
+      }
+    };
+    var MAX_ROUTE_TOKENS = 3;
+    var activeRouteTokens = [];
+
+    function removeRouteToken(el) {
+      var idx = activeRouteTokens.indexOf(el);
+      if (idx >= 0) activeRouteTokens.splice(idx, 1);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    }
+
+    function landCatch(role) {
+      var char = chars[role];
+      if (!char) return;
+      char.classList.add("catching");
+      if (ROUTE_TOKEN_CFG[role] && ROUTE_TOKEN_CFG[role].landHop) {
+        char.classList.add("catch-hop");
+      }
+      setTimeout(function () {
+        if (!chars[role]) return;
+        chars[role].classList.remove("catching", "catch-hop");
+      }, 250);
+    }
+
+    function spawnRouteToken(role) {
+      if (!cratesLayer || !role || !ROUTE_TOKEN_PATH[role]) return;
+      var path = document.getElementById(ROUTE_TOKEN_PATH[role]);
+      if (!path || typeof path.getTotalLength !== "function") return;
+      var cfg = ROUTE_TOKEN_CFG[role];
+      var reduce = prefersReducedMotion();
+      var narrow = window.matchMedia("(max-width: 900px)").matches;
+      var total = path.getTotalLength();
+      if (!total) return;
+
+      while (activeRouteTokens.length >= MAX_ROUTE_TOKENS) {
+        removeRouteToken(activeRouteTokens[0]);
+      }
+
+      var g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class", "route-token role-" + role + " flying");
+      g.setAttribute("data-role", role);
+      g.setAttribute("pointer-events", "none");
+
+      var shape;
+      if (role === "explorer") {
+        shape = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+        shape.setAttribute("points", "0,-7 7,0 0,7 -7,0");
+      } else if (role === "researcher") {
+        shape = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        shape.setAttribute("x", "-5");
+        shape.setAttribute("y", "-8");
+        shape.setAttribute("width", "10");
+        shape.setAttribute("height", "16");
+        shape.setAttribute("rx", "2.5");
+      } else if (role === "advisor") {
+        shape = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        shape.setAttribute("x", "-9");
+        shape.setAttribute("y", "-5");
+        shape.setAttribute("width", "18");
+        shape.setAttribute("height", "10");
+        shape.setAttribute("rx", "5");
+      } else {
+        shape = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        shape.setAttribute("x", "-7");
+        shape.setAttribute("y", "-5.5");
+        shape.setAttribute("width", "14");
+        shape.setAttribute("height", "11");
+        shape.setAttribute("rx", "2.5");
+      }
+      g.appendChild(shape);
+
+      function placeAt(dist, t) {
+        var pt = path.getPointAtLength(Math.max(0, Math.min(total, dist)));
+        var bob = cfg.bobAmp ? Math.sin(t * Math.PI * cfg.bobFreq) * cfg.bobAmp : 0;
+        var lift = cfg.liftAmp ? Math.sin(Math.PI * t) * cfg.liftAmp : 0;
+        var wig = cfg.wiggleAmp ? Math.sin(t * Math.PI * 3) * cfg.wiggleAmp : 0;
+        g.setAttribute("transform", "translate(" + (pt.x + wig) + " " + (pt.y + bob - lift) + ")");
+      }
+
+      placeAt(0, 0);
+      cratesLayer.appendChild(g);
+      activeRouteTokens.push(g);
+
+      if (!reduce && !narrow) {
+        var start = performance.now();
+        var dur = cfg.duration;
+        function frame(now) {
+          if (!g.parentNode) return;
+          var p = Math.min(1, (now - start) / dur);
+          var ease = 1 - Math.pow(1 - p, cfg.easePow);
+          placeAt(total * ease, ease);
+          if (p < 1) {
+            requestAnimationFrame(frame);
+          } else {
+            landCatch(role);
+            setTimeout(function () {
+              removeRouteToken(g);
+            }, 120);
+          }
+        }
+        requestAnimationFrame(frame);
+      } else {
+        placeAt(total, 1);
+        g.style.opacity = "0.7";
+        landCatch(role);
+        setTimeout(function () {
+          removeRouteToken(g);
+        }, 220);
+      }
+    }
+
     function playRoute(route, routeTo) {
       sound.play(route === "asks" ? "chime" : "whoosh");
       var walker = null;
@@ -535,12 +688,13 @@
     function reset() {
       Object.keys(chars).forEach(function (key) {
         if (!chars[key]) return;
-        chars[key].classList.remove("busy", "walking", "selected");
+        chars[key].classList.remove("busy", "walking", "selected", "catching", "catch-hop");
         if (walkTimers[key]) {
           clearTimeout(walkTimers[key]);
           delete walkTimers[key];
         }
       });
+      activeRouteTokens.length = 0;
       if (cratesLayer) cratesLayer.innerHTML = "";
       if (sparksLayer) sparksLayer.innerHTML = "";
       if (portal) portal.classList.remove("inhale");
@@ -555,6 +709,7 @@
       selectCharacter: selectCharacter,
       clearSelection: clearSelection,
       spawnCrate: spawnCrate,
+      spawnRouteToken: spawnRouteToken,
       playRoute: playRoute,
       tipSpark: tipSpark,
       pulsePortal: pulsePortal,
@@ -1493,6 +1648,7 @@
           asksLabel.classList.remove("pulse");
         }, labelMs);
       }
+      stageDirector.spawnRouteToken("advisor");
       return;
     }
     if (route === "delegates") {
@@ -1516,6 +1672,7 @@
             asksLabel.classList.remove("pulse");
           }, labelMs);
         }
+        stageDirector.spawnRouteToken(routeTo);
       } else {
         pulsePath("path-d-worker-pulse");
         pulsePath("path-d-explorer-pulse");
