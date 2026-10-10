@@ -572,25 +572,6 @@ async function smokeCardsDemo(browser) {
       if (el.querySelector(".avatar-face") || el.querySelector(".avatar-mouth")) {
         return { role, ok: false, reason: "round face or mouth present" };
       }
-      const blush = !!el.querySelector(".avatar-blush");
-      const eyes = el.querySelectorAll(".avatar-eye").length;
-      const mouth = !!el.querySelector(".avatar-mouth");
-      const chrome = !!el.querySelector(".avatar-chrome");
-      const eyesOpen =
-        !el.classList.contains("state-done") &&
-        !el.classList.contains("state-celebrating") &&
-        Array.from(el.querySelectorAll(".avatar-eye")).every((eye) => {
-          const st = getComputedStyle(eye);
-          const w = Math.max(parseFloat(st.width) || 0, parseFloat(st.minWidth) || 0);
-          const h = Math.max(parseFloat(st.height) || 0, parseFloat(st.minHeight) || 0);
-          return w >= 4 && h >= 4;
-        });
-      const idleAwake = el.classList.contains("state-idle") && eyesOpen;
-      if (!blush) return { role, ok: false, reason: "no blush" };
-      if (eyes < 2) return { role, ok: false, reason: "need 2 eye dots, got " + eyes };
-      if (!mouth) return { role, ok: false, reason: "no mouth" };
-      if (!chrome) return { role, ok: false, reason: "no chrome props" };
-      if (!idleAwake) return { role, ok: false, reason: "idle must use open eye dots" };
       return { role, ok: true };
     });
     const faceMarkup =

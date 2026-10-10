@@ -119,6 +119,7 @@
 }
 .agent-avatar.block-agent[data-avatar="worker"] {
   --block-fill: #2aa8d4;
+}
 
 /* Real eye dots (not gradient paint) — readable at card + alert sizes */
 .avatar-eyes {
@@ -172,6 +173,8 @@
   transform: scaleY(0.35);
   transform-origin: center;
   opacity: 0.85;
+}
+
 .agent-avatar.avatar-sm .avatar-eyes {
   top: 6px;
   width: 10px;
@@ -492,6 +495,7 @@
   }
   .agent-avatar.state-blocked.block-agent .block-agent-eye {
     animation: block-agent-blink 1.4s ease-in-out infinite;
+  }
   .agent-avatar.state-typing .avatar-face {
     animation: avatar-type-bounce 0.55s ease-in-out infinite;
   }

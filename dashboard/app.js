@@ -1072,13 +1072,6 @@
    * Primary nav: Stage | Insights | History.
    * Slice 1: shell only (data-view-mode + persist). Drawer open/close lands in later slices.
    */
-  function updateHistoryHint(driving) {
-    if (!historyHint) return;
-    historyHint.textContent = driving
-      ? "Replay driving stage"
-      : "Play or scrub to drive the workshop stage.";
-  }
-
   function setViewMode(mode, opts) {
     opts = opts || {};
     viewMode = normalizeViewMode(mode);

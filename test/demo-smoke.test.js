@@ -123,10 +123,6 @@ async function smokeDemoFile(browser) {
     const ink = getComputedStyle(host).getPropertyValue("--insights-ink").trim();
     if (ink !== "#f2f6f4") return false;
     const btnBg = playBtn ? getComputedStyle(playBtn).backgroundColor : "";
-    const ink = getComputedStyle(host).getPropertyValue("--insights-ink").trim();
-    if (ink !== "#f2f6f4") return false;
-    const btn = host.querySelector(".insights-transport-btn");
-    const btnBg = btn ? getComputedStyle(btn).backgroundColor : "";
     if (!btnBg || btnBg === "rgba(0, 0, 0, 0)") return false;
     if (!stationsDrawer) return true;
     return historyDrawer.getBoundingClientRect().top <= stationsDrawer.getBoundingClientRect().top;
@@ -149,10 +145,6 @@ async function smokeDemoFile(browser) {
     });
   });
   if (!stageBlocksOk) errors.push("stage chars missing pixel-cast block geometry");
-
-      "History view: replay host missing transport/scrubber, insights tokens, or History drawer not focused above Stations"
-    );
-  }
 
   const replaySeekOk = await page.evaluate(() => {
     const t = window.__cursorAgentsDashTest;
