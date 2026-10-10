@@ -106,6 +106,46 @@ async function smokeDemoFile(browser) {
     errors.push("estimatesDisclaimer trust wording missing");
   }
 
+  await page.click("#viewHistory");
+  await page.waitForSelector("#historyReplayHost [data-transport]", { timeout: 5000 });
+  const historyReplayUiOk = await page.evaluate(() => {
+    const app = document.getElementById("app");
+    if (!app || app.getAttribute("data-view-mode") !== "history") return false;
+    const host = document.getElementById("historyReplayHost");
+    const historyDrawer = document.querySelector('.drawer[data-panel="history"]');
+    const stationsDrawer = document.querySelector('.drawer[data-panel="stations"]');
+    if (!host || !historyDrawer || !historyDrawer.open) return false;
+    if (!host.querySelector("[data-transport]") || !host.querySelector("[data-scrubber]")) {
+      return false;
+    }
+    const playBtn = host.querySelector(".insights-transport-btn");
+    if (!playBtn || playBtn.offsetParent === null) return false;
+    const ink = getComputedStyle(host).getPropertyValue("--insights-ink").trim();
+    if (ink !== "#f2f6f4") return false;
+    const btnBg = playBtn ? getComputedStyle(playBtn).backgroundColor : "";
+    if (!btnBg || btnBg === "rgba(0, 0, 0, 0)") return false;
+    if (!stationsDrawer) return true;
+    return historyDrawer.getBoundingClientRect().top <= stationsDrawer.getBoundingClientRect().top;
+  });
+  if (!historyReplayUiOk) {
+    errors.push(
+      "History view: replay host missing transport/scrubber/play, insights tokens, or History drawer not focused above Stations"
+    );
+  }
+
+  const stageBlocksOk = await page.evaluate(() => {
+    const roles = ["opus", "advisor", "worker", "explorer", "researcher"];
+    return roles.every((role) => {
+      const g = document.getElementById("char-" + role);
+      return (
+        g &&
+        g.querySelector(".block-agent-fill") &&
+        g.querySelectorAll(".block-agent-eye").length >= 2
+      );
+    });
+  });
+  if (!stageBlocksOk) errors.push("stage chars missing pixel-cast block geometry");
+
   const replaySeekOk = await page.evaluate(() => {
     const t = window.__cursorAgentsDashTest;
     if (!t || typeof t.replaySeek !== "function" || !window.ReplayStage) return false;

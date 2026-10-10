@@ -6,7 +6,7 @@ Guidance for AI agents working in this repo.
 
 A **Cursor Agents** model-routing dashboard: visualize how a session routes work across parent (Opus), advisor (Fable), worker (Sonnet), and explorer/researcher (Haiku).
 
-The workshop stage and station cards use **cute Claude-agent-style characters** (soft faces, station pads/shelves, merge portal) under **Cursor Agents** branding — not Claude Code product UI.
+The workshop stage and station cards use **pixel-cast block agents** (rect sprites, station pads/shelves, merge portal) under **Cursor Agents** branding — not Claude Code product UI.
 
 Stack:
 
@@ -29,7 +29,7 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 | `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage + Live presence + inbound route tokens                               |
 | `dashboard/insights.js`        | Insights forecast + cost-ranked suggestions + History/Replay UI                                                       |
 | `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                                                 |
-| `dashboard/cards.js`           | Station cards, per-role cute faces (`faceMarkup` / `roleFromAgentHint`), daily stats, privacy meter, ship celebration |
+| `dashboard/cards.js`           | Station cards, pixel-cast `faceMarkup` / `blockAgentSvgInner`, daily stats, privacy meter, ship celebration           |
 | `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                     |
 | `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`; mini faces via `AgentCards.faceMarkup`)                         |
 | `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts`                   |
@@ -93,10 +93,9 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 
 **Product surfaces (keep in mind when editing):**
 
-- **Cute station characters** — stage figures + card avatars stay soft/Claude-agent-like; keep Cursor Agents naming (Opus / Fable / Worker / Explore / Research).
-- **Unique card faces** — Stations avatars (`data-avatar` + `cards.css`) are per-role (tuft/band/hat/glasses accents + real `.avatar-eye` dots), never letter-circle initials (Op/Fb/…). Shared `AgentCards.faceMarkup(role, { size })` builds the markup; `.avatar-sm` is for dense rows.
-- **Per-role mouths** — idle mouths must be _structurally_ different (not one smile arc + stroke tweak): Opus calm wide flat path, Fable deep grin bowl, Worker/Sonnet straight dash line, Explore open U with risers, Research filled o — on stage SVG (`#char-*` + `.agent-mouth-*` in `styles.css`) and Stations card avatars (`cards.css`). Accents (crown/star/tool/hat/glasses) stay visible on stage.
-- **Inbound route tokens** — `stageDirector.spawnRouteToken(role)` flies a small role-shaped glyph along the pulse path into the station on ask/delegate (`animateRoute`); cap concurrent tokens; respect reduced motion / narrow layouts.
+- **Pixel-cast block agents** — stage `#char-*`, Stations avatars, Insights empty states, and alerts share rect-body + square-eye sprites via `AgentCards.faceMarkup` / `blockAgentSvgInner`. Role is **fill color only** (no round faces, blush, chrome, or mouths). Stage figures include stub arms/legs; `.avatar-sm` uses compact blocks.
+- **History replay sheet** — `#historyReplayHost` mounts Insights replay transport with shared `--insights-*` tokens; History view closes competing drawers, focuses the drawer (grid order + scroll to Play), remounts replay after async Insights load and on drawer reopen; scrub/play drives the stage via `replay-stage.js`.
+- **Inbound route tokens** — `stageDirector.spawnRouteToken(role)` flies a mini block-agent glyph along the pulse path into the station on ask/delegate (`animateRoute`); cap concurrent tokens; respect reduced motion / narrow layouts.
 - **TipLayer** (`tips.js`) — one floating tip host for chrome, stage, cards, Insights, History, alerts; prefer `data-tip` / `data-tip-detail` over bare `title=` on primary controls.
 - **Alert center** (`alerts.js`) — header bell; bridge SSE `event: alert` + `GET /api/alerts` (name/status/`agentId` only); loads after `cards.js` so rows can show role mini faces via `faceMarkup` + `roleFromAgentHint`; Electron desktop Notification stays on the same emit path.
 - **Insights / Stations** — playful Insights forecast + cost-ranked suggestions; Stations drawer hosts living cards; row/alert click → `jumpToAgent` (does not change Cursor routing).
@@ -105,7 +104,7 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 
 ## Conventions
 
-- Brand as **Cursor Agents**, not Claude Code (cute characters are fine; do not relabel the product as Claude Code).
+- Brand as **Cursor Agents**, not Claude Code (pixel-cast block agents are fine; do not relabel the product as Claude Code).
 - Desktop exe: **no CMD popups** — keep the live bridge in-process inside Electron; root portable exe is the primary packaged launch path.
 - After user-facing UI/desktop changes, refresh repo-root **`AgentWorkshop.exe`** via `npm run pack` (portable) or `npm run build` (`scripts/copy-exe.js` — portable only, never naked win-unpacked). `*.exe` is gitignored — still copy locally for the user (see `.cursor/rules/refresh-desktop-exe.mdc`).
 - Keep `live-bridge.js` **reusable** from CLI and from Electron (same module/API surface).

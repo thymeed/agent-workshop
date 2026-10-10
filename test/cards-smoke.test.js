@@ -560,20 +560,18 @@ async function smokeCardsDemo(browser) {
   const faces = await page.evaluate(() => {
     const roles = ["opus", "advisor", "worker", "explorer", "researcher"];
     const initials = document.querySelectorAll(".avatar-initials").length;
-    const initialText = Array.from(document.querySelectorAll(".agent-avatar"))
-      .map((el) => (el.textContent || "").trim())
-      .filter(Boolean);
     const perRole = roles.map((role) => {
       const el = document.querySelector('.agent-avatar[data-avatar="' + role + '"]');
       if (!el) return { role, ok: false, reason: "missing" };
-      const blush = !!el.querySelector(".avatar-blush");
-      const eyes = el.querySelectorAll(".avatar-eye").length;
-      const mouth = !!el.querySelector(".avatar-mouth");
-      const chrome = !!el.querySelector(".avatar-chrome");
-      if (!blush) return { role, ok: false, reason: "no blush" };
-      if (eyes < 2) return { role, ok: false, reason: "need 2 eye dots, got " + eyes };
-      if (!mouth) return { role, ok: false, reason: "no mouth" };
-      if (!chrome) return { role, ok: false, reason: "no chrome props" };
+      if (!el.classList.contains("block-agent"))
+        return { role, ok: false, reason: "not block-agent" };
+      const body = !!el.querySelector(".block-agent-fill");
+      const eyes = el.querySelectorAll(".block-agent-eye").length;
+      if (!body) return { role, ok: false, reason: "no block body" };
+      if (eyes < 2) return { role, ok: false, reason: "need 2 square eyes, got " + eyes };
+      if (el.querySelector(".avatar-face") || el.querySelector(".avatar-mouth")) {
+        return { role, ok: false, reason: "round face or mouth present" };
+      }
       return { role, ok: true };
     });
     const faceMarkup =
@@ -582,26 +580,22 @@ async function smokeCardsDemo(browser) {
         : "";
     return {
       initials,
-      initialText,
       perRole,
-      faceMarkupHasInitials: /avatar-initials|>\s*Fb\s*</.test(faceMarkup),
-      faceMarkupHasEyes: /avatar-eye/.test(faceMarkup)
+      faceMarkupIsBlock: /block-agent/.test(faceMarkup),
+      faceMarkupHasEyes: /block-agent-eye/.test(faceMarkup)
     };
   });
   if (faces.initials > 0) {
     errors.push("letter-circle initials must not render (found " + faces.initials + ")");
   }
-  if (faces.initialText.length) {
-    errors.push("avatar text content must be empty (got " + faces.initialText.join(",") + ")");
-  }
   faces.perRole.forEach((r) => {
-    if (!r.ok) errors.push("cute face " + r.role + ": " + r.reason);
+    if (!r.ok) errors.push("block agent " + r.role + ": " + r.reason);
   });
-  if (faces.faceMarkupHasInitials) {
-    errors.push("AgentCards.faceMarkup must not emit initials");
+  if (!faces.faceMarkupIsBlock) {
+    errors.push("AgentCards.faceMarkup must emit block-agent markup");
   }
   if (!faces.faceMarkupHasEyes) {
-    errors.push("AgentCards.faceMarkup should emit avatar-eye dots");
+    errors.push("AgentCards.faceMarkup should emit block-agent-eye squares");
   }
   if (!ui.hasDaily) errors.push("daily stats card missing");
   if (!ui.privacyLit) errors.push("Demo fixtures did not light any privacy meter");

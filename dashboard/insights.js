@@ -25,6 +25,14 @@
     fixtureName: "history-demo.json"
   };
 
+  /** Pixel-cast empty-state face (shared AgentCards markup when available). */
+  function emptyBlockFace() {
+    if (global.AgentCards && typeof global.AgentCards.faceMarkup === "function") {
+      return global.AgentCards.faceMarkup("opus", { size: "sm", compact: true });
+    }
+    return '<span class="insights-empty-face" aria-hidden="true"></span>';
+  }
+
   var DEMO_HISTORY = {
     events: [
       {
@@ -638,7 +646,7 @@
     if (!roots.length) {
       return (
         '<div class="insights-empty" data-tree-empty data-tip="Quiet workshop" data-tip-detail="No agents on the bench yet — spawn one and this little tree sprouts leaves.">' +
-        '<span class="insights-empty-face" aria-hidden="true"></span>' +
+        emptyBlockFace() +
         "<strong>Workshop is quiet</strong>" +
         "No agents on the bench yet — spawn one and the tree grows here." +
         "</div>"
@@ -865,7 +873,9 @@
         "<thead><tr><th>Model</th><th>In</th><th>Out</th><th>Cost</th></tr></thead>" +
         "<tbody>" +
         (rows ||
-          '<tr data-tip="No turns yet" data-tip-detail="This session is on standby — costs show up after agents chat."><td colspan="4"><div class="insights-empty" style="border:none;background:transparent;padding:8px 0"><span class="insights-empty-face" aria-hidden="true"></span><strong>No turns yet</strong>This session is on standby — costs show up after agents chat.</div></td></tr>') +
+          '<tr data-tip="No turns yet" data-tip-detail="This session is on standby — costs show up after agents chat."><td colspan="4"><div class="insights-empty" style="border:none;background:transparent;padding:8px 0">' +
+            emptyBlockFace() +
+            "<strong>No turns yet</strong>This session is on standby — costs show up after agents chat.</div></td></tr>") +
         "</tbody></table>" +
         '<p class="insights-config-hint" data-tip="CONFIG prices" data-tip-detail="Tweak $/1M rates and the soft limit (' +
         formatMoney(CONFIG.limitUsd) +
@@ -973,7 +983,7 @@
           "Does not change Cursor routing — estimates only." +
           "</p>" +
           '<div class="insights-empty" data-suggestions-empty data-tip="All clear" data-tip-detail="No cheaper-route flags this session — the crew already looks thrifty (or still warming up).">' +
-          '<span class="insights-empty-face" aria-hidden="true"></span>' +
+          emptyBlockFace() +
           "<strong>Routing looks snug</strong>" +
           "No cheaper-route flags for this session." +
           "</div>" +
@@ -1441,7 +1451,21 @@
       }
     }
 
-    load();
+    var readyListeners = [];
+    function onReady(cb) {
+      if (typeof cb !== "function") return;
+      readyListeners.push(cb);
+    }
+    function notifyReady() {
+      readyListeners.forEach(function (fn) {
+        try {
+          fn();
+        } catch (_) {}
+      });
+      readyListeners = [];
+    }
+
+    load().then(notifyReady).catch(notifyReady);
 
     function setDemoMode(isDemo) {
       demo = !!isDemo;
@@ -1460,6 +1484,7 @@
         if (root.parentNode) root.parentNode.removeChild(root);
       },
       reload: load,
+      onReady: onReady,
       setDemoMode: setDemoMode,
       showTab: showTab,
       mountReplay: mountReplay,

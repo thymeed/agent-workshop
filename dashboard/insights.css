@@ -1,6 +1,7 @@
 /* Cursor Agents · Insights — playful workshop sheet (not chrome analytics) */
 
-.insights-root {
+.insights-root,
+.history-replay-host {
   --insights-bg: #0b0c0d;
   --insights-surface: #121618;
   --insights-surface-2: #181e20;
@@ -16,7 +17,16 @@
   --insights-mono: ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
   --insights-soft: 18px;
   --insights-round: 14px;
+}
 
+.history-replay-host {
+  color: var(--insights-ink);
+  font-family: var(--insights-mono);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.insights-root {
   position: relative;
   margin-top: 18px;
   padding: 18px 18px 16px;
@@ -691,31 +701,19 @@
 
 .insights-empty-face {
   display: block;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   margin: 0 auto 10px;
-  border-radius: 12px;
-  border: 2px solid rgba(184, 240, 0, 0.4);
-  background: linear-gradient(145deg, rgba(184, 240, 0, 0.2), rgba(62, 207, 255, 0.12));
-  position: relative;
 }
 
-.insights-empty-face::before,
-.insights-empty-face::after {
-  content: "";
-  position: absolute;
-  top: 12px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #0b0c0d;
+.insights-empty-face .block-agent-svg {
+  width: 44px;
+  height: 44px;
 }
 
-.insights-empty-face::before {
-  left: 9px;
-}
-.insights-empty-face::after {
-  right: 9px;
+.insights-empty .agent-avatar.block-agent {
+  margin: 0 auto 10px;
+  display: flex;
 }
 
 .insights-empty strong {

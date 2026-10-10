@@ -153,6 +153,14 @@ body::after {
   outline: 1px solid rgba(62, 207, 255, 0.22);
 }
 
+#app[data-view-mode="history"] .drawer[data-panel="history"] {
+  order: -10;
+}
+
+#app[data-view-mode="insights"] .drawer[data-panel="insights"] {
+  order: -10;
+}
+
 .seg button {
   appearance: none;
   border: 0;
@@ -634,147 +642,61 @@ h1.headline em {
   stroke-linecap: round;
 }
 
-/* Cute Claude-agent-like workshop figures */
+/* Pixel-cast block agents on the workshop stage */
 .agent-shadow {
   fill: rgba(0, 0, 0, 0.28);
   opacity: 0.55;
 }
-.agent-head {
-  stroke-width: 1.5;
-}
-.agent-body {
-  stroke-width: 1.2;
-}
-.agent-eye {
-  fill: #0a0e0f;
-}
-.agent-cheek {
-  opacity: 0.55;
-}
-.agent-mouth {
-  fill: none;
-  stroke: #0a0e0f;
-  stroke-width: 1.85;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-/*
- * Per-role stage mouths — geometry lives in the SVG paths; CSS only reinforces
- * stroke/fill so shapes stay readable at workshop scale (flat / grin / dash / U / o).
- */
-.char[data-role="opus"] .agent-mouth-flat {
-  stroke-width: 2;
-}
-.char[data-role="advisor"] .agent-mouth-grin {
-  stroke-width: 2.15;
-}
-.char[data-role="worker"] .agent-mouth-dash {
-  stroke-width: 2.35;
-  stroke-linecap: round;
-}
-.char[data-role="explorer"] .agent-mouth-u {
-  stroke-width: 1.95;
-}
-.char[data-role="researcher"] .agent-mouth-o {
-  fill: #0a0e0f;
+
+.block-agent-stage .block-agent-fill,
+.block-agent-stage .block-agent-arm,
+.block-agent-stage .block-agent-leg,
+.route-token .block-agent-fill {
   stroke: none;
-  opacity: 0.82;
-}
-.agent-accent {
-  opacity: 1;
 }
 
-.char[data-role="opus"] .agent-head {
+.block-agent-stage .block-agent-eye,
+.route-token .block-agent-eye {
+  fill: #0a0e0f;
+}
+
+.char[data-role="opus"] .block-agent-fill,
+.char[data-role="opus"] .block-agent-arm,
+.char[data-role="opus"] .block-agent-leg {
   fill: #e8ecec;
-  stroke: rgba(255, 255, 255, 0.45);
 }
-.char[data-role="opus"] .agent-body {
-  fill: #cfd6d6;
-  stroke: rgba(255, 255, 255, 0.22);
-}
-.char[data-role="opus"] .agent-cheek {
-  fill: rgba(255, 170, 180, 0.55);
-}
-.char[data-role="opus"] .agent-accent rect {
-  fill: #f7f8fa;
-  stroke: rgba(20, 24, 28, 0.28);
-  stroke-width: 1;
-}
-
-.char[data-role="advisor"] .agent-head {
-  fill: #f5a524;
-  stroke: rgba(255, 220, 150, 0.55);
-}
-.char[data-role="advisor"] .agent-body {
+.char[data-role="advisor"] .block-agent-fill,
+.char[data-role="advisor"] .block-agent-arm,
+.char[data-role="advisor"] .block-agent-leg {
   fill: #d8891a;
-  stroke: rgba(255, 200, 100, 0.35);
 }
-.char[data-role="advisor"] .agent-cheek {
-  fill: rgba(255, 120, 90, 0.45);
-}
-.char[data-role="advisor"] .agent-accent path {
-  fill: #ffd27a;
-  stroke: rgba(120, 60, 0, 0.35);
-  stroke-width: 0.9;
-}
-
-.char[data-role="worker"] .agent-head {
-  fill: #3ecfff;
-  stroke: rgba(160, 235, 255, 0.55);
-}
-.char[data-role="worker"] .agent-body {
+.char[data-role="worker"] .block-agent-fill,
+.char[data-role="worker"] .block-agent-arm,
+.char[data-role="worker"] .block-agent-leg {
   fill: #2aa8d4;
-  stroke: rgba(120, 220, 255, 0.35);
 }
-.char[data-role="worker"] .agent-cheek {
-  fill: rgba(255, 160, 180, 0.5);
-}
-.char[data-role="worker"] .agent-accent rect {
-  fill: #b8f000;
-  stroke: rgba(40, 80, 0, 0.35);
-  stroke-width: 0.9;
-}
-
-.char[data-role="explorer"] .agent-head {
-  fill: #b8f000;
-  stroke: rgba(220, 255, 140, 0.5);
-}
-.char[data-role="explorer"] .agent-body {
+.char[data-role="explorer"] .block-agent-fill,
+.char[data-role="explorer"] .block-agent-arm,
+.char[data-role="explorer"] .block-agent-leg {
   fill: #95c400;
-  stroke: rgba(200, 240, 80, 0.35);
 }
-.char[data-role="explorer"] .agent-cheek {
-  fill: rgba(255, 150, 120, 0.45);
-}
-.char[data-role="explorer"] .agent-accent ellipse {
-  fill: #9ed420;
-  stroke: rgba(40, 70, 0, 0.4);
-  stroke-width: 0.9;
-}
-
-.char[data-role="researcher"] .agent-head {
-  fill: #9ee0c0;
-  stroke: rgba(180, 240, 210, 0.5);
-}
-.char[data-role="researcher"] .agent-body {
+.char[data-role="researcher"] .block-agent-fill,
+.char[data-role="researcher"] .block-agent-arm,
+.char[data-role="researcher"] .block-agent-leg {
   fill: #6fbf9a;
-  stroke: rgba(150, 220, 185, 0.35);
-}
-.char[data-role="researcher"] .agent-cheek {
-  fill: rgba(255, 150, 140, 0.45);
-}
-.char[data-role="researcher"] .agent-accent circle {
-  fill: rgba(255, 255, 255, 0.18);
-  stroke: rgba(16, 52, 40, 0.65);
-  stroke-width: 1.5;
 }
 
-.char.busy .agent-cheek,
-.char.selected .agent-cheek {
-  opacity: 0.85;
+.route-token.role-advisor .block-agent-fill {
+  fill: var(--advisor);
 }
-.char.busy .agent-mouth {
-  stroke-width: 1.9;
+.route-token.role-worker .block-agent-fill {
+  fill: var(--sonnet);
+}
+.route-token.role-explorer .block-agent-fill {
+  fill: var(--haiku);
+}
+.route-token.role-researcher .block-agent-fill {
+  fill: #7dffc4;
 }
 
 @media (prefers-reduced-motion: no-preference) {
