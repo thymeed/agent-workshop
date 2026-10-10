@@ -452,32 +452,51 @@
   }
 
   /**
-   * Cute face markup for a role — soft blush + real eye dots + mouth.
-   * Never letter-circle initials (Op/Fb/…). Props (crown/star/band/hat/glasses)
-   * live on `.avatar-chrome` via cards.css. Keep mouths in sync with stage SVG.
+   * Pixel-cast block agent SVG innards (shared by cards, alerts, optional tokens).
+   * @param {{ limbs?: boolean, compact?: boolean }} shape — stage adds arms; compact drops limbs for dense rows
+   */
+  function blockAgentSvgInner(shape) {
+    shape = shape || {};
+    var parts = [];
+    parts.push('<rect class="block-agent-fill" x="8" y="4" width="24" height="18"/>');
+    parts.push('<rect class="block-agent-eye" x="13" y="9" width="4" height="4"/>');
+    parts.push('<rect class="block-agent-eye" x="23" y="9" width="4" height="4"/>');
+    if (shape.limbs && !shape.compact) {
+      parts.push('<rect class="block-agent-arm" x="2" y="12" width="6" height="4"/>');
+      parts.push('<rect class="block-agent-arm" x="32" y="12" width="6" height="4"/>');
+    }
+    if (!shape.compact) {
+      parts.push('<rect class="block-agent-leg" x="10" y="22" width="3" height="8"/>');
+      parts.push('<rect class="block-agent-leg" x="15" y="22" width="3" height="8"/>');
+      parts.push('<rect class="block-agent-leg" x="22" y="22" width="3" height="8"/>');
+      parts.push('<rect class="block-agent-leg" x="27" y="22" width="3" height="8"/>');
+    }
+    return parts.join("");
+  }
+
+  /**
+   * Block-agent face markup — rect body, square eyes, role tint via `data-avatar` only.
    */
   function faceMarkup(role, opts) {
     opts = opts || {};
     var r = ROLE_KEYS.indexOf(role) >= 0 ? role : "opus";
     var size = opts.size === "sm" ? " avatar-sm" : "";
     var state = opts.state ? " state-" + opts.state : " state-idle";
+    var compact = opts.size === "sm" || opts.compact;
+    var limbs = !!opts.limbs;
+    var viewH = compact ? 26 : 32;
     return (
-      '<span class="agent-avatar' +
+      '<span class="agent-avatar block-agent' +
       size +
       state +
       '" data-avatar="' +
       r +
       '" aria-hidden="true">' +
-      '<span class="avatar-chrome" aria-hidden="true"></span>' +
-      '<span class="avatar-face">' +
-      '<span class="avatar-blush" aria-hidden="true"></span>' +
-      '<span class="avatar-eyes" aria-hidden="true">' +
-      '<span class="avatar-eye"></span>' +
-      '<span class="avatar-eye"></span>' +
-      "</span>" +
-      '<span class="avatar-mouth" aria-hidden="true"></span>' +
-      "</span>" +
-      "</span>"
+      '<svg class="block-agent-svg" viewBox="0 0 40 ' +
+      viewH +
+      '" aria-hidden="true">' +
+      blockAgentSvgInner({ limbs: limbs, compact: compact }) +
+      "</svg></span>"
     );
   }
 
@@ -527,11 +546,7 @@
     return "";
   }
 
-  /**
-   * Mount the per-role cute face (`data-avatar`) into the card head.
-   * Idle mouths are CSS per role in cards.css (flat / grin / dash / U / o) —
-   * keep in sync with stage SVG mouths in model-routing-dashboard.html.
-   */
+  /** Mount pixel-cast block agent (`data-avatar`) into the card head. */
   function mountAvatar(card, role) {
     if (!card || avatarEls[role]) return;
     var head = card.querySelector(".card-head");
@@ -627,10 +642,11 @@
     var force = !!opts.force;
     if (!force && avatarState[role] === next) return;
     avatarState[role] = next;
-    var cls = "agent-avatar state-" + next + (reducedMotion ? " reduced-motion" : "");
+    var sm = el.classList.contains("avatar-sm") ? " avatar-sm" : "";
+    var cls =
+      "agent-avatar block-agent" + sm + " state-" + next + (reducedMotion ? " reduced-motion" : "");
     if (force) {
-      // Retrigger CSS keyframes (ship wave / done bounce).
-      el.className = "agent-avatar" + (reducedMotion ? " reduced-motion" : "");
+      el.className = "agent-avatar block-agent" + sm + (reducedMotion ? " reduced-motion" : "");
       void el.offsetWidth;
     }
     el.className = cls;
@@ -638,6 +654,7 @@
     syncAvatarTip(role);
   }
 
+  /** Map card status copy → block-agent expression (eyes stay square except done / celebrating). */
   /**
    * Map card status copy → avatar expression. Awake open eye dots everywhere except
    * done / celebrating (closed arcs). Per-role mouths from CSS; typing animates mouth only.
@@ -929,6 +946,7 @@
     prettyStatusText: prettyStatusText,
     formatStatusHtml: formatStatusHtml,
     faceMarkup: faceMarkup,
+    blockAgentSvgInner: blockAgentSvgInner,
     roleFromAgentHint: roleFromAgentHint,
     setAvatarState: setAvatarState,
     celebrateShip: celebrateShip,

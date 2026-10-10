@@ -118,19 +118,33 @@ async function smokeDemoFile(browser) {
     if (!host.querySelector("[data-transport]") || !host.querySelector("[data-scrubber]")) {
       return false;
     }
+    const playBtn = host.querySelector(".insights-transport-btn");
+    if (!playBtn || playBtn.offsetParent === null) return false;
     const ink = getComputedStyle(host).getPropertyValue("--insights-ink").trim();
     if (ink !== "#f2f6f4") return false;
-    const btn = host.querySelector(".insights-transport-btn");
-    const btnBg = btn ? getComputedStyle(btn).backgroundColor : "";
+    const btnBg = playBtn ? getComputedStyle(playBtn).backgroundColor : "";
     if (!btnBg || btnBg === "rgba(0, 0, 0, 0)") return false;
     if (!stationsDrawer) return true;
     return historyDrawer.getBoundingClientRect().top <= stationsDrawer.getBoundingClientRect().top;
   });
   if (!historyReplayUiOk) {
     errors.push(
-      "History view: replay host missing transport/scrubber, insights tokens, or History drawer not focused above Stations"
+      "History view: replay host missing transport/scrubber/play, insights tokens, or History drawer not focused above Stations"
     );
   }
+
+  const stageBlocksOk = await page.evaluate(() => {
+    const roles = ["opus", "advisor", "worker", "explorer", "researcher"];
+    return roles.every((role) => {
+      const g = document.getElementById("char-" + role);
+      return (
+        g &&
+        g.querySelector(".block-agent-fill") &&
+        g.querySelectorAll(".block-agent-eye").length >= 2
+      );
+    });
+  });
+  if (!stageBlocksOk) errors.push("stage chars missing pixel-cast block geometry");
 
   const replaySeekOk = await page.evaluate(() => {
     const t = window.__cursorAgentsDashTest;

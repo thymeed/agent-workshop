@@ -1,4 +1,4 @@
-/* Living agent cards — unique per-role cute Claude-agent-style faces (data-avatar), soft workshop stations */
+﻿/* Living agent cards â€” unique per-role cute Claude-agent-style faces (data-avatar), soft workshop stations */
 
 .stations-panel [data-tip],
 .daily-stats-card[data-tip],
@@ -6,7 +6,7 @@
   cursor: help;
 }
 
-/* ── Soft station cards (warmer than industrial HUD) ── */
+/* â”€â”€ Soft station cards (warmer than industrial HUD) â”€â”€ */
 .stations-panel .card {
   border-radius: 16px;
   background:
@@ -81,70 +81,44 @@
   gap: 10px;
 }
 
-/* ── Cute agent characters (same family, distinct roles) ── */
-.agent-avatar {
+/* â”€â”€ Pixel-cast block agents (role = fill tint only) â”€â”€ */
+.agent-avatar.block-agent {
   --avatar-size: 44px;
-  --avatar-accent: #d8dde6;
-  --avatar-ink: rgba(28, 32, 40, 0.82);
-  --avatar-blush: rgba(255, 140, 160, 0.35);
+  --block-fill: #cfd6d6;
   position: relative;
   flex: 0 0 var(--avatar-size);
   width: var(--avatar-size);
   height: var(--avatar-size);
   margin-right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.avatar-chrome {
-  position: absolute;
-  inset: -4px;
-  pointer-events: none;
-  z-index: 2;
-}
-
-.avatar-face {
-  position: relative;
-  z-index: 1;
+.block-agent-svg {
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: 50%;
-  background: var(--avatar-accent);
-  border: 2px solid rgba(255, 255, 255, 0.22);
-  overflow: hidden;
-  box-shadow:
-    0 3px 0 rgba(0, 0, 0, 0.12),
-    0 6px 14px rgba(0, 0, 0, 0.18),
-    inset 0 -6px 10px rgba(0, 0, 0, 0.08),
-    inset 0 4px 8px rgba(255, 255, 255, 0.35);
 }
 
-/* Legacy letter-circle fallback — never show initials (Op/Fb/…) */
-.avatar-initials {
-  display: none !important;
+.block-agent-fill,
+.block-agent-arm,
+.block-agent-leg {
+  fill: var(--block-fill);
 }
 
-.avatar-blush {
-  position: absolute;
-  left: 50%;
-  top: 54%;
-  width: 26px;
-  height: 8px;
-  transform: translateX(-50%);
-  pointer-events: none;
-  z-index: 1;
-  background:
-    radial-gradient(ellipse at 20% 50%, var(--avatar-blush), transparent 55%),
-    radial-gradient(ellipse at 80% 50%, var(--avatar-blush), transparent 55%);
-  opacity: 0.9;
+.block-agent-eye {
+  fill: #0a0e0f;
 }
 
-.avatar-eyes,
-.avatar-mouth {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  pointer-events: none;
-  z-index: 2;
+.agent-avatar.block-agent[data-avatar="opus"] {
+  --block-fill: #e8ecec;
+}
+.agent-avatar.block-agent[data-avatar="advisor"] {
+  --block-fill: #d8891a;
+}
+.agent-avatar.block-agent[data-avatar="worker"] {
+  --block-fill: #2aa8d4;
 }
 
 /* Real eye dots (not gradient paint) — readable at card + alert sizes */
@@ -172,23 +146,35 @@
   border-radius: 50%;
   background: var(--avatar-ink);
 }
-
-.avatar-mouth {
-  top: 24px;
-  width: 9px;
-  height: 5px;
-  border-radius: 0 0 9px 9px;
-  border: none;
-  border-bottom: 2px solid var(--avatar-ink);
-  opacity: 0.9;
+.agent-avatar.block-agent[data-avatar="explorer"] {
+  --block-fill: #95c400;
+}
+.agent-avatar.block-agent[data-avatar="researcher"] {
+  --block-fill: #6fbf9a;
 }
 
-/* Mini faces for alert chips / dense rows */
-.agent-avatar.avatar-sm {
+.agent-avatar.avatar-sm.block-agent {
   --avatar-size: 22px;
   margin-right: 0;
   flex: 0 0 var(--avatar-size);
 }
+
+.avatar-initials {
+  display: none !important;
+}
+
+.agent-avatar.state-blocked.block-agent {
+  filter: saturate(0.82);
+  opacity: 0.88;
+}
+
+.agent-avatar.state-done.block-agent .block-agent-eye,
+.agent-avatar.state-celebrating.block-agent .block-agent-eye {
+  transform: scaleY(0.35);
+  transform-origin: center;
+  opacity: 0.85;
+}
+
 .agent-avatar.avatar-sm .avatar-eyes {
   top: 6px;
   width: 10px;
@@ -495,86 +481,21 @@
   filter: saturate(0.85);
 }
 
-/* Done — happy closed smile arcs */
-.agent-avatar.state-done .avatar-eyes {
-  top: 14px;
-}
-.agent-avatar.state-done .avatar-eye {
-  width: 6px;
-  height: 4px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid var(--avatar-ink);
-  border-radius: 0 0 6px 6px;
-}
-.agent-avatar.state-done .avatar-mouth {
-  width: 12px;
-  height: 7px;
-  top: 22px;
-  border: none;
-  border-bottom: 2.5px solid var(--avatar-ink);
-  border-radius: 0 0 12px 12px;
+.agent-avatar.state-error.block-agent {
+  filter: saturate(0.7);
 }
 
-/* Celebrating — big grin + soft glow */
-.agent-avatar.state-celebrating .avatar-face {
-  box-shadow:
-    0 3px 0 rgba(0, 0, 0, 0.12),
-    0 8px 18px rgba(61, 214, 140, 0.35),
-    inset 0 -6px 10px rgba(0, 0, 0, 0.08),
-    inset 0 4px 8px rgba(255, 255, 255, 0.4),
-    0 0 0 3px rgba(120, 255, 180, 0.35);
-}
-.agent-avatar.state-celebrating .avatar-eyes {
-  top: 12px;
-}
-.agent-avatar.state-celebrating .avatar-eye {
-  width: 6px;
-  height: 4px;
-  background: transparent;
-  border: none;
-  border-bottom: 2.2px solid var(--avatar-ink);
-  border-radius: 0 0 6px 6px;
-}
-.agent-avatar.state-celebrating .avatar-mouth {
-  width: 14px;
-  height: 8px;
-  top: 21px;
-  border: none;
-  border-bottom: 3px solid var(--avatar-ink);
-  border-radius: 0 0 14px 14px;
-}
-.agent-avatar.state-celebrating .avatar-blush {
-  opacity: 1;
-  --avatar-blush: rgba(255, 120, 140, 0.5);
-}
-
-/* Error — sad brows via eyes + frown */
-.agent-avatar.state-error .avatar-face {
-  filter: saturate(0.75);
-}
-.agent-avatar.state-error .avatar-eyes {
-  top: 15px;
-}
-.agent-avatar.state-error .avatar-eye {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--avatar-ink);
-}
-.agent-avatar.state-error .avatar-mouth {
-  width: 10px;
-  height: 5px;
-  top: 26px;
-  border: none;
-  border-top: 2px solid var(--avatar-ink);
-  border-radius: 10px 10px 0 0;
-  border-bottom: none;
-  background: transparent;
-  opacity: 0.8;
+.agent-avatar.state-celebrating.block-agent {
+  filter: drop-shadow(0 0 6px rgba(120, 255, 180, 0.45));
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .agent-avatar.state-typing.block-agent .block-agent-svg {
+    animation: block-agent-bob 0.55s ease-in-out infinite;
+  }
+  .agent-avatar.state-blocked.block-agent .block-agent-eye {
+    animation: block-agent-blink 1.4s ease-in-out infinite;
+  }
   .agent-avatar.state-typing .avatar-face {
     animation: avatar-type-bounce 0.55s ease-in-out infinite;
   }
@@ -584,24 +505,22 @@
   .agent-avatar.state-blocked .avatar-eyes {
     animation: avatar-blocked-pulse 1.4s ease-in-out infinite;
   }
-  .agent-avatar.state-done .avatar-face {
+  .agent-avatar.state-done.block-agent .block-agent-svg {
     animation: avatar-celebrate 0.7s ease-out 1;
   }
-  .agent-avatar.state-celebrating .avatar-face {
+  .agent-avatar.state-celebrating.block-agent .block-agent-svg {
     animation: avatar-ship-wave 0.85s ease-out 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-avatar .avatar-face,
-  .agent-avatar .avatar-mouth,
-  .agent-avatar .avatar-eyes,
-  .agent-avatar .avatar-eye {
+  .agent-avatar.block-agent .block-agent-svg,
+  .agent-avatar.block-agent .block-agent-eye {
     animation: none !important;
   }
 }
 
-@keyframes avatar-type-bounce {
+@keyframes block-agent-bob {
   0%,
   100% {
     transform: translateY(0);
@@ -611,9 +530,10 @@
   }
 }
 
-@keyframes avatar-mouth-chat {
+@keyframes block-agent-blink {
   0%,
   100% {
+    opacity: 1;
     transform: translateX(-50%) scaleY(1);
   }
   50% {
@@ -627,7 +547,7 @@
     opacity: 0.75;
   }
   50% {
-    opacity: 1;
+    opacity: 0.35;
   }
 }
 
@@ -661,7 +581,11 @@
   }
 }
 
-/* Privacy — quiet cute nook, tip carries heuristic disclaimer */
+/* Legacy cute-face selectors removed â€” block agents only */
+.agent-avatar:not(.block-agent) {
+  display: none !important;
+}
+/* Privacy â€” quiet cute nook, tip carries heuristic disclaimer */
 .privacy-meter {
   display: inline-flex;
   align-items: center;
@@ -737,7 +661,7 @@
   background: #ff7a7a;
 }
 
-/* Daily bench — soft workshop strip */
+/* Daily bench â€” soft workshop strip */
 .daily-stats-card {
   margin-top: 10px;
   border-radius: 16px;

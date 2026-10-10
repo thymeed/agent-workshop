@@ -16,6 +16,7 @@ const {
   scanTranscripts,
   checkStalledAgents,
   selectProject,
+  latestSessionIdForTranscripts,
   terminalTypeFromTranscript,
   TRANSCRIPT_SCAN_LIMIT,
   TRANSCRIPT_READ_MAX_PER_POLL
@@ -534,6 +535,10 @@ async function testProjectSwitchWarmPushesLiveEvents() {
 
     const switched = selectProject(idB);
     assert(switched.ok, "select project B: " + (switched.error || ""));
+    assert(
+      switched.latestSessionId,
+      "selectProject should return latestSessionId for the target project"
+    );
     live = transcriptLiveEvents(await fetchLiveEvents(port));
     assert(live.length >= 2, "project switch must warm live feed, got " + live.length);
   } finally {
@@ -543,6 +548,28 @@ async function testProjectSwitchWarmPushesLiveEvents() {
     fs.rmSync(logDir, { recursive: true, force: true });
     fs.rmSync(projectsRoot, { recursive: true, force: true });
   }
+}
+
+async function testLatestSessionIdPrefersNewestNonEmptyTranscript() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-latest-session-"));
+  const oldDir = path.join(root, "sess-old");
+  const newDir = path.join(root, "sess-new");
+  fs.mkdirSync(oldDir, { recursive: true });
+  fs.mkdirSync(newDir, { recursive: true });
+  const oldFile = path.join(oldDir, "parent.jsonl");
+  const newFile = path.join(newDir, "parent.jsonl");
+  const emptyNew = path.join(newDir, "empty.jsonl");
+  appendLine(oldFile, line("user", "<user_query>older session</user_query>"));
+  appendLine(newFile, line("user", "<user_query>newer session</user_query>"));
+  fs.writeFileSync(emptyNew, "");
+  const now = Date.now() / 1000;
+  fs.utimesSync(oldFile, now - 7200, now - 7200);
+  fs.utimesSync(newFile, now, now);
+  fs.utimesSync(emptyNew, now + 100, now + 100);
+
+  const latest = latestSessionIdForTranscripts(root);
+  assert(latest === "sess-new", "expected newest non-empty session, got " + latest);
+  fs.rmSync(root, { recursive: true, force: true });
 }
 
 async function testResumedOldFileLargeAppendBeforeFirstPoll() {
@@ -875,6 +902,7 @@ async function main() {
   await testStructuredTerminalErrorAlert();
   await testStartupWarmPushesLiveEvents();
   await testProjectSwitchWarmPushesLiveEvents();
+  await testLatestSessionIdPrefersNewestNonEmptyTranscript();
   await testResumedOldTranscriptBeyondScanLimit();
   await testResumedOldFileLargeAppendBeforeFirstPoll();
   await testResumedLargeFileNonAscii();

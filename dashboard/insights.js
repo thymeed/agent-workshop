@@ -25,6 +25,14 @@
     fixtureName: "history-demo.json"
   };
 
+  /** Pixel-cast empty-state face (shared AgentCards markup when available). */
+  function emptyBlockFace() {
+    if (global.AgentCards && typeof global.AgentCards.faceMarkup === "function") {
+      return global.AgentCards.faceMarkup("opus", { size: "sm", compact: true });
+    }
+    return '<span class="insights-empty-face" aria-hidden="true"></span>';
+  }
+
   var DEMO_HISTORY = {
     events: [
       {
@@ -355,6 +363,24 @@
     return ids;
   }
 
+  /** Session with the most recent event timestamp (last activity). */
+  function latestSessionIdFromEvents(events) {
+    var lastBySession = {};
+    sortEvents(events).forEach(function (ev) {
+      var id = ev.sessionId || "unknown";
+      lastBySession[id] = Date.parse(ev.ts) || 0;
+    });
+    var best = "";
+    var bestT = -1;
+    Object.keys(lastBySession).forEach(function (id) {
+      if (lastBySession[id] >= bestT) {
+        bestT = lastBySession[id];
+        best = id;
+      }
+    });
+    return best;
+  }
+
   function filterSession(events, sessionId) {
     if (!sessionId) return sortEvents(events);
     return sortEvents(events).filter(function (ev) {
@@ -638,7 +664,7 @@
     if (!roots.length) {
       return (
         '<div class="insights-empty" data-tree-empty data-tip="Quiet workshop" data-tip-detail="No agents on the bench yet — spawn one and this little tree sprouts leaves.">' +
-        '<span class="insights-empty-face" aria-hidden="true"></span>' +
+        emptyBlockFace() +
         "<strong>Workshop is quiet</strong>" +
         "No agents on the bench yet — spawn one and the tree grows here." +
         "</div>"
@@ -695,7 +721,10 @@
     var res = await fetch(q, { cache: "no-store" });
     if (!res.ok) throw new Error("history " + res.status);
     var data = await res.json();
-    return (data && data.events) || [];
+    return {
+      events: (data && data.events) || [],
+      latestSessionId: data && data.latestSessionId ? String(data.latestSessionId) : ""
+    };
   }
 
   function el(html) {
@@ -770,7 +799,14 @@
       return filterSession(allEvents, sessionId);
     }
 
-    function fillSessions() {
+    function pickLatestSessionId(ids, hint) {
+      if (hint && ids.indexOf(hint) >= 0) return hint;
+      var fromEvents = latestSessionIdFromEvents(allEvents);
+      if (fromEvents && ids.indexOf(fromEvents) >= 0) return fromEvents;
+      return ids.length ? ids[ids.length - 1] : "";
+    }
+
+    function fillSessions(hint) {
       var ids = sessionIds(allEvents);
       sessionSelect.innerHTML = ids
         .map(function (id) {
@@ -782,7 +818,7 @@
         sessionId = "";
         return;
       }
-      if (ids.indexOf(sessionId) < 0) sessionId = ids[0];
+      if (ids.indexOf(sessionId) < 0) sessionId = pickLatestSessionId(ids, hint);
       sessionSelect.value = sessionId;
     }
 
@@ -865,7 +901,9 @@
         "<thead><tr><th>Model</th><th>In</th><th>Out</th><th>Cost</th></tr></thead>" +
         "<tbody>" +
         (rows ||
-          '<tr data-tip="No turns yet" data-tip-detail="This session is on standby — costs show up after agents chat."><td colspan="4"><div class="insights-empty" style="border:none;background:transparent;padding:8px 0"><span class="insights-empty-face" aria-hidden="true"></span><strong>No turns yet</strong>This session is on standby — costs show up after agents chat.</div></td></tr>') +
+          '<tr data-tip="No turns yet" data-tip-detail="This session is on standby — costs show up after agents chat."><td colspan="4"><div class="insights-empty" style="border:none;background:transparent;padding:8px 0">' +
+            emptyBlockFace() +
+            "<strong>No turns yet</strong>This session is on standby — costs show up after agents chat.</div></td></tr>") +
         "</tbody></table>" +
         '<p class="insights-config-hint" data-tip="CONFIG prices" data-tip-detail="Tweak $/1M rates and the soft limit (' +
         formatMoney(CONFIG.limitUsd) +
@@ -973,7 +1011,7 @@
           "Does not change Cursor routing — estimates only." +
           "</p>" +
           '<div class="insights-empty" data-suggestions-empty data-tip="All clear" data-tip-detail="No cheaper-route flags this session — the crew already looks thrifty (or still warming up).">' +
-          '<span class="insights-empty-face" aria-hidden="true"></span>' +
+          emptyBlockFace() +
           "<strong>Routing looks snug</strong>" +
           "No cheaper-route flags for this session." +
           "</div>" +
@@ -1415,16 +1453,28 @@
       notifyReplayIndex("session");
     });
 
-    async function load() {
+    async function load(loadOpts) {
+      loadOpts = loadOpts || {};
       setStatus(demo ? "Loading demo history…" : "Loading /api/history…");
       try {
-        allEvents = demo ? await loadDemoEvents() : await loadLiveEvents(opts);
+        var latestHint = loadOpts.latestSessionId || "";
+        if (loadOpts.preferLatest) sessionId = "";
+        if (demo) {
+          allEvents = await loadDemoEvents();
+        } else {
+          var livePayload = await loadLiveEvents(loadOpts);
+          allEvents = livePayload.events;
+          if (!latestHint && livePayload.latestSessionId) {
+            latestHint = livePayload.latestSessionId;
+          }
+        }
         allEvents = sortEvents(allEvents);
-        fillSessions();
+        fillSessions(latestHint);
         pauseTransport();
         replayIndex = 0;
         renderAll();
         if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
+        notifyReplayIndex("session");
         setStatus(
           (demo ? "Demo" : "Live") +
             " · " +
@@ -1434,14 +1484,32 @@
         );
       } catch (err) {
         allEvents = demo ? DEMO_HISTORY.events.slice() : [];
-        fillSessions();
+        fillSessions(loadOpts.latestSessionId || "");
         renderAll();
         if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
         setStatus("Load failed: " + (err && err.message ? err.message : String(err)));
       }
     }
 
-    load();
+    function focusLatestSession(hint) {
+      return load({ preferLatest: true, latestSessionId: hint || "" });
+    }
+
+    var readyListeners = [];
+    function onReady(cb) {
+      if (typeof cb !== "function") return;
+      readyListeners.push(cb);
+    }
+    function notifyReady() {
+      readyListeners.forEach(function (fn) {
+        try {
+          fn();
+        } catch (_) {}
+      });
+      readyListeners = [];
+    }
+
+    load().then(notifyReady).catch(notifyReady);
 
     function setDemoMode(isDemo) {
       demo = !!isDemo;
@@ -1460,6 +1528,8 @@
         if (root.parentNode) root.parentNode.removeChild(root);
       },
       reload: load,
+      focusLatestSession: focusLatestSession,
+      onReady: onReady,
       setDemoMode: setDemoMode,
       showTab: showTab,
       mountReplay: mountReplay,
@@ -1497,7 +1567,9 @@
       usageByModel: usageByModel,
       totalCost: totalCost,
       buildTreeAt: buildTreeAt,
-      normalizeModel: normalizeModel
+      normalizeModel: normalizeModel,
+      latestSessionIdFromEvents: latestSessionIdFromEvents,
+      sessionIds: sessionIds
     }
   };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -10,7 +10,7 @@ Desktop dashboard for visualizing how a Cursor Agents session routes work across
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
-The first viewport is a soft **agent workshop**: five cute Claude-agent-style station figures (Opus desk, Fable consult, Sonnet build, Explore / Research shelves) — **Cursor Agents** branding, not Claude Code product UI — walk paths and carry code crates into a central **Merge portal**. On ask/delegate, a small **inbound route token** flies along the pulse path into the target station. Demo Play and Live SSE drive the stage; Session Bill, Activity, Insights, History/Replay, Session Log, and **Stations** live as **drawer sheets** under the stage. Header **Stage | Insights | History** switches which sheet owns the lower chrome (workshop stays visible). Station cards use **unique soft faces** per role (matching the stage cast), including distinct idle mouths (flat smile / deep grin / dash / open U / o — not one shared curve). HUD chips are the single status strip (session $, active role, subs, effort, haiku tokens). **History** Replay play/pause/scrub/speed drives the same workshop engine (crates/characters); leaving History stops transport and leaves the last replay frame until Demo/Live runs again. Estimates remain illustrative · not official usage. Optional cute Web Audio blips are **muted by default** — toggle 🔊/🔇 in the header (persisted in `localStorage`).
+The first viewport is a soft **agent workshop**: five **pixel-cast block agents** at the stations (Opus desk, Fable consult, Sonnet build, Explore / Research shelves) — **Cursor Agents** branding, not Claude Code product UI — walk paths and carry code crates into a central **Merge portal**. On ask/delegate, a small **inbound route token** (mini block sprite) flies along the pulse path into the target station. Demo Play and Live SSE drive the stage; Session Bill, Activity, Insights, History/Replay, Session Log, and **Stations** live as **drawer sheets** under the stage. Header **Stage | Insights | History** switches which sheet owns the lower chrome (workshop stays visible). Station cards share the same **block-agent** cast (rect body, square eyes; role = fill color only). HUD chips are the single status strip (session $, active role, subs, effort, haiku tokens). **History** Replay play/pause/scrub/speed drives the same workshop engine (crates/characters); leaving History stops transport and leaves the last replay frame until Demo/Live runs again. Estimates remain illustrative · not official usage. Optional Web Audio blips are **muted by default** — toggle 🔊/🔇 in the header (persisted in `localStorage`).
 
 **Primary launch:** double-click repo-root **`AgentWorkshop.exe`** (produced by `npm run build` / `npm run pack` via `scripts/copy-exe.js` from `dist\`; gitignored `*.exe`), or run `npm start` while developing. Window title: **Cursor Agents · Model Routing**. The live bridge runs **in-process** inside Electron — no CMD popup, no separate `node.exe` console.
 
@@ -172,7 +172,7 @@ First time you enter Live, a dismissible coach sheet explains the project picker
 
 ### Insights, stations & jump-to-agent
 
-The **Insights** sheet is a playful workshop panel: forecast, cost-ranked **Suggestions**, and soft TipLayer copy. Suggestions are ranked by estimated dollar savings (then name). Clicking a row (or an alert with a mappable agent) jumps to that station — select character, open Activity, brief card highlight. The **Stations** drawer holds the living agent cards (cute faces, daily stats, privacy meter). None of this changes Cursor’s live routing; it only navigates the dashboard.
+The **Insights** sheet is a playful workshop panel: forecast, cost-ranked **Suggestions**, and soft TipLayer copy. Suggestions are ranked by estimated dollar savings (then name). Clicking a row (or an alert with a mappable agent) jumps to that station — select character, open Activity, brief card highlight. The **Stations** drawer holds the living agent cards (pixel-cast block avatars, daily stats, privacy meter). None of this changes Cursor’s live routing; it only navigates the dashboard.
 
 ### TipLayer & ship celebration
 
@@ -214,7 +214,7 @@ When an agent **finishes**, **errors**, or **stalls** (no activity for ~2 minute
 1. Broadcasts SSE `event: alert` with `{ id, ts, name, status, agentId? }` and keeps the last ~50 for `GET /api/alerts`.
 2. In Electron, also fires a desktop Notification (name + status only).
 
-The in-app **alert center** (header bell) lists the same alerts — mark read, snooze, clear, click to jump when a role/agent is mappable. Mappable roles show a small cute face beside the status (same cast as Stations — never letter initials). Alerts show **only agent name and status** — never prompt text or file paths. Backlog/SSE replay quiet gates skip spam the same way card timing does.
+The in-app **alert center** (header bell) lists the same alerts — mark read, snooze, clear, click to jump when a role/agent is mappable. Mappable roles show a small block-agent avatar beside the status (same cast as Stations — never letter initials). Alerts show **only agent name and status** — never prompt text or file paths. Backlog/SSE replay quiet gates skip spam the same way card timing does.
 
 ### Limits
 

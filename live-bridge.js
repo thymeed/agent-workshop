@@ -440,15 +440,53 @@ function resolveTaskChildAgentId(args, input) {
   return null;
 }
 
-function sessionIdFromFile(filePath) {
+function sessionIdFromFile(filePath, transcriptsRoot) {
+  const root = transcriptsRoot || TRANSCRIPTS;
   try {
-    const rel = path.relative(TRANSCRIPTS, filePath);
+    const rel = path.relative(root, filePath);
     if (!rel || rel.startsWith("..")) return currentProjectId || "session";
     const parts = rel.split(path.sep).filter(Boolean);
     return parts[0] || currentProjectId || "session";
   } catch (_e) {
     return currentProjectId || "session";
   }
+}
+
+/** Session ids present under the current transcripts tree (top-level folder per file). */
+function sessionIdsInTranscripts(root) {
+  const ids = new Set();
+  const transcriptsRoot = root || TRANSCRIPTS;
+  if (!transcriptsRoot) return ids;
+  for (const f of listJsonlFiles(transcriptsRoot)) {
+    ids.add(sessionIdFromFile(f, transcriptsRoot));
+  }
+  return ids;
+}
+
+/**
+ * Newest session for this project: first non-empty transcript by mtime (listJsonlFiles order).
+ * @param {string} [root] defaults to TRANSCRIPTS
+ * @returns {string|null}
+ */
+function latestSessionIdForTranscripts(root) {
+  const transcriptsRoot = root || TRANSCRIPTS;
+  if (!transcriptsRoot || !fs.existsSync(transcriptsRoot)) return null;
+  const files = listJsonlFiles(transcriptsRoot);
+  for (const f of files) {
+    try {
+      if (fs.statSync(f).size > 0) return sessionIdFromFile(f, transcriptsRoot);
+    } catch (_e) {
+      /* try next */
+    }
+  }
+  if (files.length) return sessionIdFromFile(files[0], transcriptsRoot);
+  return null;
+}
+
+function filterHistoryToCurrentProject(events) {
+  const allowed = sessionIdsInTranscripts(TRANSCRIPTS);
+  if (!allowed.size) return events || [];
+  return (events || []).filter((ev) => allowed.has(String(ev.sessionId || "")));
 }
 
 function agentIdFromFile(filePath, role) {
@@ -551,11 +589,13 @@ function selectProject(id) {
   currentProjectId = proj.id;
   currentProjectLabel = proj.label;
   resetWatchState();
+  const latestSessionId = latestSessionIdForTranscripts(TRANSCRIPTS);
   return {
     ok: true,
     projectId: currentProjectId,
     projectLabel: currentProjectLabel,
-    transcripts: TRANSCRIPTS
+    transcripts: TRANSCRIPTS,
+    latestSessionId
   };
 }
 
@@ -1792,8 +1832,13 @@ function createServer() {
       }
       const since = url.searchParams.get("since") || undefined;
       const session = url.searchParams.get("session") || undefined;
-      const list = eventLog ? eventLog.query({ since, session }) : [];
-      sendJson(res, 200, { events: list });
+      const list = filterHistoryToCurrentProject(
+        eventLog ? eventLog.query({ since, session }) : []
+      );
+      sendJson(res, 200, {
+        events: list,
+        latestSessionId: latestSessionIdForTranscripts(TRANSCRIPTS)
+      });
       return;
     }
 
@@ -2100,6 +2145,8 @@ module.exports = {
   discoverProjects,
   resetWatchState,
   selectProject,
+  latestSessionIdForTranscripts,
+  sessionIdsInTranscripts,
   clearHistory,
   recordHistoryEvent,
   scanTranscripts: scan,

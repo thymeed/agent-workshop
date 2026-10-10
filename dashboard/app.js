@@ -174,6 +174,9 @@
           document.body,
         { demo: mode === "demo" }
       );
+      if (insightsPanel && typeof insightsPanel.onReady === "function") {
+        insightsPanel.onReady(remountHistoryReplayIfNeeded);
+      }
     } catch (_insightsErr) {}
   }
   /* Replay → stage wiring is registered after onReplayIndexChange is defined (below). */
@@ -607,33 +610,22 @@
       g.setAttribute("data-role", role);
       g.setAttribute("pointer-events", "none");
 
-      var shape;
-      if (role === "explorer") {
-        shape = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-        shape.setAttribute("points", "0,-7 7,0 0,7 -7,0");
-      } else if (role === "researcher") {
-        shape = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        shape.setAttribute("x", "-5");
-        shape.setAttribute("y", "-8");
-        shape.setAttribute("width", "10");
-        shape.setAttribute("height", "16");
-        shape.setAttribute("rx", "2.5");
-      } else if (role === "advisor") {
-        shape = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        shape.setAttribute("x", "-9");
-        shape.setAttribute("y", "-5");
-        shape.setAttribute("width", "18");
-        shape.setAttribute("height", "10");
-        shape.setAttribute("rx", "5");
-      } else {
-        shape = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        shape.setAttribute("x", "-7");
-        shape.setAttribute("y", "-5.5");
-        shape.setAttribute("width", "14");
-        shape.setAttribute("height", "11");
-        shape.setAttribute("rx", "2.5");
-      }
-      g.appendChild(shape);
+      var body = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      body.setAttribute("class", "block-agent-fill");
+      body.setAttribute("x", "-8");
+      body.setAttribute("y", "-6");
+      body.setAttribute("width", "16");
+      body.setAttribute("height", "10");
+      g.appendChild(body);
+      ["-4", "2"].forEach(function (ex) {
+        var eye = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        eye.setAttribute("class", "block-agent-eye");
+        eye.setAttribute("x", ex);
+        eye.setAttribute("y", "-3");
+        eye.setAttribute("width", "2.5");
+        eye.setAttribute("height", "2.5");
+        g.appendChild(eye);
+      });
 
       function placeAt(dist, t) {
         var pt = path.getPointAtLength(Math.max(0, Math.min(total, dist)));
@@ -1048,10 +1040,6 @@
     });
   }
 
-  /**
-   * Primary nav: Stage | Insights | History.
-   * Slice 1: shell only (data-view-mode + persist). Drawer open/close lands in later slices.
-   */
   function updateHistoryHint(driving) {
     if (!historyHint) return;
     historyHint.textContent = driving
@@ -1059,6 +1047,31 @@
       : "Play or scrub to drive the workshop stage.";
   }
 
+  function mountHistoryReplay() {
+    var host = document.getElementById("historyReplayHost");
+    if (!host || !insightsPanel || typeof insightsPanel.mountReplay !== "function") return;
+    insightsPanel.mountReplay(host);
+    try {
+      var playBtn = host.querySelector(".insights-transport-btn");
+      (playBtn || host).scrollIntoView({ block: "start", behavior: "smooth" });
+    } catch (_) {}
+  }
+
+  function remountHistoryReplayIfNeeded() {
+    if (viewMode !== "history") return;
+    mountHistoryReplay();
+  }
+
+  if (drawerHistory) {
+    drawerHistory.addEventListener("toggle", function () {
+      if (drawerHistory.open && viewMode === "history") mountHistoryReplay();
+    });
+  }
+
+  /**
+   * Primary nav: Stage | Insights | History.
+   * Slice 1: shell only (data-view-mode + persist). Drawer open/close lands in later slices.
+   */
   function setViewMode(mode, opts) {
     opts = opts || {};
     viewMode = normalizeViewMode(mode);
@@ -1093,15 +1106,14 @@
       if (drawerHistory) {
         drawerHistory.open = true;
         try {
+          drawerHistory.scrollIntoView({ block: "start", behavior: "smooth" });
           drawerHistory.scrollIntoView({ block: "nearest", behavior: "smooth" });
         } catch (_) {}
       }
       updateHistoryHint(false);
       if (insightsPanel) {
         if (typeof insightsPanel.showTab === "function") insightsPanel.showTab("replay");
-        if (typeof insightsPanel.mountReplay === "function") {
-          insightsPanel.mountReplay(document.getElementById("historyReplayHost"));
-        }
+        mountHistoryReplay();
         /* Do not auto-play — user hits Play in History transport. */
         if (typeof insightsPanel.pause === "function") insightsPanel.pause();
       }
@@ -1801,6 +1813,22 @@
       });
   }
 
+  function focusInsightsLatestSession(meta) {
+    if (!insightsPanel || typeof insightsPanel.focusLatestSession !== "function") return;
+    var hint = meta && meta.latestSessionId ? meta.latestSessionId : "";
+    insightsPanel.focusLatestSession(hint).then(function () {
+      remountHistoryReplayIfNeeded();
+    });
+  }
+
+  function onLiveProjectScopeChange(meta, opts) {
+    opts = opts || {};
+    focusInsightsLatestSession(meta);
+    if (opts.navigateHistory && typeof setViewMode === "function") {
+      setViewMode("history");
+    }
+  }
+
   function selectProject(id) {
     if (!id || selectingProject) return Promise.resolve(null);
     selectingProject = true;
@@ -2080,6 +2108,11 @@
 
   function onReplayIndexChange(payload) {
     if (!ReplayStage || !payload) return;
+    /* Insights reloads history in the background on Stage/Insights — only History view owns the stage. */
+    if (viewMode !== "history") {
+      replaySessionActive = false;
+      return;
+    }
     var events = payload.events || [];
     var index = Number(payload.index);
     if (!isFinite(index)) return;
@@ -2275,6 +2308,7 @@
       updateFooterProject();
       setLivePresence("quiet-healthy");
       loadProjects();
+      onLiveProjectScopeChange(meta, { navigateHistory: false });
       if (window.AlertCenter && typeof window.AlertCenter.hydrate === "function") {
         window.AlertCenter.hydrate(BRIDGE);
       }
@@ -2691,8 +2725,10 @@
         currentProjectId = data.projectId || id;
         currentProjectLabel = data.projectLabel || currentProjectLabel;
         updateFooterProject();
-        // Restart Live stream; SSE "reset" also clears if the bridge emits it
+        // Restart Live stream; SSE "reset" may be missed if the old EventSource closes first
         startLive();
+        setViewMode("history");
+        onLiveProjectScopeChange(data, { navigateHistory: false });
       });
     });
   }
