@@ -18,22 +18,29 @@ This is **Cursor Agents** branding/product framing, not Claude Code product UI.
 
 ## Key files
 
-| File                           | Role                                                                                        |
-| ------------------------------ | ------------------------------------------------------------------------------------------- |
-| `model-routing-dashboard.html` | Dashboard markup shell (Demo + Live; Stage/Insights/History chrome)                         |
-| `dashboard/styles.css`         | Dashboard styles                                                                            |
-| `dashboard/insights.css`       | Insights / History drawer styles                                                            |
-| `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage                                            |
-| `dashboard/insights.js`        | Insights forecast + History/Replay UI                                                       |
-| `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                       |
-| `dashboard/cards.js`           | Session Bill / Activity / Log card helpers                                                  |
-| `live-bridge.js`               | Headless bridge: serves HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status` |
-| `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                             |
-| `package.json`                 | Electron/desktop scripts + lint/test/ci                                                     |
-| `electron/main.js`             | Desktop window; start bridge in-process                                                     |
-| `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                |
-| `.github/workflows/ci.yml`     | Lint, format check, smoke test, packaging check                                             |
-| `README.md`                    | User-facing run instructions and Live-mode limits                                           |
+| File                           | Role                                                                                                |
+| ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `model-routing-dashboard.html` | Dashboard markup shell (Demo + Live; Stage/Insights/History chrome)                                 |
+| `dashboard/styles.css`         | Dashboard styles                                                                                    |
+| `dashboard/cards.css`          | Station card / avatar / ship-celebration styles                                                     |
+| `dashboard/insights.css`       | Insights / History drawer styles                                                                    |
+| `dashboard/tips.css`           | TipLayer floating tooltip styles                                                                    |
+| `dashboard/alerts.css`         | Alert center bell / popover styles                                                                  |
+| `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage + Live presence                                    |
+| `dashboard/insights.js`        | Insights forecast + cost-ranked suggestions + History/Replay UI                                     |
+| `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                               |
+| `dashboard/cards.js`           | Station cards, avatars, daily stats, privacy meter, ship celebration                                |
+| `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                   |
+| `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`)                                               |
+| `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts` |
+| `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                                     |
+| `package.json`                 | Electron/desktop scripts + lint/test/ci                                                             |
+| `electron/main.js`             | Desktop window; start bridge in-process                                                             |
+| `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                        |
+| `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                         |
+| `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                                                        |
+| `.github/workflows/ci.yml`     | Lint, format check, smoke test, packaging check                                                     |
+| `README.md`                    | User-facing run instructions and Live-mode limits                                                   |
 
 ## How to run
 
@@ -59,6 +66,26 @@ Options: `--port N`, `--dir <agent-transcripts path>` (or `CURSOR_TRANSCRIPTS`).
 
 - **Demo** — open `model-routing-dashboard.html` via `file://` or the bridge; Play runs a scripted routing story. No server required for Demo alone.
 - **Live** — needs the bridge; streams near-real events from `~/.cursor/projects/.../agent-transcripts/**/*.jsonl`.
+
+**Live presence** (hint + stage banner; `data-live-presence` on `#app`):
+
+| State           | Meaning                                                                  |
+| --------------- | ------------------------------------------------------------------------ |
+| `file-origin`   | Opened via `file://` — coach to use Electron or `http://127.0.0.1:port/` |
+| `connecting`    | SSE connecting                                                           |
+| `bridge-down`   | SSE failed — banner + manual Reconnect (no auto-reconnect loop)          |
+| `no-projects`   | Bridge up but no Cursor projects found                                   |
+| `quiet-healthy` | Connected, no recent events — idle workshop, not an error                |
+| `streaming`     | Active transcript traffic                                                |
+
+Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (never blocks Demo).
+
+**Product surfaces (keep in mind when editing):**
+
+- **TipLayer** (`tips.js`) — one floating tip host for chrome, stage, cards, Insights; prefer `data-tip` over bare `title=` on primary controls.
+- **Alert center** (`alerts.js`) — header bell; bridge SSE `event: alert` + `GET /api/alerts` (name/status/`agentId` only); Electron desktop Notification stays on the same emit path.
+- **Suggestions** — sorted by estimated dollar savings; row click → `jumpToAgent` (does not change Cursor routing).
+- **Ship celebration** — portal burst + avatar `done` on merge/ship; respect `prefers-reduced-motion`.
 
 ## Conventions
 

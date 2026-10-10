@@ -54,17 +54,25 @@ Then run `dist\win-unpacked\Cursor Agents Model Routing.exe`.
 
 ## Project layout
 
-| Path                           | Role                                                    |
-| ------------------------------ | ------------------------------------------------------- |
-| `model-routing-dashboard.html` | Markup shell (Demo + Live UI)                           |
-| `dashboard/styles.css`         | Dashboard styles                                        |
-| `dashboard/insights.css`       | Insights / History drawer styles                        |
-| `dashboard/app.js`             | Demo playbook, Live SSE client, workshop stage          |
-| `dashboard/insights.js`        | Insights forecast + History/Replay UI                   |
-| `dashboard/replay-stage.js`    | Replay transport → workshop stage                       |
-| `live-bridge.js`               | Headless/Electron bridge (HTML + `/dashboard/*` + APIs) |
-| `electron/main.js`             | Desktop window; starts bridge in-process                |
-| `test/demo-smoke.test.js`      | Demo-mode Playwright smoke test                         |
+| Path                           | Role                                                                 |
+| ------------------------------ | -------------------------------------------------------------------- |
+| `model-routing-dashboard.html` | Markup shell (Demo + Live UI)                                        |
+| `dashboard/styles.css`         | Dashboard styles                                                     |
+| `dashboard/cards.css`          | Station card / avatar / ship-celebration styles                      |
+| `dashboard/insights.css`       | Insights / History drawer styles                                     |
+| `dashboard/tips.css`           | TipLayer floating tooltip styles                                     |
+| `dashboard/alerts.css`         | Alert center bell / popover styles                                   |
+| `dashboard/app.js`             | Demo playbook, Live SSE client, workshop stage, Live presence        |
+| `dashboard/insights.js`        | Insights forecast, cost-ranked suggestions, History/Replay UI        |
+| `dashboard/replay-stage.js`    | Replay transport → workshop stage                                    |
+| `dashboard/cards.js`           | Station cards, avatars, daily stats, privacy meter, ship celebration |
+| `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                    |
+| `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`)                |
+| `live-bridge.js`               | Headless/Electron bridge (HTML + `/dashboard/*` + APIs)              |
+| `electron/main.js`             | Desktop window; starts bridge in-process                             |
+| `test/demo-smoke.test.js`      | Demo-mode Playwright smoke test                                      |
+| `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                          |
+| `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                         |
 
 ## Demo mode (static HTML fallback)
 
@@ -120,12 +128,36 @@ node live-bridge.js --dir "C:\Users\<you>\.cursor\projects\<project>\agent-trans
 | `~/.cursor/projects/*/agent-transcripts/**/*.jsonl` | Projects listed in the picker; newest selected by default                   |
 | `GET /api/projects`                                 | Project list + current selection                                            |
 | `POST /api/select` + `X-Cursor-Bridge: 1`           | Switch transcripts folder + reset watch state (JSON `{id}`; Sec-Fetch-Site) |
-| SSE `GET /api/stream`                               | Events + `reset` when the project changes                                   |
+| SSE `GET /api/stream`                               | Events + `reset` when the project changes; also `event: alert`              |
+| `GET /api/alerts`                                   | Last ~50 in-memory alerts (`{ id, ts, name, status, agentId? }`)            |
 | `GET /api/events`, `GET /api/status`                | Debug / backlog                                                             |
 | `GET /api/history?since=&session=`                  | Persisted history events (JSONL-backed; localhost Host/Origin guards)       |
 | `POST /api/history/clear` + `X-Cursor-Bridge: 1`    | Wipe local history (`{"ok":true}`)                                          |
 
 Roles are inferred from `Task` / `CallDynamicTool` `subagent_type` and subagent prompt text (`advisor`, `worker`, `explore`→explorer, `researcher`). Unknown types map to parent/generic.
+
+### Live presence
+
+The Live UI tracks a single presence state for the header hint, stage banner, and empty copy:
+
+| State           | What you see                                                                            |
+| --------------- | --------------------------------------------------------------------------------------- |
+| `file-origin`   | Coach: open Electron or `http://127.0.0.1:<port>/` (Live from `file://` is unsupported) |
+| `connecting`    | Soft connecting banner                                                                  |
+| `bridge-down`   | Persistent banner + **Reconnect** (manual; no auto-reconnect loop)                      |
+| `no-projects`   | Coach when the picker has no Cursor projects                                            |
+| `quiet-healthy` | Connected with no recent events — idle workshop, not an error                           |
+| `streaming`     | Active traffic + project chip                                                           |
+
+First time you enter Live, a dismissible coach sheet explains the project picker, what Live sees, and the estimate disclaimer (`localStorage` `ca.liveOnboard.v1`). Demo is never blocked.
+
+### Insights suggestions & jump-to-agent
+
+Insights **Suggestions** are ranked by estimated dollar savings (then name). Clicking a row (or an alert with a mappable agent) jumps to that station on the stage — select character, open Activity, brief card highlight. This does **not** change Cursor’s live routing; it only navigates the dashboard.
+
+### TipLayer & ship celebration
+
+Chrome, stage stations, HUD chips, cards, Insights, and alerts share one **TipLayer** hover/focus tip (`data-tip` / `data-tip-detail`, ~300ms delay). Ship / merge plays a short portal celebration and marks avatars done (respects `prefers-reduced-motion`).
 
 ### History & desktop alerts
 
@@ -158,7 +190,12 @@ History event contract (stable):
 
 `type` is one of `spawn` | `turn` | `done` | `error`.
 
-In the Electron app, desktop notifications fire when an agent **finishes**, **errors**, or **stalls** (no activity for ~2 minutes). Alerts show **only agent name and status** — never prompt text or file paths.
+When an agent **finishes**, **errors**, or **stalls** (no activity for ~2 minutes), the bridge:
+
+1. Broadcasts SSE `event: alert` with `{ id, ts, name, status, agentId? }` and keeps the last ~50 for `GET /api/alerts`.
+2. In Electron, also fires a desktop Notification (name + status only).
+
+The in-app **alert center** (header bell) lists the same alerts — mark read, snooze, clear, click to jump when a role/agent is mappable. Alerts show **only agent name and status** — never prompt text or file paths. Backlog/SSE replay quiet gates skip spam the same way card timing does.
 
 ### Limits
 
