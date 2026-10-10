@@ -598,9 +598,18 @@
       if (drawerInsights) drawerInsights.open = false;
       if (drawerActivity) drawerActivity.open = false;
       if (drawerHistory) drawerHistory.open = true;
-      if (insightsPanel && typeof insightsPanel.showTab === "function") {
-        insightsPanel.showTab("replay");
+      if (insightsPanel) {
+        if (typeof insightsPanel.showTab === "function") insightsPanel.showTab("replay");
+        if (typeof insightsPanel.mountReplay === "function") {
+          insightsPanel.mountReplay(document.getElementById("historyReplayHost"));
+        }
+        /* Do not auto-play — user hits Play in History transport. */
+        if (typeof insightsPanel.pause === "function") insightsPanel.pause();
       }
+    }
+
+    if (viewMode !== "history" && insightsPanel && typeof insightsPanel.pause === "function") {
+      insightsPanel.pause();
     }
   }
 

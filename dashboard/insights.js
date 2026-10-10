@@ -683,6 +683,11 @@
     var allEvents = [];
     var sessionId = "";
     var replayIndex = 0;
+    var replayIndexListeners = [];
+    var replayMountEl = null;
+    var transportPlaying = false;
+    var transportSpeed = 1;
+    var transportTimer = null;
     var root = el(
       '<section class="insights-root" data-insights="1" aria-label="Insights">' +
         '<header class="insights-header">' +
@@ -859,15 +864,41 @@
         "</ul>";
     }
 
-    function renderReplay() {
-      var panel = root.querySelector('[data-panel="replay"]');
+    function notifyReplayIndex(source) {
+      var payload = {
+        index: replayIndex,
+        events: activeEvents().slice(),
+        source: source || "scrub"
+      };
+      replayIndexListeners.forEach(function (cb) {
+        try {
+          cb(payload);
+        } catch (_) {}
+      });
+    }
+
+    function paintReplayInto(host, opts) {
+      opts = opts || {};
+      if (!host) return;
       var events = activeEvents();
       var max = Math.max(0, events.length - 1);
       if (replayIndex > max) replayIndex = max;
       var snap = buildTreeAt(events, replayIndex);
       var ev = snap.event;
-      panel.innerHTML =
+      var showTransport = !!opts.transport;
+      host.innerHTML =
         '<div class="insights-replay">' +
+        (showTransport
+          ? '<div class="insights-transport" data-transport>' +
+            '<button type="button" class="insights-transport-btn" data-replay-play aria-pressed="false">Play</button>' +
+            '<button type="button" class="insights-transport-btn" data-replay-pause>Pause</button>' +
+            '<div class="insights-speed" role="group" aria-label="Replay speed">' +
+            '<button type="button" data-speed="0.5" aria-pressed="false">0.5×</button>' +
+            '<button type="button" data-speed="1" aria-pressed="true">1×</button>' +
+            '<button type="button" data-speed="2" aria-pressed="false">2×</button>' +
+            "</div>" +
+            "</div>"
+          : "") +
         '<div class="insights-scrubber-row">' +
         '<input type="range" class="insights-scrubber" data-scrubber min="0" max="' +
         max +
@@ -896,14 +927,15 @@
         "</div>" +
         "</div>";
 
-      var scrubber = panel.querySelector("[data-scrubber]");
+      var scrubber = host.querySelector("[data-scrubber]");
       if (scrubber) {
         scrubber.addEventListener("input", function () {
-          replayIndex = Number(scrubber.value) || 0;
+          if (transportPlaying) pauseTransport();
+          setReplayIndex(Number(scrubber.value) || 0, { source: "scrub", skipPaint: true });
           var next = buildTreeAt(events, replayIndex);
-          var meta = panel.querySelector("[data-scrubber-meta]");
-          var eventEl = panel.querySelector("[data-replay-event]");
-          var treeEl = panel.querySelector("[data-replay-tree]");
+          var meta = host.querySelector("[data-scrubber-meta]");
+          var eventEl = host.querySelector("[data-replay-event]");
+          var treeEl = host.querySelector("[data-replay-tree]");
           if (meta)
             meta.textContent = (events.length ? replayIndex + 1 : 0) + " / " + events.length;
           if (eventEl && next.event) {
@@ -917,8 +949,198 @@
               normalizeModel(next.event.model);
           }
           if (treeEl) treeEl.innerHTML = renderTree(next.roots);
+          syncScrubbers();
         });
       }
+
+      if (showTransport) {
+        var playBtn = host.querySelector("[data-replay-play]");
+        var pauseBtn = host.querySelector("[data-replay-pause]");
+        if (playBtn) {
+          playBtn.addEventListener("click", function () {
+            playTransport();
+          });
+        }
+        if (pauseBtn) {
+          pauseBtn.addEventListener("click", function () {
+            pauseTransport();
+          });
+        }
+        host.querySelectorAll("[data-speed]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            setSpeed(Number(btn.getAttribute("data-speed")) || 1);
+          });
+        });
+        syncTransportUi();
+      }
+    }
+
+    function replayHosts() {
+      return [root.querySelector('[data-panel="replay"]'), replayMountEl].filter(Boolean);
+    }
+
+    function syncScrubbers() {
+      var events = activeEvents();
+      var max = Math.max(0, events.length - 1);
+      var metaText = (events.length ? replayIndex + 1 : 0) + " / " + events.length;
+      var snap = buildTreeAt(events, replayIndex);
+      var eventText = snap.event
+        ? snap.event.ts +
+          " · " +
+          snap.event.type +
+          " · " +
+          (snap.event.name || snap.event.agentId) +
+          " · " +
+          normalizeModel(snap.event.model)
+        : "No events";
+      var treeHtml = renderTree(snap.roots);
+      replayHosts().forEach(function (host) {
+        host.querySelectorAll("[data-scrubber]").forEach(function (s) {
+          s.max = String(max);
+          s.value = String(replayIndex);
+        });
+        host.querySelectorAll("[data-scrubber-meta]").forEach(function (m) {
+          m.textContent = metaText;
+        });
+        host.querySelectorAll("[data-replay-event]").forEach(function (el) {
+          el.textContent = eventText;
+        });
+        host.querySelectorAll("[data-replay-tree]").forEach(function (el) {
+          el.innerHTML = treeHtml;
+        });
+      });
+    }
+
+    function syncTransportUi() {
+      replayHosts().forEach(function (host) {
+        var playBtn = host.querySelector("[data-replay-play]");
+        if (playBtn) {
+          playBtn.setAttribute("aria-pressed", transportPlaying ? "true" : "false");
+          playBtn.textContent = transportPlaying ? "Playing" : "Play";
+        }
+        host.querySelectorAll("[data-speed]").forEach(function (btn) {
+          var on = Number(btn.getAttribute("data-speed")) === transportSpeed;
+          btn.setAttribute("aria-pressed", on ? "true" : "false");
+          btn.classList.toggle("on", on);
+        });
+      });
+    }
+
+    function clearTransportTimer() {
+      if (transportTimer) {
+        clearInterval(transportTimer);
+        transportTimer = null;
+      }
+    }
+
+    function playTransport() {
+      var events = activeEvents();
+      if (!events.length) return;
+      transportPlaying = true;
+      clearTransportTimer();
+      var baseMs = 900;
+      var tick = Math.max(120, baseMs / Math.max(0.25, transportSpeed));
+      transportTimer = setInterval(function () {
+        var max = Math.max(0, activeEvents().length - 1);
+        if (replayIndex >= max) {
+          pauseTransport();
+          return;
+        }
+        setReplayIndex(replayIndex + 1, { source: "play" });
+      }, tick);
+      syncTransportUi();
+    }
+
+    function pauseTransport() {
+      transportPlaying = false;
+      clearTransportTimer();
+      syncTransportUi();
+    }
+
+    function setSpeed(mult) {
+      var n = Number(mult);
+      if (n !== 0.5 && n !== 1 && n !== 2) n = 1;
+      transportSpeed = n;
+      syncTransportUi();
+      if (transportPlaying) playTransport();
+    }
+
+    function setReplayIndex(i, opts) {
+      opts = opts || {};
+      var events = activeEvents();
+      var max = Math.max(0, events.length - 1);
+      var next = Math.max(0, Math.min(max, Number(i) || 0));
+      var changed = next !== replayIndex;
+      replayIndex = next;
+      if (!opts.skipPaint && opts.source !== "play") {
+        renderReplay();
+        if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
+      }
+      syncScrubbers();
+      if (changed || opts.forceNotify) notifyReplayIndex(opts.source || "set");
+    }
+
+    function renderReplay() {
+      var panel = root.querySelector('[data-panel="replay"]');
+      paintReplayInto(panel, { transport: false });
+    }
+
+    function showTab(name) {
+      var tab = String(name || "forecast").toLowerCase();
+      if (tab === "what-if") tab = "whatif";
+      var btn = root.querySelector('.insights-tab[data-tab="' + tab + '"]');
+      if (!btn) return;
+      root.querySelectorAll(".insights-tab").forEach(function (b) {
+        var on = b === btn;
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      root.querySelectorAll(".insights-panel").forEach(function (p) {
+        var on = p.getAttribute("data-panel") === tab;
+        p.classList.toggle("on", on);
+        p.hidden = !on;
+      });
+    }
+
+    function mountReplay(containerEl) {
+      replayMountEl = containerEl || null;
+      if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
+      return getReplayController();
+    }
+
+    function getReplayController() {
+      return {
+        play: playTransport,
+        pause: pauseTransport,
+        setSpeed: setSpeed,
+        setReplayIndex: setReplayIndex,
+        getTransportState: getTransportState,
+        getIndex: function () {
+          return replayIndex;
+        },
+        getEvents: function () {
+          return activeEvents().slice();
+        }
+      };
+    }
+
+    function getTransportState() {
+      return {
+        playing: transportPlaying,
+        speed: transportSpeed,
+        index: replayIndex,
+        count: activeEvents().length
+      };
+    }
+
+    function onReplayIndex(cb) {
+      if (typeof cb !== "function") return function () {};
+      replayIndexListeners.push(cb);
+      return function () {
+        replayIndexListeners = replayIndexListeners.filter(function (fn) {
+          return fn !== cb;
+        });
+      };
     }
 
     function renderWhatIf() {
@@ -971,24 +1193,17 @@
 
     root.querySelectorAll(".insights-tab").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        var tab = btn.getAttribute("data-tab");
-        root.querySelectorAll(".insights-tab").forEach(function (b) {
-          var on = b === btn;
-          b.classList.toggle("on", on);
-          b.setAttribute("aria-selected", on ? "true" : "false");
-        });
-        root.querySelectorAll(".insights-panel").forEach(function (p) {
-          var on = p.getAttribute("data-panel") === tab;
-          p.classList.toggle("on", on);
-          p.hidden = !on;
-        });
+        showTab(btn.getAttribute("data-tab"));
       });
     });
 
     sessionSelect.addEventListener("change", function () {
       sessionId = sessionSelect.value;
+      pauseTransport();
       replayIndex = 0;
       renderAll();
+      if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
+      notifyReplayIndex("session");
     });
 
     async function load() {
@@ -997,8 +1212,10 @@
         allEvents = demo ? await loadDemoEvents() : await loadLiveEvents(opts);
         allEvents = sortEvents(allEvents);
         fillSessions();
+        pauseTransport();
         replayIndex = 0;
         renderAll();
+        if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
         setStatus(
           (demo ? "Demo" : "Live") +
             " · " +
@@ -1010,6 +1227,7 @@
         allEvents = demo ? DEMO_HISTORY.events.slice() : [];
         fillSessions();
         renderAll();
+        if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
         setStatus("Load failed: " + (err && err.message ? err.message : String(err)));
       }
     }
@@ -1027,10 +1245,22 @@
       destroy: function () {
         if (destroyed) return;
         destroyed = true;
+        pauseTransport();
+        replayIndexListeners = [];
+        replayMountEl = null;
         if (root.parentNode) root.parentNode.removeChild(root);
       },
       reload: load,
       setDemoMode: setDemoMode,
+      showTab: showTab,
+      mountReplay: mountReplay,
+      getReplayController: getReplayController,
+      onReplayIndex: onReplayIndex,
+      setReplayIndex: setReplayIndex,
+      play: playTransport,
+      pause: pauseTransport,
+      setSpeed: setSpeed,
+      getTransportState: getTransportState,
       getConfig: function () {
         return CONFIG;
       },

@@ -888,6 +888,54 @@ h1.headline em {
   box-shadow: none;
 }
 
+.drawer[data-panel="history"] .history-hint {
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.drawer[data-panel="history"] .history-replay-host .insights-replay {
+  margin: 0;
+}
+
+.insights-transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.insights-transport-btn,
+.insights-speed button {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.insights-transport-btn:hover,
+.insights-speed button:hover,
+.insights-speed button.on,
+.insights-speed button[aria-pressed="true"],
+.insights-transport-btn[aria-pressed="true"] {
+  color: var(--text);
+  border-color: rgba(62, 207, 255, 0.35);
+}
+
+.insights-speed {
+  display: inline-flex;
+  gap: 4px;
+}
+
 .card {
   position: relative;
   background: var(--surface);
