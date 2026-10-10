@@ -153,6 +153,7 @@ body::after {
   outline: 1px solid rgba(62, 207, 255, 0.22);
 }
 
+/* Focus drawer sheets under the stage (History / Insights are last in DOM) */
 #app[data-view-mode="history"] .drawer[data-panel="history"] {
   order: -10;
 }
@@ -1262,41 +1263,12 @@ h1.headline em {
   margin: 0;
 }
 
-.insights-transport {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+.drawer[data-panel="history"] .history-replay-host .insights-speed {
+  margin-left: 0;
 }
 
-.insights-transport-btn,
-.insights-speed button {
-  appearance: none;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 6px 10px;
-  border-radius: var(--radius);
-  cursor: pointer;
-}
-
-.insights-transport-btn:hover,
-.insights-speed button:hover,
-.insights-speed button.on,
-.insights-speed button[aria-pressed="true"],
-.insights-transport-btn[aria-pressed="true"] {
-  color: var(--text);
-  border-color: rgba(62, 207, 255, 0.35);
-}
-
-.insights-speed {
-  display: inline-flex;
-  gap: 4px;
+.drawer[data-panel="history"] .history-replay-host .insights-transport {
+  gap: 6px;
 }
 
 .card {

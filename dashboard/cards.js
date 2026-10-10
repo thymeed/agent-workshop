@@ -655,6 +655,10 @@
   }
 
   /** Map card status copy → block-agent expression (eyes stay square except done / celebrating). */
+  /**
+   * Map card status copy → avatar expression. Awake open eye dots everywhere except
+   * done / celebrating (closed arcs). Per-role mouths from CSS; typing animates mouth only.
+   */
   function inferAvatarFromStatus(role, html, cls) {
     var text = String(html || "").replace(/<[^>]+>/g, " ");
     var fail = cls === "fail" || /\bFAIL\b/i.test(text);
@@ -688,6 +692,7 @@
     return "";
   }
 
+  /** Re-apply avatar expression from the card's current status copy. */
   function syncAvatarFromStatus(role) {
     var el = statusEls[role];
     if (!el) return;
