@@ -18,30 +18,30 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 
 ## Key files
 
-| File                           | Role                                                                                                |
-| ------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `model-routing-dashboard.html` | Dashboard markup shell (Demo + Live; Stage/Insights/History chrome)                                 |
-| `dashboard/styles.css`         | Dashboard styles                                                                                    |
-| `dashboard/cards.css`          | Station card / avatar / ship-celebration styles                                                     |
-| `dashboard/insights.css`       | Insights / History drawer styles                                                                    |
-| `dashboard/tips.css`           | TipLayer floating tooltip styles                                                                    |
-| `dashboard/alerts.css`         | Alert center bell / popover styles                                                                  |
-| `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage + Live presence + inbound route tokens             |
-| `dashboard/insights.js`        | Insights forecast + cost-ranked suggestions + History/Replay UI                                     |
-| `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                               |
+| File                           | Role                                                                                                                  |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `model-routing-dashboard.html` | Dashboard markup shell (Demo + Live; Stage/Insights/History chrome)                                                   |
+| `dashboard/styles.css`         | Dashboard styles                                                                                                      |
+| `dashboard/cards.css`          | Station card / avatar / ship-celebration styles                                                                       |
+| `dashboard/insights.css`       | Insights / History drawer styles                                                                                      |
+| `dashboard/tips.css`           | TipLayer floating tooltip styles                                                                                      |
+| `dashboard/alerts.css`         | Alert center bell / popover styles                                                                                    |
+| `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage + Live presence + inbound route tokens                               |
+| `dashboard/insights.js`        | Insights forecast + cost-ranked suggestions + History/Replay UI                                                       |
+| `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                                                 |
 | `dashboard/cards.js`           | Station cards, per-role cute faces (`faceMarkup` / `roleFromAgentHint`), daily stats, privacy meter, ship celebration |
-| `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                   |
-| `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`; mini faces via `AgentCards.faceMarkup`)        |
-| `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts` |
-| `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                                     |
-| `package.json`                 | Electron/desktop scripts + lint/test/ci                                                             |
-| `scripts/copy-exe.js`          | After `build`/`pack`: copy **portable** `dist/AgentWorkshop.exe` → repo-root (never win-unpacked)   |
-| `electron/main.js`             | Desktop window; start bridge in-process                                                             |
-| `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                        |
-| `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                         |
-| `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                                                        |
-| `.github/workflows/ci.yml`     | Lint, format check, smoke test, packaging check                                                     |
-| `README.md`                    | User-facing run instructions and Live-mode limits                                                   |
+| `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                     |
+| `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`; mini faces via `AgentCards.faceMarkup`)                         |
+| `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts`                   |
+| `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                                                       |
+| `package.json`                 | Electron/desktop scripts + lint/test/ci                                                                               |
+| `scripts/copy-exe.js`          | After `build`/`pack`: copy **portable** `dist/AgentWorkshop.exe` → repo-root (never win-unpacked)                     |
+| `electron/main.js`             | Desktop window; start bridge in-process                                                                               |
+| `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                                          |
+| `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                                           |
+| `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                                                                          |
+| `.github/workflows/ci.yml`     | Lint, format check, smoke test, packaging check                                                                       |
+| `README.md`                    | User-facing run instructions and Live-mode limits                                                                     |
 
 ## How to run
 
@@ -111,7 +111,7 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 - Keep `live-bridge.js` **reusable** from CLI and from Electron (same module/API surface).
 - Prefer **minimal dependencies** (bridge today is Node stdlib only).
 - **Do not commit secrets** (`.env*`, tokens, credentials). Ignore `dist/`, `*.exe`, and `node_modules` via `.gitignore`. Local `dist\` / stale exes are safe to delete and rebuild from git + npm.
-- Before **commit + push** of product changes, run a **quick Advisor** go/fix gate (see `.cursor/rules/advisor-before-commit-push.mdc`).
+- Before **commit + push** of product changes, run a **quick Advisor** go/fix gate (`.cursor/rules/advisor-before-commit-push.mdc`). Advisor instructions + CI foresight (lint, `format:check`, smoke, packaging) live in **`.cursor/agents/advisor.md`** (workflow: `.github/workflows/ci.yml`).
 
 ## Limits (don’t “fix” these away casually)
 

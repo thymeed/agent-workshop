@@ -191,17 +191,11 @@
         });
       }
       var faceHtml = "";
-      if (
-        faceRole &&
-        global.AgentCards &&
-        typeof global.AgentCards.faceMarkup === "function"
-      ) {
+      if (faceRole && global.AgentCards && typeof global.AgentCards.faceMarkup === "function") {
         faceHtml = global.AgentCards.faceMarkup(faceRole, { size: "sm" });
       }
       li.innerHTML =
-        (faceHtml
-          ? '<span class="alert-face" aria-hidden="true">' + faceHtml + "</span>"
-          : "") +
+        (faceHtml ? '<span class="alert-face" aria-hidden="true">' + faceHtml + "</span>" : "") +
         '<span class="alert-status alert-status-' +
         escapeHtml(status) +
         '">' +
