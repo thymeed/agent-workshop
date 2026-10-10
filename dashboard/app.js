@@ -88,6 +88,9 @@
   var toastTimer = null;
   var viewMode = "stage";
   var VIEW_MODE_KEY = "cursorAgents.viewMode";
+  var replaySessionActive = false;
+  var lastReplayIndex = -1;
+  var ReplayStage = window.ReplayStage || null;
 
   /* Move station cards into Stations drawer (keep same card/status IDs). */
   (function relocateStations() {
@@ -138,6 +141,7 @@
       );
     } catch (_insightsErr) {}
   }
+  /* Replay → stage wiring is registered after onReplayIndexChange is defined (below). */
   var lastDemoUsageTotal = 0;
   var playing = false;
   var timers = [];
@@ -585,6 +589,7 @@
       if (drawerInsights) drawerInsights.open = false;
       if (drawerHistory) drawerHistory.open = false;
       if (drawerActivity) drawerActivity.open = true;
+      endReplaySession();
     } else if (viewMode === "insights") {
       if (drawerHistory) drawerHistory.open = false;
       if (drawerActivity) drawerActivity.open = false;
@@ -592,6 +597,7 @@
       if (insightsPanel && typeof insightsPanel.showTab === "function") {
         insightsPanel.showTab("forecast");
       }
+      if (insightsPanel && typeof insightsPanel.pause === "function") insightsPanel.pause();
     } else if (viewMode === "history") {
       if (drawerInsights) drawerInsights.open = false;
       if (drawerActivity) drawerActivity.open = false;
@@ -1386,11 +1392,21 @@
     liveSeenByProject = {};
   }
 
-  function applyLiveEvent(ev) {
+  function applyLiveEvent(ev, opts) {
     if (!ev) return;
-    var alreadySeen = hasSeenLiveEvent(ev);
-    if (!alreadySeen) markSeenLiveEvent(ev);
-    var usageOpts = { skipDaily: alreadySeen };
+    opts = opts || {};
+    var isReplay = !!opts.replay;
+    /* History replay owns the stage — ignore Live/Demo ingress until Stage resumes. */
+    if (replaySessionActive && !isReplay) return;
+
+    var alreadySeen = false;
+    if (!isReplay) {
+      alreadySeen = hasSeenLiveEvent(ev);
+      if (!alreadySeen) markSeenLiveEvent(ev);
+    }
+    var usageOpts = { skipDaily: alreadySeen || isReplay };
+    var skipTiming = !!opts.skipTiming || alreadySeen || liveSseBacklogReplay;
+    var skipMotion = !!opts.skipMotion || (isReplay && prefersReducedMotion());
 
     var role = ev.role || "parent";
     var cardRole =
@@ -1408,14 +1424,18 @@
 
     var explicit = Array.isArray(ev.active) ? ev.active : null;
     var active = explicit && explicit.length ? explicit.slice() : [cardRole];
-    rememberLiveFocus(explicit, active);
-    setActive(mergeStickyActive(active), {
-      skipTiming: alreadySeen || liveSseBacklogReplay
+    if (!isReplay) rememberLiveFocus(explicit, active);
+    setActive(isReplay ? active : mergeStickyActive(active), {
+      skipTiming: skipTiming
     });
 
     var msg = ev.message || "";
-    setStatus(cardRole, '<span class="live">' + escapeHtml(msg) + "</span>");
-    if (role === "advisor" || ev.kind === "asks") {
+    var statusCls = ev.replayError ? "err" : "live";
+    setStatus(cardRole, '<span class="' + statusCls + '">' + escapeHtml(msg) + "</span>");
+    if (!isReplay && (role === "advisor" || ev.kind === "asks")) {
+      setCalls(state.calls + 1);
+      advisorLastEl.textContent = "Last advice: " + msg;
+    } else if (isReplay && (role === "advisor" || ev.kind === "asks")) {
       setCalls(state.calls + 1);
       advisorLastEl.textContent = "Last advice: " + msg;
     }
@@ -1459,10 +1479,83 @@
         ev.ts
       );
     }
-    if (ev.route) animateRoute(ev.route, ev.routeTo || cardRole);
+    if (ev.route && !skipMotion) animateRoute(ev.route, ev.routeTo || cardRole);
 
     var logRole = role === "parent" ? "parent" : role;
-    appendLog(logRole, msg, null, ev.ts);
+    appendLog(logRole, msg, ev.replayError ? "err" : null, ev.ts);
+  }
+
+  function resetReplaySession() {
+    replaySessionActive = true;
+    lastReplayIndex = -1;
+    clearStickyActive();
+    clearTimers();
+    if (playing) stopDemo();
+    stageDirector.reset();
+    setActive([]);
+    setStatus("opus", '<span class="live">Replay · idle</span>');
+    setStatus("advisor", '<span class="live">Quiet</span>');
+    setStatus("worker", '<span class="live">Standby</span>');
+    setStatus("explorer", '<span class="live">Standby</span>');
+    setStatus("researcher", '<span class="live">Standby</span>');
+    setCalls(0);
+    setSubs(0);
+    advisorLastEl.textContent = "Last advice: —";
+    state.usage = emptyUsage();
+    state.liveSubs = {};
+    renderBill();
+    clearActivity();
+    sessionLog.innerHTML = "";
+    logEmpty = document.createElement("div");
+    logEmpty.className = "log-empty";
+    logEmpty.id = "logEmpty";
+    logEmpty.textContent = "Replay session…";
+    sessionLog.appendChild(logEmpty);
+  }
+
+  function endReplaySession() {
+    if (insightsPanel && typeof insightsPanel.pause === "function") insightsPanel.pause();
+    replaySessionActive = false;
+    lastReplayIndex = -1;
+  }
+
+  var replayStageApi = {
+    applyLiveEvent: applyLiveEvent,
+    resetReplay: resetReplaySession,
+    prefersReducedMotion: prefersReducedMotion
+  };
+
+  function onReplayIndexChange(payload) {
+    if (!ReplayStage || !payload) return;
+    var events = payload.events || [];
+    var index = Number(payload.index);
+    if (!isFinite(index)) return;
+    var source = payload.source || "scrub";
+
+    if (playing) stopDemo();
+    replaySessionActive = true;
+
+    if (source === "play" && index === lastReplayIndex + 1 && lastReplayIndex >= 0) {
+      var stepEv = events[index];
+      if (stepEv) {
+        ReplayStage.applyOne(replayStageApi, stepEv, {
+          skipTiming: false,
+          skipMotion: prefersReducedMotion()
+        });
+      }
+      lastReplayIndex = index;
+      return;
+    }
+
+    /* scrub / play-start / session / test — rebuild [0..index] */
+    ReplayStage.seek(replayStageApi, events, index, {
+      prefersReducedMotion: prefersReducedMotion()
+    });
+    lastReplayIndex = index;
+  }
+
+  if (insightsPanel && typeof insightsPanel.onReplayIndex === "function") {
+    insightsPanel.onReplayIndex(onReplayIndexChange);
   }
 
   function stopLive() {
@@ -2079,6 +2172,17 @@
     setViewMode: setViewMode,
     getViewMode: function () {
       return viewMode;
+    },
+    replaySeek: function (events, index) {
+      if (!ReplayStage) return;
+      onReplayIndexChange({
+        events: events || [],
+        index: index,
+        source: "test"
+      });
+    },
+    isReplaySessionActive: function () {
+      return replaySessionActive;
     },
     demoUsageTokenTotal: function () {
       return usageGrandTotal(state.usage);

@@ -1038,6 +1038,8 @@
       if (!events.length) return;
       transportPlaying = true;
       clearTransportTimer();
+      /* Sync stage to current scrubber frame before advancing. */
+      notifyReplayIndex("play-start");
       var baseMs = 900;
       var tick = Math.max(120, baseMs / Math.max(0.25, transportSpeed));
       transportTimer = setInterval(function () {
