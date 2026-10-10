@@ -857,8 +857,35 @@ h1.headline em {
 }
 
 .drawers.panels-open .drawer[data-panel="bill"],
-.drawers.panels-open .drawer[data-panel="log"] {
+.drawers.panels-open .drawer[data-panel="log"],
+.drawers.panels-open .drawer[data-panel="insights"] {
   outline: 1px solid rgba(62, 207, 255, 0.25);
+}
+
+/* Quiet Insights when embedded as a drawer sheet (not a second stacked app) */
+.drawer[data-panel="insights"] .insights-header {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  gap: 8px;
+}
+
+.drawer[data-panel="insights"] .insights-eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  opacity: 0.75;
+}
+
+.drawer[data-panel="insights"] .insights-title {
+  font-size: 14px;
+  margin: 2px 0 0;
+}
+
+.drawer[data-panel="insights"] .insights-root {
+  margin-top: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
 }
 
 .card {

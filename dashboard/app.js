@@ -129,12 +129,12 @@
   var mode = "demo"; /* demo | live */
   var insightsPanel = null;
 
-  /* Lane C insights panel — guarded until dashboard/insights.js defines window.Insights. */
+  /* Insights sheet — mount inside #drawerInsights (not a stacked sibling under drawers). */
   if (window.Insights && typeof window.Insights.init === "function") {
     try {
       insightsPanel = window.Insights.init(
-        document.getElementById("insightsMount") ||
-          document.getElementById("drawers") ||
+        document.getElementById("insightsDrawerBody") ||
+          document.getElementById("drawerInsights") ||
           document.body,
         { demo: mode === "demo" }
       );
@@ -607,6 +607,7 @@
   function openPanels() {
     if (drawerBill) drawerBill.open = true;
     if (drawerLog) drawerLog.open = true;
+    if (drawerInsights) drawerInsights.open = true;
     if (drawersEl) drawersEl.classList.add("panels-open");
     if (panelsBtn) {
       panelsBtn.classList.add("on");
@@ -617,10 +618,14 @@
   }
 
   function togglePanels() {
-    var anyOpen = (drawerBill && drawerBill.open) || (drawerLog && drawerLog.open);
+    var anyOpen =
+      (drawerBill && drawerBill.open) ||
+      (drawerLog && drawerLog.open) ||
+      (drawerInsights && drawerInsights.open && viewMode === "stage");
     if (anyOpen) {
       if (drawerBill) drawerBill.open = false;
       if (drawerLog) drawerLog.open = false;
+      if (viewMode === "stage" && drawerInsights) drawerInsights.open = false;
       if (drawersEl) drawersEl.classList.remove("panels-open");
       if (panelsBtn) {
         panelsBtn.classList.remove("on");
