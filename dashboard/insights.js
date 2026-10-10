@@ -595,15 +595,31 @@
     function walk(list, depth) {
       return list
         .map(function (n) {
-          var pad = depth * 14;
+          var pad = 10 + depth * 16;
+          var tip = escapeHtml(n.name) + " · " + escapeHtml(n.state);
+          var detail =
+            escapeHtml(n.model) +
+            " agent · " +
+            (n.state === "active"
+              ? "mid-turn — crayons flying"
+              : n.state === "done"
+                ? "done — stretch break"
+                : n.state === "error"
+                  ? "oops — something stubbed a toe"
+                  : "spawned — saying hi to the bench");
           return (
             '<div class="insights-tree-node state-' +
             escapeHtml(n.state) +
             " model-" +
             escapeHtml(n.model) +
-            '" style="padding-left:' +
+            '" style="margin-left:' +
             pad +
-            'px">' +
+            'px" data-tip="' +
+            tip +
+            '" data-tip-detail="' +
+            detail +
+            '">' +
+            '<span class="insights-tree-dot" aria-hidden="true"></span>' +
             '<span class="insights-tree-name">' +
             escapeHtml(n.name) +
             "</span>" +
@@ -619,7 +635,15 @@
         })
         .join("");
     }
-    if (!roots.length) return '<p class="insights-empty">No agents yet.</p>';
+    if (!roots.length) {
+      return (
+        '<div class="insights-empty" data-tree-empty data-tip="Quiet workshop" data-tip-detail="No agents on the bench yet — spawn one and this little tree sprouts leaves.">' +
+        '<span class="insights-empty-face" aria-hidden="true"></span>' +
+        "<strong>Workshop is quiet</strong>" +
+        "No agents on the bench yet — spawn one and the tree grows here." +
+        "</div>"
+      );
+    }
     return '<div class="insights-tree">' + walk(roots, 0) + "</div>";
   }
 
@@ -696,25 +720,28 @@
     var root = el(
       '<section class="insights-root" data-insights="1" aria-label="Insights">' +
         '<header class="insights-header">' +
+        '<div class="insights-brand">' +
+        '<div class="insights-mascot" aria-hidden="true" data-tip="Workshop buddy" data-tip-detail="Your cute cost coach — same Cursor Agents workshop energy as the stage."><span class="insights-mascot-mouth"></span></div>' +
         "<div>" +
-        '<div class="insights-eyebrow">Cursor Agents · Insights</div>' +
-        '<h2 class="insights-title">Cost, routing &amp; replay</h2>' +
-        '<p class="insights-config-hint" data-estimates-glossary>' +
+        '<div class="insights-eyebrow" data-tip="Cursor Agents" data-tip-detail="Insights lives in the same workshop as the stage and stations.">Cursor Agents · Workshop</div>' +
+        '<h2 class="insights-title" data-tip="Insights" data-tip-detail="Forecast, thrifty reroutes, replay, and what-if daydreams.">Insights</h2>' +
+        '<p class="insights-config-hint" data-estimates-glossary data-tip="Estimates glossary" data-tip-detail="Playful math from transcript activity — never an official invoice.">' +
         "Estimates · not official invoices" +
         "</p>" +
         "</div>" +
+        "</div>" +
         '<div class="insights-controls">' +
-        '<label class="insights-session-label">Session ' +
-        '<select class="insights-session" aria-label="Session"></select>' +
+        '<label class="insights-session-label" data-tip="Session picker" data-tip-detail="Replay &amp; suggestions follow this session; forecast KPIs stay all-sessions.">Session ' +
+        '<select class="insights-session" aria-label="Session" data-tip="Session picker" data-tip-detail="Pick which chat tape to inspect — thrifty tips &amp; replay tag along."></select>' +
         "</label>" +
-        '<span class="insights-mode-pill" data-mode></span>' +
+        '<span class="insights-mode-pill" data-mode data-tip="Insights mode" data-tip-detail="Demo = inlined playbook toys; Live = bridge history from your machine."></span>' +
         "</div>" +
         "</header>" +
-        '<nav class="insights-tabs" role="tablist">' +
-        '<button type="button" class="insights-tab on" data-tab="forecast" role="tab" aria-selected="true">Forecast</button>' +
-        '<button type="button" class="insights-tab" data-tab="suggestions" role="tab" aria-selected="false">Suggestions</button>' +
-        '<button type="button" class="insights-tab" data-tab="replay" role="tab" aria-selected="false">Replay</button>' +
-        '<button type="button" class="insights-tab" data-tab="whatif" role="tab" aria-selected="false">What-if</button>' +
+        '<nav class="insights-tabs" role="tablist" aria-label="Insights sheets">' +
+        '<button type="button" class="insights-tab on" data-tab="forecast" role="tab" aria-selected="true" data-tip="Forecast sheet" data-tip-detail="Piggy-bank pace, soft limit, and per-model snack tallies.">Forecast</button>' +
+        '<button type="button" class="insights-tab" data-tab="suggestions" role="tab" aria-selected="false" data-tip="Suggestions sheet" data-tip-detail="Cute reroutes ranked by $ — click a card to jump that agent on stage.">Suggestions</button>' +
+        '<button type="button" class="insights-tab" data-tab="replay" role="tab" aria-selected="false" data-tip="Replay sheet" data-tip-detail="Scrub the agent tree like a tiny workshop film strip.">Replay</button>' +
+        '<button type="button" class="insights-tab" data-tab="whatif" role="tab" aria-selected="false" data-tip="What-if sheet" data-tip-detail="Same tokens, silly price daydreams — never rewires real routing.">What-if</button>' +
         "</nav>" +
         '<div class="insights-panels">' +
         '<div class="insights-panel on" data-panel="forecast" role="tabpanel"></div>' +
@@ -722,7 +749,7 @@
         '<div class="insights-panel" data-panel="replay" role="tabpanel" hidden></div>' +
         '<div class="insights-panel" data-panel="whatif" role="tabpanel" hidden></div>' +
         "</div>" +
-        '<p class="insights-status" data-status role="status"></p>' +
+        '<p class="insights-status" data-status role="status" data-tip="Load status" data-tip-detail="How many history events are loaded, and which mode (Demo / Live)."></p>' +
         "</section>"
     );
 
@@ -769,9 +796,21 @@
         })
         .map(function (m) {
           var u = sessionUsage[m];
+          var tip = escapeHtml(m) + " · session tally";
+          var detail =
+            formatTokens(u.in) +
+            " in / " +
+            formatTokens(u.out) +
+            " out · est. " +
+            formatMoney(u.cost) +
+            " (CONFIG prices, not an invoice).";
           return (
             '<tr class="model-' +
             escapeHtml(m) +
+            '" data-tip="' +
+            tip +
+            '" data-tip-detail="' +
+            escapeHtml(detail) +
             '">' +
             "<td>" +
             escapeHtml(m) +
@@ -806,28 +845,31 @@
       panel.innerHTML =
         '<div class="insights-forecast">' +
         '<div class="insights-kpi-row">' +
-        '<div class="insights-kpi"><span>Period spend</span><strong data-forecast-spend>' +
+        '<div class="insights-kpi" data-tip="Period spend" data-tip-detail="Piggy-bank total for every session in this Insights window — estimates only."><span>Period spend</span><strong data-forecast-spend>' +
         formatMoney(period.spend) +
         "</strong></div>" +
-        '<div class="insights-kpi"><span>Limit</span><strong data-forecast-limit>' +
+        '<div class="insights-kpi" data-tip="Soft limit" data-tip-detail="A friendly ceiling from Insights CONFIG — pace math only, not a hard billing stop."><span>Limit</span><strong data-forecast-limit>' +
         formatMoney(period.limit) +
         "</strong></div>" +
-        '<div class="insights-kpi"><span>Avg daily</span><strong data-forecast-pace>' +
+        '<div class="insights-kpi" data-tip="Average daily" data-tip-detail="How fast the piggy fills: period spend ÷ span days (all sessions)."><span>Avg daily</span><strong data-forecast-pace>' +
         formatMoney(period.usdPerDay) +
         "/day</strong></div>" +
         "</div>" +
-        '<p class="insights-forecast-note" data-forecast-hit data-forecast-scope="all-sessions">' +
+        '<p class="insights-forecast-note" data-forecast-hit data-forecast-scope="all-sessions" data-tip="Limit forecast" data-tip-detail="When the soft limit might wave hello if the all-session pace keeps humming.">' +
         escapeHtml(hitLabel) +
         "</p>" +
-        '<p class="insights-session-breakdown">Session breakdown' +
-        (sessionId ? ": " + escapeHtml(sessionId) : "") +
+        '<p class="insights-session-breakdown" data-tip="Session slice" data-tip-detail="Model rows follow the session picker; the KPI strip stays all-sessions.">Session breakdown' +
+        (sessionId ? " · " + escapeHtml(sessionId) : "") +
         "</p>" +
         '<table class="insights-usage-table" data-forecast-table>' +
         "<thead><tr><th>Model</th><th>In</th><th>Out</th><th>Cost</th></tr></thead>" +
         "<tbody>" +
-        (rows || '<tr><td colspan="4">No turn usage yet.</td></tr>') +
+        (rows ||
+          '<tr data-tip="No turns yet" data-tip-detail="This session is on standby — costs show up after agents chat."><td colspan="4"><div class="insights-empty" style="border:none;background:transparent;padding:8px 0"><span class="insights-empty-face" aria-hidden="true"></span><strong>No turns yet</strong>This session is on standby — costs show up after agents chat.</div></td></tr>') +
         "</tbody></table>" +
-        '<p class="insights-config-hint">Prices &amp; limit live in Insights CONFIG (limit ' +
+        '<p class="insights-config-hint" data-tip="CONFIG prices" data-tip-detail="Tweak $/1M rates and the soft limit (' +
+        formatMoney(CONFIG.limitUsd) +
+        ') in dashboard/insights.js CONFIG.">Prices &amp; limit live in Insights CONFIG (limit ' +
         formatMoney(CONFIG.limitUsd) +
         ").</p>" +
         "</div>";
@@ -926,18 +968,41 @@
       var list = routingSuggestions(activeEvents());
       if (!list.length) {
         panel.innerHTML =
-          '<p class="insights-suggest-honesty" data-suggestions-honesty>' +
+          '<div class="insights-suggest">' +
+          '<p class="insights-suggest-honesty" data-suggestions-honesty data-tip="Honesty chip" data-tip-detail="These tips never rewire Cursor routing — they are playful cost daydreams only.">' +
           "Does not change Cursor routing — estimates only." +
           "</p>" +
-          '<p class="insights-empty" data-suggestions-empty>No cheaper-route flags for this session.</p>';
+          '<div class="insights-empty" data-suggestions-empty data-tip="All clear" data-tip-detail="No cheaper-route flags this session — the crew already looks thrifty (or still warming up).">' +
+          '<span class="insights-empty-face" aria-hidden="true"></span>' +
+          "<strong>Routing looks snug</strong>" +
+          "No cheaper-route flags for this session." +
+          "</div>" +
+          "</div>";
         return;
       }
+      var totalSave = list.reduce(function (sum, s) {
+        return sum + (s.savings || 0);
+      }, 0);
       panel.innerHTML =
+        '<div class="insights-suggest">' +
+        '<div class="insights-suggest-hero" data-tip="Potential savings" data-tip-detail="Sum of estimated $ if every ranked suggestion were applied — still estimates, still not invoices.">' +
+        '<div class="insights-suggest-hero-copy">' +
+        '<span class="insights-suggest-hero-label">Could stash</span>' +
+        '<span class="insights-suggest-hero-value">' +
+        formatMoney(totalSave) +
+        "</span>" +
+        '<p class="insights-suggest-hero-sub">' +
+        list.length +
+        " cute reroute" +
+        (list.length === 1 ? "" : "s") +
+        " · ranked by $</p>" +
+        "</div>" +
+        "</div>" +
         '<div class="insights-suggest-toolbar">' +
-        '<p class="insights-suggest-honesty" data-suggestions-honesty>' +
+        '<p class="insights-suggest-honesty" data-suggestions-honesty data-tip="Honesty chip" data-tip-detail="Does not change Cursor routing — click a card to jump that agent on the workshop stage.">' +
         "Does not change Cursor routing — click a row to jump to that agent on the stage." +
         "</p>" +
-        '<button type="button" class="insights-suggest-copy" data-suggestions-copy>' +
+        '<button type="button" class="insights-suggest-copy" data-suggestions-copy data-tip="Copy as notes" data-tip-detail="Clipboard a numbered list of savings tips for your own notes.">' +
         "Copy as notes" +
         "</button>" +
         "</div>" +
@@ -945,11 +1010,23 @@
         list
           .map(function (s) {
             var saveLabel = "Save " + formatMoney(s.savings);
+            var tip = escapeHtml(s.name) + " · jump to stage";
+            var detail =
+              escapeHtml(s.model) +
+              " → " +
+              escapeHtml(s.suggestion) +
+              " · " +
+              escapeHtml(saveLabel) +
+              (s.reason ? " — " + escapeHtml(s.reason) : "");
             return (
               '<li class="insights-suggest-row" data-agent-id="' +
               escapeHtml(s.agentId) +
               '" tabindex="0" role="button" aria-label="' +
               escapeHtml(saveLabel + " · " + s.name + " · " + s.model + " to " + s.suggestion) +
+              '" data-tip="' +
+              tip +
+              '" data-tip-detail="' +
+              detail +
               '">' +
               '<div class="insights-suggest-head">' +
               '<span class="insights-save" data-suggest-savings>' +
@@ -961,7 +1038,7 @@
               '<span class="insights-badge from">' +
               escapeHtml(s.model) +
               "</span>" +
-              '<span aria-hidden="true">→</span>' +
+              '<span class="insights-suggest-arrow" aria-hidden="true">→</span>' +
               '<span class="insights-badge to">' +
               escapeHtml(s.suggestion) +
               "</span>" +
@@ -969,11 +1046,13 @@
               '<p class="insights-suggest-reason">' +
               escapeHtml(s.reason) +
               "</p>" +
+              '<span class="insights-suggest-jump">Jump to stage →</span>' +
               "</li>"
             );
           })
           .join("") +
-        "</ul>";
+        "</ul>" +
+        "</div>";
       bindSuggestionsPanel(panel, list);
     }
 
@@ -1002,13 +1081,13 @@
       host.innerHTML =
         '<div class="insights-replay">' +
         (showTransport
-          ? '<div class="insights-transport" data-transport>' +
-            '<button type="button" class="insights-transport-btn" data-replay-play aria-pressed="false">Play</button>' +
-            '<button type="button" class="insights-transport-btn" data-replay-pause>Pause</button>' +
+          ? '<div class="insights-transport" data-transport data-tip="Replay transport" data-tip-detail="Play, pause, or zip through the session like a tiny workshop film.">' +
+            '<button type="button" class="insights-transport-btn" data-replay-play aria-pressed="false" data-tip="Play" data-tip-detail="Advance the timeline automatically — agents pop onto the tree.">Play</button>' +
+            '<button type="button" class="insights-transport-btn" data-replay-pause data-tip="Pause" data-tip-detail="Freeze the timeline right here.">Pause</button>' +
             '<div class="insights-speed" role="group" aria-label="Replay speed">' +
-            '<button type="button" data-speed="0.5" aria-pressed="false">0.5×</button>' +
-            '<button type="button" data-speed="1" aria-pressed="true">1×</button>' +
-            '<button type="button" data-speed="2" aria-pressed="false">2×</button>' +
+            '<button type="button" data-speed="0.5" aria-pressed="false" data-tip="0.5× speed" data-tip-detail="Slo-mo — savor every spawn.">0.5×</button>' +
+            '<button type="button" data-speed="1" aria-pressed="true" data-tip="1× speed" data-tip-detail="Normal workshop tempo.">1×</button>' +
+            '<button type="button" data-speed="2" aria-pressed="false" data-tip="2× speed" data-tip-detail="Double-time — zoom past the chatter.">2×</button>' +
             "</div>" +
             "</div>"
           : "") +
@@ -1017,14 +1096,14 @@
         max +
         '" value="' +
         replayIndex +
-        '" aria-label="Session timeline" />' +
-        '<span class="insights-scrubber-meta" data-scrubber-meta>' +
+        '" aria-label="Session timeline" data-tip="Timeline scrubber" data-tip-detail="Drag to peek at any moment in this session&apos;s agent tree." />' +
+        '<span class="insights-scrubber-meta" data-scrubber-meta data-tip="Frame counter" data-tip-detail="Which event you&apos;re on versus the whole session stack.">' +
         (events.length ? replayIndex + 1 : 0) +
         " / " +
         events.length +
         "</span>" +
         "</div>" +
-        '<p class="insights-replay-event" data-replay-event>' +
+        '<p class="insights-replay-event" data-replay-event data-tip="Current event" data-tip-detail="Timestamp, type, agent, and model at this scrubber frame.">' +
         (ev
           ? escapeHtml(ev.ts) +
             " · " +
@@ -1035,7 +1114,7 @@
             escapeHtml(normalizeModel(ev.model))
           : "No events") +
         "</p>" +
-        "<div data-replay-tree>" +
+        '<div data-replay-tree data-tip="Agent tree" data-tip-detail="Who is on the bench at this frame — hover a node for cute status gossip.">' +
         renderTree(snap.roots) +
         "</div>" +
         "</div>";
@@ -1271,15 +1350,26 @@
       );
       panel.innerHTML =
         '<div class="insights-whatif">' +
-        '<p class="insights-whatif-disclaimer" data-whatif-disclaimer>' +
+        '<p class="insights-whatif-disclaimer" data-whatif-disclaimer data-tip="What-if honesty" data-tip-detail="Estimates · not official invoices · same tokens, different prices; real behavior may differ.">' +
         "Estimates · not official invoices · same tokens, different prices; real behavior may differ." +
         "</p>" +
         '<ul class="insights-whatif-list" data-whatif-list>' +
         scenarios
           .map(function (s) {
             var pct = Math.round((s.cost / maxCost) * 100);
+            var tip = escapeHtml(s.label);
+            var detail =
+              "Estimated " +
+              formatMoney(s.cost) +
+              " · bar is " +
+              pct +
+              "% of the priciest daydream here.";
             return (
-              "<li>" +
+              '<li data-tip="' +
+              tip +
+              '" data-tip-detail="' +
+              escapeHtml(detail) +
+              '">' +
               '<div class="insights-whatif-row">' +
               "<span>" +
               escapeHtml(s.label) +
@@ -1290,7 +1380,11 @@
               "</div>" +
               '<div class="insights-whatif-bar" style="width:' +
               pct +
-              '%"></div>' +
+              '%" data-tip="' +
+              tip +
+              ' bar" data-tip-detail="' +
+              escapeHtml(detail) +
+              '"></div>' +
               "</li>"
             );
           })
