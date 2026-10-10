@@ -74,6 +74,17 @@ async function main() {
         "unexpected Access-Control-Allow-Origin: " + ok.headers["access-control-allow-origin"]
       );
     }
+    try {
+      const statusBody = JSON.parse(ok.body || "{}");
+      if (!statusBody.lastScanAt || !Date.parse(statusBody.lastScanAt)) {
+        errors.push("status missing valid lastScanAt for sync-age trust chip");
+      }
+      if (!(Number(statusBody.pollMs) > 0)) {
+        errors.push("status missing positive pollMs (near-real polling honesty)");
+      }
+    } catch (_e) {
+      errors.push("status body is not JSON");
+    }
 
     const localOrigin = await request(port, {
       headers: { ...baseHeaders, Origin: origin }

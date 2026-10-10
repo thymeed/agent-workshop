@@ -166,10 +166,13 @@
     var badge = document.createElement("span");
     badge.className = "privacy-meter level-none";
     badge.setAttribute("data-privacy", role);
-    badge.setAttribute("title", "Privacy · no sensitive paths");
-    badge.setAttribute("aria-label", "Privacy meter: none");
+    badge.setAttribute(
+      "title",
+      "Privacy · path-based heuristic · not ground truth · no sensitive paths"
+    );
+    badge.setAttribute("aria-label", "Privacy meter (heuristic): none");
     badge.innerHTML =
-      '<span class="privacy-label">Privacy</span>' +
+      '<span class="privacy-label">Privacy · heuristic</span>' +
       '<span class="privacy-dots" aria-hidden="true">' +
       "<i></i><i></i><i></i>" +
       "</span>" +
@@ -226,8 +229,8 @@
     el.className = "privacy-meter level-" + level;
     var label = el.querySelector(".privacy-level");
     if (label) label.textContent = level;
-    el.setAttribute("title", "Privacy · " + level + " (sensitive path referenced)");
-    el.setAttribute("aria-label", "Privacy meter: " + level);
+    el.setAttribute("title", "Privacy · path-based heuristic · not ground truth · " + level);
+    el.setAttribute("aria-label", "Privacy meter (heuristic): " + level);
   }
 
   function noteSensitivePath(role, path) {
@@ -374,8 +377,11 @@
         privacyEls[role].className = "privacy-meter level-none";
         var label = privacyEls[role].querySelector(".privacy-level");
         if (label) label.textContent = "none";
-        privacyEls[role].setAttribute("title", "Privacy · no sensitive paths");
-        privacyEls[role].setAttribute("aria-label", "Privacy meter: none");
+        privacyEls[role].setAttribute(
+          "title",
+          "Privacy · path-based heuristic · not ground truth · no sensitive paths"
+        );
+        privacyEls[role].setAttribute("aria-label", "Privacy meter (heuristic): none");
       }
     });
     if (dailyMode === "demo") applyDemoFixtures();
@@ -408,8 +414,11 @@
         privacyEls[role].className = "privacy-meter level-none";
         var label = privacyEls[role].querySelector(".privacy-level");
         if (label) label.textContent = "none";
-        privacyEls[role].setAttribute("title", "Privacy · no sensitive paths");
-        privacyEls[role].setAttribute("aria-label", "Privacy meter: none");
+        privacyEls[role].setAttribute(
+          "title",
+          "Privacy · path-based heuristic · not ground truth · no sensitive paths"
+        );
+        privacyEls[role].setAttribute("aria-label", "Privacy meter (heuristic): none");
       }
       setAvatarState(role, "idle");
     });

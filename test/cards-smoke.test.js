@@ -496,19 +496,39 @@ async function smokeCardsDemo(browser) {
     const avatars = document.querySelectorAll(".agent-avatar").length;
     const privacyMeters = document.querySelectorAll(".privacy-meter").length;
     const daily = document.getElementById("dailyStatsCard");
-    const lit = Array.from(document.querySelectorAll(".privacy-meter")).some((el) =>
-      /level-(low|med|high)/.test(el.className)
-    );
+    const meters = Array.from(document.querySelectorAll(".privacy-meter"));
+    const lit = meters.some((el) => /level-(low|med|high)/.test(el.className));
+    const heuristicLabels = meters.every((el) => {
+      const label = ((el.querySelector(".privacy-label") || {}).textContent || "").trim();
+      const title = el.getAttribute("title") || "";
+      return (
+        /heuristic/i.test(label) &&
+        /path-based heuristic/i.test(title) &&
+        /not ground truth/i.test(title)
+      );
+    });
     const runs = (document.getElementById("dailyRuns") || {}).textContent || "0";
     const tokens = (document.getElementById("dailyTokens") || {}).textContent || "0";
     const fastest = (document.getElementById("dailyFastest") || {}).textContent || "—";
-    return { avatars, privacyMeters, hasDaily: !!daily, privacyLit: lit, runs, tokens, fastest };
+    return {
+      avatars,
+      privacyMeters,
+      hasDaily: !!daily,
+      privacyLit: lit,
+      heuristicLabels,
+      runs,
+      tokens,
+      fastest
+    };
   });
 
   if (ui.avatars < 5) errors.push("expected 5 agent avatars, got " + ui.avatars);
   if (ui.privacyMeters < 5) errors.push("expected 5 privacy meters, got " + ui.privacyMeters);
   if (!ui.hasDaily) errors.push("daily stats card missing");
   if (!ui.privacyLit) errors.push("Demo fixtures did not light any privacy meter");
+  if (!ui.heuristicLabels) {
+    errors.push("privacy meters missing heuristic / not-ground-truth labeling");
+  }
   if (ui.runs === "0") errors.push("Demo daily runs still 0");
   if (ui.tokens === "0") errors.push("Demo daily tokens still 0");
   if (!ui.fastest || ui.fastest === "—") errors.push("Demo fastest agent missing");

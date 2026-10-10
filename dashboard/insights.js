@@ -694,6 +694,9 @@
         "<div>" +
         '<div class="insights-eyebrow">Cursor Agents · Insights</div>' +
         '<h2 class="insights-title">Cost, routing &amp; replay</h2>' +
+        '<p class="insights-config-hint" data-estimates-glossary>' +
+        "Estimates · not official invoices" +
+        "</p>" +
         "</div>" +
         '<div class="insights-controls">' +
         '<label class="insights-session-label">Session ' +
@@ -1159,7 +1162,7 @@
       panel.innerHTML =
         '<div class="insights-whatif">' +
         '<p class="insights-whatif-disclaimer" data-whatif-disclaimer>' +
-        "Estimate: same tokens, different prices; real behavior may differ." +
+        "Estimates · not official invoices · same tokens, different prices; real behavior may differ." +
         "</p>" +
         '<ul class="insights-whatif-list" data-whatif-list>' +
         scenarios
