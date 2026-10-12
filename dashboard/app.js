@@ -233,6 +233,29 @@
     activity: []
   };
 
+  /**
+   * Alert snooze (shared with alerts.js via localStorage) also silences workshop audio.
+   * Snooze is indefinite: the sentinel never expires until the user un-snoozes, so the
+   * suppression lasts as long as the user asked for. Legacy numeric timestamps still work.
+   */
+  var SNOOZE_KEY = "ca.alerts.snoozeUntil";
+  var SNOOZE_INDEFINITE = "indefinite";
+
+  function snoozeUntilMs() {
+    try {
+      var raw = localStorage.getItem(SNOOZE_KEY);
+      if (raw === SNOOZE_INDEFINITE) return Infinity;
+      var n = Number(raw || 0);
+      return isFinite(n) ? n : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  function isSnoozed() {
+    return Date.now() < snoozeUntilMs();
+  }
+
   /* Web Audio blips (default muted) */
   var sound = (function () {
     var muted = true;
@@ -240,6 +263,11 @@
     try {
       muted = localStorage.getItem("workshopSound") !== "on";
     } catch (_) {}
+
+    /* Audio is silent when the user muted it or while alerts are snoozed. */
+    function shouldMute() {
+      return muted || isSnoozed();
+    }
 
     function ensure() {
       if (!ctx) {
@@ -252,7 +280,7 @@
     }
 
     function tone(freq, dur, type, gain, slideTo) {
-      if (muted) return;
+      if (shouldMute()) return;
       var c = ensure();
       if (!c) return;
       var t0 = c.currentTime;
@@ -272,7 +300,7 @@
     }
 
     function play(name) {
-      if (muted) return;
+      if (shouldMute()) return;
       switch (name) {
         case "pop":
           tone(520, 0.09, "triangle", 0.04, 180);
@@ -321,10 +349,13 @@
 
     function syncBtn() {
       if (!soundBtn) return;
-      soundBtn.textContent = muted ? "🔇" : "🔊";
-      soundBtn.classList.toggle("on", !muted);
-      soundBtn.setAttribute("aria-pressed", muted ? "false" : "true");
-      soundBtn.title = muted ? "Sound off (click to unmute)" : "Sound on (click to mute)";
+      var silent = shouldMute();
+      soundBtn.textContent = silent ? "🔇" : "🔊";
+      soundBtn.classList.toggle("on", !silent);
+      soundBtn.setAttribute("aria-pressed", silent ? "false" : "true");
+      if (muted) soundBtn.title = "Sound off (click to unmute)";
+      else if (isSnoozed()) soundBtn.title = "Snoozed · sound resumes when you un-snooze alerts";
+      else soundBtn.title = "Sound on (click to mute)";
     }
 
     syncBtn();
@@ -332,7 +363,7 @@
       play: play,
       toggle: toggle,
       isMuted: function () {
-        return muted;
+        return shouldMute();
       },
       syncBtn: syncBtn
     };
@@ -2813,9 +2844,12 @@
     getLivePresence: function () {
       return livePresence;
     },
-    triggerShipCelebration: triggerShipCelebration
+    triggerShipCelebration: triggerShipCelebration,
+    /* Alert center calls this after snooze/un-snooze so the sound button reflects it. */
+    syncSound: function () {
+      sound.syncBtn();
+    }
   };
-
   var mergePortal = document.getElementById("mergePortal");
   if (mergePortal) {
     function onPortal() {
@@ -2938,6 +2972,11 @@
     hasSeenLiveEvent: hasSeenLiveEvent,
     isLiveBacklogReplay: function () {
       return liveSseBacklogReplay;
-    }
+    },
+    /* Snooze-aware audio: true when muted by preference or while alerts are snoozed. */
+    isSoundSuppressed: function () {
+      return sound.isMuted();
+    },
+    snoozeKey: SNOOZE_KEY
   };
 })();

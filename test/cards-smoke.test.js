@@ -847,6 +847,81 @@ async function smokeCardsDemo(browser) {
   return errors;
 }
 
+/**
+ * Alert snooze must silence workshop audio (and the alert action must flip to Un-snooze).
+ * app.js reads the sound preference once at load, so seed "sound on" via addInitScript.
+ */
+async function smokeSnoozeSoundSuppression(browser) {
+  const { port } = await startBridgeForSmoke();
+  const page = await browser.newPage();
+  const errors = [];
+  try {
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem("workshopSound", "on");
+      } catch (_) {}
+    });
+    await page.goto(`http://127.0.0.1:${port}/`, {
+      waitUntil: "domcontentloaded",
+      timeout: 15000
+    });
+    await page.waitForFunction(
+      () => {
+        const h = window.__cursorAgentsDashTest;
+        return h && typeof h.isSoundSuppressed === "function";
+      },
+      undefined,
+      { timeout: 10000 }
+    );
+
+    const probe = await page.evaluate(() => {
+      const h = window.__cursorAgentsDashTest;
+      const results = {};
+      results.clear = h.isSoundSuppressed();
+      localStorage.setItem(h.snoozeKey, "indefinite");
+      results.snoozed = h.isSoundSuppressed();
+      localStorage.removeItem(h.snoozeKey);
+      results.restored = h.isSoundSuppressed();
+      return { key: h.snoozeKey, results };
+    });
+
+    if (probe.key !== "ca.alerts.snoozeUntil") {
+      errors.push("snooze key drifted from alerts.js: " + probe.key);
+    }
+    if (probe.results.clear !== false) {
+      errors.push("sound must not be suppressed before snooze");
+    }
+    if (probe.results.snoozed !== true) {
+      errors.push("indefinite snooze must suppress workshop audio");
+    }
+    if (probe.results.restored !== false) {
+      errors.push("audio must resume after un-snooze");
+    }
+
+    const labels = await page.evaluate(() => {
+      const btn = document.getElementById("alertSnooze");
+      const read = () => (btn ? btn.textContent.trim() : "");
+      const before = read();
+      window.AlertCenter.toggleSnooze();
+      const snoozed = read();
+      window.AlertCenter.toggleSnooze();
+      const restored = read();
+      return { before, snoozed, restored };
+    });
+    if (
+      labels.before !== "Snooze" ||
+      labels.snoozed !== "Un-snooze" ||
+      labels.restored !== "Snooze"
+    ) {
+      errors.push("alert snooze toggle labels wrong: " + JSON.stringify(labels));
+    }
+  } finally {
+    await page.close();
+    await stopBridgeForSmoke();
+  }
+  return errors;
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const all = [];
@@ -860,6 +935,7 @@ async function main() {
       ...(await smokeLiveReplaySkipsFastestTiming(browser)).map((e) => "[fastest replay] " + e)
     );
     all.push(...(await smokeDemoUsageGrandTotal(browser)).map((e) => "[demo usage total] " + e));
+    all.push(...(await smokeSnoozeSoundSuppression(browser)).map((e) => "[snooze sound] " + e));
   } finally {
     await browser.close();
   }
@@ -869,7 +945,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Cards smoke OK · privacy, daily stats, Live dedupe, fastest replay, demo usage total, Insights guard"
+    "Cards smoke OK · privacy, daily stats, Live dedupe, fastest replay, demo usage total, snooze sound, Insights guard"
   );
 }
 
