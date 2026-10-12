@@ -922,6 +922,58 @@ async function smokeSnoozeSoundSuppression(browser) {
   return errors;
 }
 
+/**
+ * Finding 1: a stale bridge must be re-synced from the renderer's persisted snooze
+ * on load. A fresh bridge starts unsnoozed; the renderer holds snooze in localStorage
+ * and must push it back so desktop toasts stay gated after an app/bridge restart.
+ */
+async function smokeSnoozeResyncOnLoad(browser) {
+  const { port } = await startBridgeForSmoke();
+  const page = await browser.newPage();
+  const errors = [];
+  try {
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem("ca.alerts.snoozeUntil", "indefinite");
+      } catch (_) {}
+    });
+    await page.goto(`http://127.0.0.1:${port}/`, {
+      waitUntil: "domcontentloaded",
+      timeout: 15000
+    });
+    await page.waitForFunction(
+      () => window.AlertCenter && typeof window.AlertCenter.isSnoozed === "function",
+      undefined,
+      { timeout: 10000 }
+    );
+
+    const rendererSnoozed = await page.evaluate(() => window.AlertCenter.isSnoozed());
+    if (rendererSnoozed !== true) {
+      errors.push("renderer should load with snooze active from localStorage");
+    }
+
+    let bridgeSnoozed = false;
+    for (let i = 0; i < 40; i++) {
+      const st = await page.evaluate(async () => {
+        const r = await fetch("/api/status", { cache: "no-store" });
+        return r.ok ? r.json() : null;
+      });
+      if (st && st.snoozed === true) {
+        bridgeSnoozed = true;
+        break;
+      }
+      await page.waitForTimeout(100);
+    }
+    if (!bridgeSnoozed) {
+      errors.push("bridge snooze must be re-synced from renderer state after load");
+    }
+  } finally {
+    await page.close();
+    await stopBridgeForSmoke();
+  }
+  return errors;
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const all = [];
@@ -936,6 +988,7 @@ async function main() {
     );
     all.push(...(await smokeDemoUsageGrandTotal(browser)).map((e) => "[demo usage total] " + e));
     all.push(...(await smokeSnoozeSoundSuppression(browser)).map((e) => "[snooze sound] " + e));
+    all.push(...(await smokeSnoozeResyncOnLoad(browser)).map((e) => "[snooze resync] " + e));
   } finally {
     await browser.close();
   }

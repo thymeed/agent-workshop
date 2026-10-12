@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Session Bill **Out** column shows Sonnet output tokens again (it was rendering Sonnet cost).
 - Restore the dashboard app module this branch had dropped, which broke ESLint and CI.
+- Alert snooze survives an app or bridge restart. The bridge holds snooze in memory and reset it on stop, so a fresh bridge started unsnoozed while the dashboard still showed snooze active and desktop toasts fired again. `hydrate()` now reconciles against `GET /api/status` and re-pushes the persisted state.
 
 ## [1.0.0] - 2026-10-10
 
