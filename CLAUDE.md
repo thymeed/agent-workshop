@@ -42,6 +42,7 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 | `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                                                                                    |
 | `.github/workflows/ci.yml`     | Lint, format check, smoke test, packaging check                                                                                 |
 | `README.md`                    | User-facing run instructions and Live-mode limits                                                                               |
+| `docs/known-issues.md`         | Audit findings: fixed / open / verified non-issues (alert snooze, notifications, CI)                                            |
 
 ## How to run
 
