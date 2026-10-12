@@ -393,6 +393,25 @@
     es.addEventListener("alert", onAlertBound);
   }
 
+  /**
+   * Reconcile this renderer's persisted snooze with the bridge. The bridge holds snooze
+   * in memory, so a fresh bridge (app or bridge restart) starts unsnoozed while
+   * localStorage still says snoozed; push the local state back so desktop toasts stay
+   * gated. Renderer wins, since localStorage is the user's durable choice.
+   */
+  function reconcileSnooze(base) {
+    if (!base) return;
+    fetch(base + "/api/status", { cache: "no-store" })
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (st) {
+        if (!st || typeof st.snoozed !== "boolean") return;
+        if (st.snoozed !== isSnoozed()) notifyBridge();
+      })
+      .catch(function () {});
+  }
+
   function hydrate(bridgeBase) {
     var base = bridgeBase || opts.bridge || "";
     if (!base) return Promise.resolve([]);
@@ -410,6 +429,10 @@
       })
       .catch(function () {
         return [];
+      })
+      .then(function (list) {
+        reconcileSnooze(base);
+        return list;
       });
   }
 

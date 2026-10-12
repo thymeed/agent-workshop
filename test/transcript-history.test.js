@@ -158,6 +158,72 @@ function fetchAlerts(port) {
 }
 
 /**
+ * POST /api/snooze with the same-origin hint a real browser sends, so the origin
+ * guard passes and the X-Cursor-Bridge check is the gate under test.
+ * @param {number} port
+ * @param {boolean|undefined} snoozed - omitted sends an empty body
+ * @param {Object} [headers] - extra headers, e.g. {"X-Cursor-Bridge":"1"}
+ */
+function postSnooze(port, snoozed, headers) {
+  return new Promise((resolve, reject) => {
+    const body = snoozed === undefined ? "" : JSON.stringify({ snoozed });
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path: "/api/snooze",
+        method: "POST",
+        headers: Object.assign(
+          {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(body),
+            "Sec-Fetch-Site": "same-origin"
+          },
+          headers || {}
+        )
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => {
+          data += c;
+        });
+        res.on("end", () => {
+          let parsed = null;
+          try {
+            parsed = JSON.parse(data);
+          } catch (_e) {
+            /* leave null */
+          }
+          resolve({ status: res.statusCode, body: parsed });
+        });
+      }
+    );
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
+function fetchStatus(port) {
+  return new Promise((resolve, reject) => {
+    http
+      .get(`http://127.0.0.1:${port}/api/status`, (res) => {
+        let data = "";
+        res.on("data", (c) => {
+          data += c;
+        });
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(e);
+          }
+        });
+      })
+      .on("error", reject);
+  });
+}
+
+/**
  * Open SSE /api/stream and collect named `alert` events until timeout or count.
  * @param {number} port
  * @param {{count?:number, timeoutMs?:number}} [opts]
@@ -892,6 +958,116 @@ async function testAlertBusSseAndApi() {
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+/**
+ * Alert snooze is indefinite and must gate the Electron desktop toast while the
+ * alert ring and SSE `alert` event keep flowing; un-snooze restores the toast.
+ */
+async function testSnoozeGatesDesktopToast() {
+  const { root, subDir } = tmpTranscripts();
+  const subA = path.join(subDir, "cccccccc-1111-2222-3333-444444444401.jsonl");
+  const subB = path.join(subDir, "cccccccc-1111-2222-3333-444444444402.jsonl");
+  appendLine(subA, line("user", "Implementation worker task", { tsOffsetMs: -3000 }));
+  appendLine(subB, line("user", "Implementation worker task", { tsOffsetMs: -3000 }));
+
+  await withBridge(root, async ({ alerts, port }) => {
+    scanTranscripts();
+
+    const on = await postSnooze(port, true, { "X-Cursor-Bridge": "1" });
+    assert(on.status === 200 && on.body && on.body.ok === true, "snooze POST should 200 ok");
+    const st = await fetchStatus(port);
+    assert(st.snoozed === true, "GET /api/status must report snoozed after POST");
+
+    const before = alerts.length;
+    appendLine(subA, line("assistant", "<final>done-under-snooze</final>"));
+    scanTranscripts();
+    scanTranscripts();
+
+    const ring = await fetchAlerts(port);
+    assert(
+      ring.body.alerts.some((a) => a.status === "finished"),
+      "alert ring must still accumulate while snoozed"
+    );
+    assert(alerts.length === before, "desktop toast callback must be suppressed while snoozed");
+
+    const off = await postSnooze(port, false, { "X-Cursor-Bridge": "1" });
+    assert(off.status === 200 && off.body.snoozed === false, "un-snooze POST should clear");
+    const st2 = await fetchStatus(port);
+    assert(st2.snoozed === false, "GET /api/status must report unsnoozed after un-snooze");
+
+    appendLine(subB, line("assistant", "<final>done-after-un-snooze</final>"));
+    scanTranscripts();
+    scanTranscripts();
+    assert(
+      alerts.some((a) => a.status === "finished"),
+      "desktop toast callback must fire after un-snooze"
+    );
+  });
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+/** POST /api/snooze guard matrix, mirroring /api/select: POST-only, same-origin, header. */
+async function testSnoozeRouteGuards() {
+  const { root } = tmpTranscripts();
+
+  await withBridge(root, async ({ port }) => {
+    const getStatus = await new Promise((resolve, reject) => {
+      http
+        .get(`http://127.0.0.1:${port}/api/snooze`, (res) => {
+          res.resume();
+          resolve(res.statusCode);
+        })
+        .on("error", reject);
+    });
+    assert(getStatus === 405, "GET /api/snooze must be 405, got " + getStatus);
+
+    const noHeader = await postSnooze(port, true, {});
+    assert(
+      noHeader.status === 403,
+      "POST without X-Cursor-Bridge must be 403, got " + noHeader.status
+    );
+
+    const crossSite = await postSnooze(port, true, {
+      "X-Cursor-Bridge": "1",
+      "Sec-Fetch-Site": "cross-site"
+    });
+    assert(crossSite.status === 403, "cross-site POST must be 403, got " + crossSite.status);
+
+    const badJson = await new Promise((resolve, reject) => {
+      const body = "{not json";
+      const req = http.request(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path: "/api/snooze",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(body),
+            "Sec-Fetch-Site": "same-origin",
+            "X-Cursor-Bridge": "1"
+          }
+        },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode);
+        }
+      );
+      req.on("error", reject);
+      req.end(body);
+    });
+    assert(badJson === 400, "invalid JSON body must be 400, got " + badJson);
+
+    const ok = await postSnooze(port, true, { "X-Cursor-Bridge": "1" });
+    assert(
+      ok.status === 200 && ok.body && ok.body.snoozed === true,
+      "guarded POST must 200 with snoozed true"
+    );
+  });
+
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 async function main() {
   await testRestartDedupeAndTimestamps();
   await testKeywordFalsePositiveAndStructuredTerminal();
@@ -910,8 +1086,10 @@ async function main() {
   await testChunkedReadCappedPerPoll();
   await testSubagentFinishedNotStalled();
   await testAlertBusSseAndApi();
+  await testSnoozeGatesDesktopToast();
+  await testSnoozeRouteGuards();
   console.log(
-    "transcript-history tests OK · dedupe, timestamps, terminal signals, alerts, stall, alert bus"
+    "transcript-history tests OK · dedupe, timestamps, terminal signals, alerts, stall, alert bus, snooze"
   );
 }
 
