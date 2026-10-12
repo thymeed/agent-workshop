@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Indefinite alert snooze with an un-snooze control. Snoozing no longer expires on a 15-minute timer; the alert popover action toggles between **Snooze** and **Un-snooze**.
+- `POST /api/snooze` on the bridge (POST-only, same-origin, `X-Cursor-Bridge: 1`) so the Electron desktop toast is suppressed while alerts are snoozed. The SSE `alert` event and the alert ring still flow.
+
+### Changed
+
+- Workshop audio is silenced while alerts are snoozed. The sound on/off preference is preserved and resumes on un-snooze.
+
+### Fixed
+
+- Session Bill **Out** column shows Sonnet output tokens again (it was rendering Sonnet cost).
+- Restore the dashboard app module this branch had dropped, which broke ESLint and CI.
+
 ## [1.0.0] - 2026-10-10
 
 ### Added

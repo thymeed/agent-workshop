@@ -142,6 +142,8 @@ let started = false;
 let eventLog = null;
 /** @type {((alert:{name:string,status:string})=>void)|null} */
 let onAgentAlert = null;
+/** True while alert snooze is on: gates Electron desktop toasts (SSE + ring still flow). */
+let snoozeIndefinite = false;
 /** agentId -> { name, lastSeen, terminal, stallAlerted } */
 const agentWatch = new Map();
 
@@ -308,6 +310,7 @@ function pushEvent(partial) {
 /**
  * Push an agent alert to the in-memory ring, SSE-broadcast it, and notify Electron.
  * Privacy: name + status (+ optional agentId) only. never prompts or file paths.
+ * While alert snooze is on the desktop toast is suppressed; the ring and SSE still flow.
  * @param {string} name
  * @param {string} status
  * @param {string} [agentId]
@@ -327,7 +330,7 @@ function emitAgentAlert(name, status, agentId) {
 
   broadcastSse("alert", alert);
 
-  if (typeof onAgentAlert === "function") {
+  if (!snoozeIndefinite && typeof onAgentAlert === "function") {
     try {
       // Desktop notifications: name + status only (same privacy rule).
       onAgentAlert({ name: alert.name, status: alert.status });
@@ -612,6 +615,8 @@ function statusPayload() {
     sseClients: sseClients.size,
     watching: fileState.size,
     lastScanError,
+    /** Alert snooze state (gates Electron desktop toasts; ring/SSE still flow). */
+    snoozed: snoozeIndefinite,
     /** Last transcript poll time. near-real file polling (~pollMs), not hook-level realtime. */
     lastScanAt,
     pollMs: POLL_MS,
@@ -1826,6 +1831,51 @@ function createServer() {
       return;
     }
 
+    /**
+     * POST /api/snooze · set indefinite alert snooze so the bridge can gate Electron
+     * desktop toasts. Same-origin + X-Cursor-Bridge guard, mirroring /api/select.
+     * The SSE `alert` event and the in-memory ring keep flowing while snoozed.
+     */
+    if (url.pathname === "/api/snooze") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { ok: false, error: "POST required" });
+        return;
+      }
+      if (!allowProjectSelect(req)) {
+        sendJson(res, 403, {
+          ok: false,
+          error: "Forbidden · same-origin required for snooze"
+        });
+        return;
+      }
+      if (String(req.headers["x-cursor-bridge"] || "") !== "1") {
+        sendJson(res, 403, {
+          ok: false,
+          error: "Forbidden · missing X-Cursor-Bridge header"
+        });
+        return;
+      }
+      readRequestBody(req)
+        .then((raw) => {
+          let snoozed = true;
+          if (raw && String(raw).trim()) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed && typeof parsed.snoozed === "boolean") snoozed = parsed.snoozed;
+            } catch (_e) {
+              sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+              return;
+            }
+          }
+          snoozeIndefinite = snoozed;
+          sendJson(res, 200, { ok: true, snoozed: snoozeIndefinite });
+        })
+        .catch(() => {
+          sendJson(res, 400, { ok: false, error: "Bad request body" });
+        });
+      return;
+    }
+
     if (url.pathname === "/api/history") {
       if (req.method !== "GET") {
         sendJson(res, 405, { ok: false, error: "GET required" });
@@ -2110,6 +2160,7 @@ function stopBridge() {
     warmScanAfterInventory = false;
     agentWatch.clear();
     onAgentAlert = null;
+    snoozeIndefinite = false;
     for (const res of sseClients) {
       try {
         res.end();

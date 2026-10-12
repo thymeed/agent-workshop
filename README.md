@@ -20,7 +20,7 @@ The main viewport is an agent workshop: five pixel-cast block agents at fixed st
 - **HUD.** Session cost, active role, subagents, effort, and Haiku token chips.
 - Demo scripted Play and Live SSE both drive the stage. History replay (play / pause / scrub / speed) uses the same workshop engine. Leaving History stops transport and leaves the last replay frame until Demo or Live runs again.
 - Token and session figures are illustrative, not official Cursor billing.
-- Optional Web Audio cues are muted by default. Use the header sound toggle (stored in `localStorage`).
+- Optional Web Audio cues are muted by default. Use the header sound toggle (stored in `localStorage`). Alert **snooze** also silences workshop audio and desktop toasts until you un-snooze.
 
 ### Primary launch
 

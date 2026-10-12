@@ -6,8 +6,9 @@
   "use strict";
 
   var CAP = 50;
-  var SNOOZE_MS = 15 * 60 * 1000;
   var SNOOZE_KEY = "ca.alerts.snoozeUntil";
+  /** Sentinel stored in SNOOZE_KEY: snoozed until the user explicitly un-snoozes. */
+  var SNOOZE_INDEFINITE = "indefinite";
   var READ_KEY = "ca.alerts.readIds";
 
   var opts = {};
@@ -52,7 +53,9 @@
 
   function snoozeUntil() {
     try {
-      var n = Number(localStorage.getItem(SNOOZE_KEY) || 0);
+      var raw = localStorage.getItem(SNOOZE_KEY);
+      if (raw === SNOOZE_INDEFINITE) return Infinity;
+      var n = Number(raw || 0);
       return isFinite(n) ? n : 0;
     } catch (_) {
       return 0;
@@ -63,9 +66,72 @@
     return Date.now() < snoozeUntil();
   }
 
-  function setSnooze(ms) {
+  /**
+   * Snooze indefinitely. The badge, workshop audio, and desktop toasts stay quiet
+   * until unSnooze(); there is no timer.
+   */
+  function setSnooze() {
     try {
-      localStorage.setItem(SNOOZE_KEY, String(Date.now() + (ms || SNOOZE_MS)));
+      localStorage.setItem(SNOOZE_KEY, SNOOZE_INDEFINITE);
+    } catch (_) {}
+    afterSnoozeChange();
+  }
+
+  function unSnooze() {
+    try {
+      localStorage.removeItem(SNOOZE_KEY);
+    } catch (_) {}
+    afterSnoozeChange();
+  }
+
+  /** Fan out a snooze or un-snooze: refresh the control, workshop audio, and the bridge. */
+  function afterSnoozeChange() {
+    syncSnoozeBtn();
+    notifySound();
+    notifyBridge();
+  }
+
+  /** Keep the popover action label, tip, and pressed state in sync with snooze state. */
+  function syncSnoozeBtn() {
+    var btn = document.getElementById("alertSnooze");
+    if (!btn) return;
+    var snoozed = isSnoozed();
+    btn.textContent = snoozed ? "Un-snooze" : "Snooze";
+    btn.classList.toggle("on", snoozed);
+    tipCopy(
+      btn,
+      snoozed ? "Un-snooze alerts" : "Snooze alerts",
+      snoozed
+        ? "Alerts stay quiet until you un-snooze. Badge, workshop audio, and desktop toasts are silenced."
+        : "Stays snoozed until you turn it off. Hides the badge, silences workshop audio and desktop toasts."
+    );
+  }
+
+  /** Ask the dashboard app to refresh its sound button (no-op when app.js is absent). */
+  function notifySound() {
+    try {
+      if (global.__cursorAgentsDash && typeof global.__cursorAgentsDash.syncSound === "function") {
+        global.__cursorAgentsDash.syncSound();
+      }
+    } catch (_) {}
+  }
+
+  /**
+   * Tell the bridge whether alerts are snoozed so it can gate Electron desktop toasts.
+   * Best-effort: the CLI bridge has no desktop toast and simply ignores this.
+   */
+  function notifyBridge() {
+    if (!opts.bridge) return;
+    try {
+      fetch(opts.bridge + "/api/snooze", {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Cursor-Bridge": "1"
+        },
+        body: JSON.stringify({ snoozed: isSnoozed() })
+      }).catch(function () {});
     } catch (_) {}
   }
 
@@ -137,7 +203,7 @@
       bell,
       "Alert bell",
       isSnoozed()
-        ? "Snoozed for 15 minutes. New alerts still arrive but the badge stays hidden."
+        ? "Snoozed until you un-snooze. New alerts still arrive but the badge and sound stay quiet."
         : "Finished, error, and stalled agent alerts"
     );
     tipCopy(badge, "Unread count", "Alerts you have not marked read");
@@ -147,16 +213,12 @@
       "Clears the unread count. The list stays for history."
     );
     tipCopy(
-      document.getElementById("alertSnooze"),
-      "Snooze 15 min",
-      "Hides the badge for 15 minutes. Alerts still accumulate."
-    );
-    tipCopy(
       document.getElementById("alertClear"),
       "Clear all",
       "Removes every alert from the list."
     );
     tipCopy(emptyEl, "All quiet", "No alerts yet for this session.");
+    syncSnoozeBtn();
   }
 
   function renderList() {
@@ -382,11 +444,15 @@
     var snoozeBtn = document.getElementById("alertSnooze");
     if (snoozeBtn) {
       snoozeBtn.addEventListener("click", function () {
-        setSnooze(SNOOZE_MS);
-        markAllRead();
+        if (isSnoozed()) {
+          unSnooze();
+        } else {
+          setSnooze();
+          markAllRead();
+        }
         applyChromeTips();
         renderBadge();
-        setOpen(false);
+        /* Stay open so Un-snooze remains reachable. */
       });
     }
     var clearBtn = document.getElementById("alertClear");
@@ -421,8 +487,16 @@
     attachEventSource: attachEventSource,
     markAllRead: markAllRead,
     clear: clearAll,
-    snooze: function (ms) {
-      setSnooze(ms || SNOOZE_MS);
+    snooze: function () {
+      setSnooze();
+      applyChromeTips();
+      renderBadge();
+    },
+    unSnooze: unSnooze,
+    isSnoozed: isSnoozed,
+    toggleSnooze: function () {
+      if (isSnoozed()) unSnooze();
+      else setSnooze();
       applyChromeTips();
       renderBadge();
     },
