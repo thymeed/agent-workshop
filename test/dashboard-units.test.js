@@ -68,6 +68,7 @@ async function main() {
           limbs: rects(AC.blockAgentSvgInner({ limbs: true }))
         },
         faces,
+        roleKeys: AC.ROLE_KEYS.slice(),
         unknownRole: AC.faceMarkup("not-a-role").includes('data-avatar="opus"'),
         hints: {
           advisor: AC.roleFromAgentHint("Advisor"),
@@ -100,6 +101,11 @@ async function main() {
     assert.strictEqual(data.svg.plain, 7, "default avatar adds four legs");
     assert.strictEqual(data.svg.limbs, 9, "limbs add two arms on top of legs");
 
+    assert.deepStrictEqual(
+      data.roleKeys,
+      ["opus", "advisor", "worker", "explorer", "researcher"],
+      "the five stage roles are pinned; a role dropped from this list must fail"
+    );
     for (const role of Object.keys(data.faces)) assertFace(role, data.faces[role]);
     assert.ok(data.unknownRole, "unknown role must fall back to the opus face");
 

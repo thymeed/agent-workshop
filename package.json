@@ -1,6 +1,6 @@
 {
   "name": "agent-workshop",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Cursor Agents · Model Routing. Electron desktop dashboard with in-process live bridge",
   "main": "electron/main.js",
   "author": "Thymeed",
@@ -26,7 +26,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node test/demo-smoke.test.js && node test/bridge-localhost.test.js && node test/bridge-guards.test.js && node test/insights-smoke.test.js && node test/event-log.test.js && node test/history-api.test.js && node test/transcript-history.test.js && node test/cards-smoke.test.js && node test/paths-windows.test.js && node test/bridge-test-guard.test.js && node test/dashboard-units.test.js",
+    "test": "node test/demo-smoke.test.js && node test/bridge-localhost.test.js && node test/bridge-guards.test.js && node test/insights-smoke.test.js && node test/event-log.test.js && node test/history-api.test.js && node test/transcript-history.test.js && node test/cards-smoke.test.js && node test/paths-windows.test.js && node test/bridge-test-guard.test.js && node test/dashboard-units.test.js && node test/electron-smoke.test.js",
     "ci": "npm run lint && npm run format:check && npm test && npm run build:check"
   },
   "devDependencies": {
@@ -76,7 +76,8 @@
         "dmg",
         "zip"
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "identity": null
     },
     "linux": {
       "target": [
@@ -97,9 +98,5 @@
       "artifactName": "AgentWorkshop.exe"
     },
     "afterAllArtifactBuild": "./scripts/copy-exe.js"
-  },
-  "allowScripts": {
-    "electron@44.7.2": true,
-    "electron-winstaller@5.4.0": false
   }
 }

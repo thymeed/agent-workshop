@@ -101,7 +101,9 @@ function assertBridgeTestOpts(opts) {
 }
 
 /** Placeholder watch path when no --dir / env / discovered project exists yet. */
-const EMPTY_TRANSCRIPTS = path.join(PROJECTS_ROOT, "_none", "agent-transcripts");
+function emptyTranscripts() {
+  return path.join(projectsRootPath(), "_none", "agent-transcripts");
+}
 const MAX_EVENTS = 400;
 /** In-memory ring for agent alerts (SSE + GET /api/alerts). */
 const MAX_ALERTS = 50;
@@ -125,7 +127,7 @@ let currentIngestLine = 0;
 
 let PORT = 3847;
 /** @type {string} */
-let TRANSCRIPTS = EMPTY_TRANSCRIPTS;
+let TRANSCRIPTS = emptyTranscripts();
 /** @type {string|null} */
 let currentProjectId = null;
 /** @type {string|null} */
@@ -289,8 +291,8 @@ function resolveDefaultTranscripts(opts) {
     return TRANSCRIPTS;
   }
 
-  // Runtime placeholder under ~/.cursor/projects. No hardcoded machine/user path
-  TRANSCRIPTS = EMPTY_TRANSCRIPTS;
+  // Runtime placeholder under the projects root. No hardcoded machine/user path
+  TRANSCRIPTS = emptyTranscripts();
   currentProjectId = null;
   currentProjectLabel = "no Cursor projects found";
   return TRANSCRIPTS;

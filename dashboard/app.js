@@ -2916,7 +2916,8 @@
     setMode("live");
   }
 
-  /* Test hooks for Playwright (localhost dashboard only). */
+  /* Introspection hooks. Defined on every origin, including file:// Demo, so the
+     smoke and unit suites can drive the stage without a bridge. Read-only. */
   globalThis.__cursorAgentsDashTest = {
     applyLiveEvent: applyLiveEvent,
     jumpToAgent: jumpToAgent,

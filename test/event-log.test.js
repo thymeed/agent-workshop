@@ -402,13 +402,81 @@ function testPemFullBlockRedaction() {
   }
 }
 
+function testRedactionSignedUrls() {
+  const groups = [
+    [
+      "aws presigned query",
+      "https://bucket.s3.amazonaws.com/o?X-Amz-Credential=" +
+        "AKIA" +
+        "IOSFODNN7EXAMPLE&X-Amz-Signature=deadbeefcafe1234&X-Amz-Security-Token=FwoGZXIvYXdz",
+      ["deadbeefcafe1234", "FwoGZXIvYXdz", "IOSFODNN7EXAMPLE"]
+    ],
+    [
+      "generic signature param",
+      "https://example.com/cb?Signature=abc123def456xyz",
+      ["abc123def456xyz"]
+    ],
+    [
+      "oauth code param",
+      "https://example.com/cb?code=4/0AY0e-g7secretcode",
+      ["0AY0e-g7secretcode"]
+    ],
+    ["npm token", "//registry.npmjs.org/:_authToken=npm_" + "a".repeat(36), ["a".repeat(36)]]
+  ];
+
+  for (const [name, sample, leaks] of groups) {
+    try {
+      expectRedacted(sample, leaks);
+    } catch (e) {
+      throw new Error(name + ": " + e.message);
+    }
+  }
+
+  const userinfo = "fetch https://svc:hunter2pw@internal.example.com/repo";
+  const out = expectRedacted(userinfo, ["hunter2pw"]);
+  if (!out.includes("[REDACTED]@")) {
+    throw new Error("url userinfo must redact to [REDACTED]@: " + out);
+  }
+
+  expectUntouched("https://example.com/docs?page=2");
+  expectUntouched("see the signature section of the docs");
+}
+
+function testSharedLogDirNotChmodded() {
+  if (process.platform === "win32") {
+    return;
+  }
+
+  const base = tmpDir("shared-dir");
+  const shared = path.join(base, "home");
+  fs.mkdirSync(shared, { recursive: true });
+  fs.writeFileSync(path.join(shared, "unrelated.txt"), "not ours\n", "utf8");
+  fs.chmodSync(shared, 0o755);
+
+  const log = createEventLog({ logDir: shared });
+  log.ensureStarted();
+
+  const dirMode = fs.statSync(shared).mode & 0o777;
+  assert(
+    dirMode === 0o755,
+    "a directory holding other files must keep its mode, got 0o" + dirMode.toString(8)
+  );
+  const fileMode = fs.statSync(log.getLogPath()).mode & 0o777;
+  assert(
+    fileMode === LOG_FILE_MODE,
+    "the log file itself is still 0o600, got 0o" + fileMode.toString(8)
+  );
+}
+
 async function main() {
   testRedactionFormats();
+  testRedactionSignedUrls();
   testPemFullBlockRedaction();
   testContractShape();
   testRetentionAndClear();
   testExistingLogDirChmodOnStart();
   testFilePermissions();
+  testSharedLogDirNotChmodded();
   console.log("event-log tests OK · redaction, retention, clear, contract, permissions");
 }
 
