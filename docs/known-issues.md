@@ -83,7 +83,15 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
 
 ## Open
 
-1. **`dashboard/app.js` is only partly split.** `dashboard/sound.js` was extracted
+1. **A release asset that is renamed between runs accumulates rather than being
+   replaced.** The workflow uploads with `gh release upload --clobber`, which
+   replaces an asset only when the name matches. Renaming an artifact (as 1.3.0 did,
+   dropping spaces) leaves the old name on the release beside the new one, so v1.3.0
+   briefly carried 24 assets instead of 16. Cleaned up by hand with
+   `gh release delete-asset`. Worth fixing if artifact names ever change again:
+   delete the release's existing assets at the start of `publish`.
+
+2. **`dashboard/app.js` is only partly split.** `dashboard/sound.js` was extracted
    (audio, ~280 lines) and is independently tested. The remaining modules from the
    improvement list — stage, presence, view-mode, activity, bill — are still inside
    `dashboard/app.js` (~3000 lines).
@@ -106,13 +114,13 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
    the DOM-heavy extractions safe to attempt. That is the concrete next step; it is
    not done here.
 
-2. **The SSE reconnect loop has no direct test.** `reconnectDelayMs` (the backoff
+3. **The SSE reconnect loop has no direct test.** `reconnectDelayMs` (the backoff
    curve and its cap) is unit-tested, and `scheduleLiveReconnect` is asserted to be a
    no-op off a bridge origin. The retry loop itself is only exercised by reading; a
    test driving repeated failures would need a live bridge, which the file:// unit
    layer cannot provide.
 
-3. **Type checking covers the shared contract, not the whole tree.**
+4. **Type checking covers the shared contract, not the whole tree.**
    `npm run typecheck` (`tsc --noEmit`) checks `types/` and `lib/` only. Those are the
    modules the `@typedef` event shapes in `types/events.js` describe, and they pass
    clean. `live-bridge.js`, `scripts/`, and `dashboard/` are not checked: turning on
@@ -121,23 +129,23 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
    that are not worth churning for their own sake. Widening the include list is a
    contained follow-up whenever someone touches those files.
 
-4. **The release workflow fires on any `v*` tag push and publishes publicly.**
+5. **The release workflow fires on any `v*` tag push and publishes publicly.**
    `.github/workflows/release.yml` builds on all three platforms, hashes the artifacts,
    and attaches them plus a combined `SHA256SUMS.txt` to the GitHub Release. A tag
    push therefore publishes without a further confirmation step. Builds stay unsigned
    (no certificate); the checksums are the integrity control.
 
-5. **The alert list still records entries while snoozed.** Only the unread badge
+6. **The alert list still records entries while snoozed.** Only the unread badge
    is hidden. This is inherited master behavior, deliberate in #25, and a product
    decision rather than a defect. Change it only if the list is meant to go quiet
    too.
 
-6. **Snooze reconciliation is last-client-wins, not strictly renderer-wins.**
+7. **Snooze reconciliation is last-client-wins, not strictly renderer-wins.**
    A second client with its own `localStorage` (a genuinely separate browser
    profile hitting the bridge URL) will POST `snoozed: false` and silently clear a
    snooze set elsewhere. Same-origin tabs share the key and are unaffected.
 
-7. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
+8. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
    leaves the bridge out of sync until the next `hydrate()` / reconnect. Accepted
    for now; the reconcile on load covers the common case.
 
