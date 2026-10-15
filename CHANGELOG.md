@@ -15,6 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
   unknown role, a tool edit, terminal signals, and a malformed line. 66 tests, run by
   `npm test` via `npm run test:unit`.
+- `dashboard/presence.js`: the Live presence state machine (header hint, stage banner,
+  coach sheet, empty-log copy) plus the bridge sync-age chip and its poll, split out of
+  `app.js` (~230 lines). It owns the presence value, the quiet-healthy timer, the
+  last-event clock, and the scan metadata. 16 unit tests cover every presence state's
+  copy, the bridge cue transitions, quiet-healthy scheduling, the sync-age buckets, and
+  the onboarding coach.
+
+  That work also **fixed a real defect in the bridge cue**. The earlier cue fired only on
+  a direct `bridge-down` -> healthy transition, but a retry passes through `connecting`
+  on the way back up, so the recovery cue never sounded. It now tracks a "was down" flag
+  that survives the transient `connecting` state, so the bridge-up cue fires exactly once
+  on recovery. Verified by mutation: restoring the old rule fails the suite.
+
 - `dashboard/projects.js`: the Live project picker, split out of `app.js` (~170 lines).
   Renders the project list, switches the bridge's transcript scope over `/api/select`,
   and hands the new scope to Insights and History. The selected id/label stay owned by

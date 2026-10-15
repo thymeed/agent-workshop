@@ -91,20 +91,21 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
    `gh release delete-asset`. Worth fixing if artifact names ever change again:
    delete the release's existing assets at the start of `publish`.
 
-2. **`dashboard/app.js` is only partly split.** Six modules have been extracted:
+2. **`dashboard/app.js` is only partly split.** Seven modules have been extracted:
    `dashboard/sound.js` (audio), `dashboard/bill-math.js` (the DOM-free usage math),
    `dashboard/safe-html.js` (the single HTML escaper), `dashboard/activity.js` (Activity
    drawer, Session Log, empty states), `dashboard/view-mode.js` (view switching, Panels,
-   focus policy), and `dashboard/projects.js` (the Live project picker). All six are
-   unit-tested - four of them via a `vm` sandbox with element/fetch stubs, so they have
-   direct coverage without a browser.
+   focus policy), `dashboard/projects.js` (the Live project picker), and
+   `dashboard/presence.js` (presence state, coach, sync-age poll). All seven are
+   unit-tested - six of them via a `vm` sandbox with element/fetch/timer stubs, so they
+   have direct coverage without a browser.
 
-   Still inside `dashboard/app.js` (~2400 lines): stage, presence, the DOM half of bill,
-   the Live SSE client, and the demo playbook. These are the most DOM- and
-   animation-heavy parts, so an extraction is slow to prove safe. The pattern that works
-   (used for `activity.js`, `view-mode.js`, and `projects.js`): map the dependency list
-   first, move ownership of the module's own state into it, pass everything else through
-   one `init(deps)`, and rewrite the call sites.
+   Still inside `dashboard/app.js` (~1950 lines): stage, the DOM half of bill, the Live
+   SSE client, and the demo playbook. These are the most DOM- and animation-heavy parts,
+   so an extraction is slow to prove safe. The pattern that works (used for `activity.js`,
+   `view-mode.js`, `projects.js`, and `presence.js`): map the dependency list first, move
+   ownership of the module's own state into it, pass everything else through one
+   `init(deps)`, and rewrite the call sites.
 
    A correction worth keeping: an earlier note here blamed a shared `state` object.
    An advisory review disproved that. `state` is a five-key, module-private

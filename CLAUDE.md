@@ -34,6 +34,7 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 | `dashboard/activity.js`        | Activity drawer + Session Log + empty states; owns rows/log clock/role filter, unit tested in `test/unit/activity.test.js`       |
 | `dashboard/view-mode.js`       | View switching + Panels toggle + focus policy; owns the current view, unit tested in `test/unit/view-mode.test.js`               |
 | `dashboard/projects.js`        | Live project picker + /api/select; owns the in-flight guard, unit tested in `test/unit/projects.test.js`                         |
+| `dashboard/presence.js`        | Presence state + coach + sync-age poll; owns presence/timers/scan meta, unit tested in `test/unit/presence.test.js`              |
 | `dashboard/safe-html.js`       | The single HTML escaper `window.SafeHtml`; loads before every other dashboard script, which all alias it                         |
 | `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                                |
 | `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`; indefinite snooze with un-snooze; mini faces via `AgentCards.faceMarkup`)  |

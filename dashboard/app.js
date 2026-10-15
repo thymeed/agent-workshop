@@ -14,6 +14,14 @@
   var togglePanels = view.togglePanels;
   var updateHistoryHint = view.updateHistoryHint;
   var projects = window.WorkshopProjects;
+  var presence = window.WorkshopPresence;
+  var setLivePresence = presence.setLivePresence;
+  var scheduleQuietHealthy = presence.scheduleQuietHealthy;
+  var clearQuietHealthyTimer = presence.clearQuietTimer;
+  var formatSyncAge = presence.formatSyncAge;
+  var refreshSyncAgeChip = presence.refreshSyncAgeChip;
+  var startSyncAgePoll = presence.startSyncAgePoll;
+  var applyBridgeSyncMeta = presence.applyBridgeSyncMeta;
   var emptyUsage = billMath.emptyUsage;
   var usageGrandTotal = billMath.usageGrandTotal;
   var formatTokens = billMath.formatTokens;
@@ -84,8 +92,6 @@
   var hudTokens = document.getElementById("hudTokens");
   /** Estimates glossary. Bill + Insights share this trust-layer wording. */
   var ESTIMATES_DISCLAIMER = "Estimates · not official invoices";
-  var lastBridgeScanAt = null;
-  var bridgePollMs = 900;
   var hudSyncAge = document.getElementById("hudSyncAge");
   (function ensureHudSyncAge() {
     if (hudSyncAge) return;
@@ -210,11 +216,6 @@
   var liveSseBacklogEndTimer = null;
   var LIVE_SSE_BACKLOG_QUIET_MS = 80;
   /** Live presence: file-origin | connecting | bridge-down | no-projects | quiet-healthy | streaming */
-  var livePresence = null;
-  var lastLiveEventAt = 0;
-  var quietHealthyTimer = null;
-  var QUIET_AFTER_MS = 45000;
-  var LIVE_ONBOARD_KEY = "ca.liveOnboard.v1";
   var lastShipCelebrateAt = 0;
   var lastSessionCostForShip = 0;
   var jumpHighlightTimer = null;
@@ -770,181 +771,9 @@
     return false;
   }
 
-  function hasSeenLiveOnboard() {
-    try {
-      return localStorage.getItem(LIVE_ONBOARD_KEY) === "1";
-    } catch (_) {
-      return true;
-    }
-  }
-
-  function markLiveOnboardSeen() {
-    try {
-      localStorage.setItem(LIVE_ONBOARD_KEY, "1");
-    } catch (_) {}
-  }
-
-  function setLiveCoachVisible(show) {
-    if (!liveCoach) return;
-    liveCoach.hidden = !show;
-  }
-
-  function maybeShowLiveCoach() {
-    if (mode !== "live") {
-      setLiveCoachVisible(false);
-      return;
-    }
-    if (livePresence === "file-origin" || livePresence === "bridge-down") {
-      setLiveCoachVisible(false);
-      return;
-    }
-    setLiveCoachVisible(!hasSeenLiveOnboard());
-  }
-
-  function clearQuietHealthyTimer() {
-    if (quietHealthyTimer) {
-      clearTimeout(quietHealthyTimer);
-      quietHealthyTimer = null;
-    }
-  }
-
-  function scheduleQuietHealthy() {
-    clearQuietHealthyTimer();
-    if (mode !== "live") return;
-    if (
-      livePresence === "bridge-down" ||
-      livePresence === "file-origin" ||
-      livePresence === "connecting" ||
-      livePresence === "no-projects"
-    ) {
-      return;
-    }
-    quietHealthyTimer = setTimeout(function () {
-      quietHealthyTimer = null;
-      if (mode !== "live") return;
-      if (!demoBtn.classList.contains("live-connected")) return;
-      if (livePresence === "no-projects") return;
-      setLivePresence("quiet-healthy");
-    }, QUIET_AFTER_MS);
-  }
-
-  function presenceHintLabel() {
-    return currentProjectLabel || "agent-transcripts";
-  }
-
-  function refreshEmptyLogIfIdle() {
-    if (!sessionLog) return;
-    if (sessionLog.querySelector(".log-line")) return;
-    activity.refreshEmptyLog();
-  }
-
   /**
    * Single source of truth for Live hint + stage banner + empty log copy.
    */
-  function setLivePresence(state, detail) {
-    var previous = livePresence;
-    livePresence = state || null;
-    if (mode === "live") {
-      /* Cue only on terminal transitions: retrying from bridge-down is not "up". */
-      if (state === "bridge-down" && previous !== "bridge-down") sound.play("bridgeDown");
-      else if (previous === "bridge-down" && (state === "streaming" || state === "quiet-healthy"))
-        sound.play("bridgeUp");
-    }
-    if (appEl) {
-      if (mode === "live" && livePresence) appEl.setAttribute("data-live-presence", livePresence);
-      else appEl.removeAttribute("data-live-presence");
-    }
-
-    if (mode !== "live") {
-      if (livePresenceBanner) {
-        livePresenceBanner.hidden = true;
-        livePresenceBanner.textContent = "";
-        livePresenceBanner.className = "live-presence-banner";
-      }
-      setLiveCoachVisible(false);
-      return;
-    }
-
-    var hint = liveHint;
-    var banner = livePresenceBanner;
-    var label = presenceHintLabel();
-    var bannerText = "";
-    var bannerClass = "live-presence-banner";
-    var showBanner = false;
-
-    if (state === "file-origin") {
-      if (hint) {
-        hint.hidden = false;
-        hint.className = "live-hint err";
-        hint.textContent =
-          detail ||
-          "Live needs the bridge. Open " + BRIDGE.replace(/\/$/, "") + "/ (or run npm start)";
-      }
-      bannerText =
-        "Open Electron (npm start) or " +
-        BRIDGE.replace(/\/$/, "") +
-        ". file:// pages cannot stream Live.";
-      bannerClass += " file-origin";
-      showBanner = true;
-    } else if (state === "connecting") {
-      if (hint) {
-        hint.hidden = false;
-        hint.className = "live-hint";
-        hint.textContent = detail || "Connecting to " + BRIDGE + "…";
-      }
-      bannerText = "Connecting to the Live bridge…";
-      bannerClass += " connecting";
-      showBanner = true;
-    } else if (state === "bridge-down") {
-      if (hint) {
-        hint.hidden = false;
-        hint.className = "live-hint err";
-        hint.textContent = detail || "Bridge offline. Use npm start or node live-bridge.js";
-      }
-      /* When a detail is supplied it describes the retry, so do not also tell the user
-         to click Reconnect - that contradicts the automatic retry that is running. */
-      bannerText = detail
-        ? "Bridge offline · " + detail
-        : "Bridge offline · stations may look idle. Start the bridge, then click Reconnect.";
-      bannerClass += " bridge-down";
-      showBanner = true;
-    } else if (state === "no-projects") {
-      if (hint) {
-        hint.hidden = false;
-        hint.className = "live-hint err";
-        hint.textContent = detail || "Connected · no Cursor projects found";
-      }
-      bannerText =
-        "No Cursor projects found under agent-transcripts. Open a project in Cursor, then Reconnect.";
-      bannerClass += " no-projects";
-      showBanner = true;
-    } else if (state === "quiet-healthy") {
-      if (hint) {
-        hint.hidden = false;
-        hint.className = "live-hint quiet";
-        hint.textContent = "Quiet · waiting for transcript activity · " + label;
-      }
-      bannerText = "Workshop idle · bridge online, waiting for transcript activity.";
-      bannerClass += " quiet-healthy";
-      showBanner = true;
-    } else if (state === "streaming") {
-      if (hint) {
-        hint.hidden = false;
-        hint.className = "live-hint ok";
-        hint.textContent = "Streaming · " + label;
-      }
-      showBanner = false;
-    }
-
-    if (banner) {
-      banner.className = bannerClass;
-      banner.textContent = bannerText;
-      banner.hidden = !showBanner;
-    }
-
-    refreshEmptyLogIfIdle();
-    maybeShowLiveCoach();
-  }
 
   /**
    * Primary nav: Stage | Insights | History.
@@ -1486,12 +1315,12 @@
     activity.appendLog(logRole, msg, ev.replayError ? "err" : null, ev.ts);
 
     if (!isReplay && !alreadySeen && mode === "live") {
-      lastLiveEventAt = Date.now();
+      presence.noteLiveEvent();
       if (
         demoBtn.classList.contains("live-connected") &&
-        livePresence !== "no-projects" &&
-        livePresence !== "bridge-down" &&
-        livePresence !== "file-origin"
+        presence.getPresence() !== "no-projects" &&
+        presence.getPresence() !== "bridge-down" &&
+        presence.getPresence() !== "file-origin"
       ) {
         setLivePresence("streaming");
         scheduleQuietHealthy();
@@ -1587,77 +1416,6 @@
 
   if (insightsPanel && typeof insightsPanel.onReplayIndex === "function") {
     insightsPanel.onReplayIndex(onReplayIndexChange);
-  }
-
-  function formatSyncAge(iso) {
-    if (!iso) return "n/a";
-    var t = Date.parse(iso);
-    if (!isFinite(t)) return "n/a";
-    var sec = Math.max(0, Math.round((Date.now() - t) / 1000));
-    if (sec < 1) return "just now";
-    if (sec < 60) return sec + "s ago";
-    var min = Math.floor(sec / 60);
-    if (min < 60) return min + "m ago";
-    return Math.floor(min / 60) + "h ago";
-  }
-
-  function refreshSyncAgeChip() {
-    if (!hudSyncAge) return;
-    var chip = hudSyncAge.closest(".hud-chip");
-    if (mode !== "live") {
-      lastBridgeScanAt = null;
-      hudSyncAge.textContent = "n/a";
-      if (chip) {
-        chip.classList.remove("stale");
-        chip.setAttribute("title", "Sync age · Live mode only (Demo has no bridge poll)");
-      }
-      return;
-    }
-    hudSyncAge.textContent = formatSyncAge(lastBridgeScanAt);
-    if (chip) {
-      var ageMs = lastBridgeScanAt ? Date.now() - Date.parse(lastBridgeScanAt) : NaN;
-      var stale = !lastBridgeScanAt || !isFinite(ageMs) || ageMs > Math.max(5000, bridgePollMs * 6);
-      chip.classList.toggle("stale", stale);
-      chip.setAttribute(
-        "title",
-        "Near-real file polling (~" +
-          bridgePollMs +
-          "ms) · last bridge transcript scan (not hook-level realtime)"
-      );
-    }
-  }
-
-  function applyBridgeSyncMeta(meta) {
-    if (!meta) return;
-    if (meta.lastScanAt) lastBridgeScanAt = meta.lastScanAt;
-    if (meta.pollMs != null && isFinite(Number(meta.pollMs))) {
-      bridgePollMs = Number(meta.pollMs);
-    }
-    refreshSyncAgeChip();
-  }
-
-  function pollBridgeStatusOnce() {
-    if (mode !== "live" || location.protocol === "file:") return;
-    fetch(BRIDGE + "/api/status", { cache: "no-store" })
-      .then(function (r) {
-        return r.ok ? r.json() : null;
-      })
-      .then(function (body) {
-        if (body && body.ok) applyBridgeSyncMeta(body);
-      })
-      .catch(function () {});
-  }
-
-  function startSyncAgePoll() {
-    if (livePoll) {
-      clearInterval(livePoll);
-      livePoll = null;
-    }
-    pollBridgeStatusOnce();
-    livePoll = setInterval(function () {
-      pollBridgeStatusOnce();
-      refreshSyncAgeChip();
-    }, 1000);
   }
 
   function stopLive() {
@@ -1765,7 +1523,10 @@
         !projectPicker.options[0].value
       ) {
         setLivePresence("no-projects");
-      } else if (Date.now() - lastLiveEventAt < QUIET_AFTER_MS && lastLiveEventAt > 0) {
+      } else if (
+        Date.now() - presence.getLastEventAt() < presence.QUIET_AFTER_MS &&
+        presence.getLastEventAt() > 0
+      ) {
         setLivePresence("streaming");
         scheduleQuietHealthy();
       } else {
@@ -2239,16 +2000,39 @@
 
   sound.init();
 
+  presence.init({
+    appEl: appEl,
+    liveHint: liveHint,
+    livePresenceBanner: livePresenceBanner,
+    liveCoach: liveCoach,
+    hudSyncAge: hudSyncAge,
+    sessionLog: sessionLog,
+    bridgeUrl: BRIDGE,
+    sound: sound,
+    getMode: function () {
+      return mode;
+    },
+    getProjectLabel: function () {
+      return currentProjectLabel;
+    },
+    isBridgeConnected: function () {
+      return !!demoBtn.classList.contains("live-connected");
+    },
+    refreshEmptyLog: function () {
+      activity.refreshEmptyLog();
+    }
+  });
+
   projects.init({
     projectPicker: projectPicker,
     footerProject: footerProject,
     bridgeUrl: BRIDGE,
-    quietAfterMs: QUIET_AFTER_MS,
+    quietAfterMs: presence.QUIET_AFTER_MS,
     getMode: function () {
       return mode;
     },
     getLivePresence: function () {
-      return livePresence;
+      return presence.getPresence();
     },
     setLivePresence: function (state, detail) {
       setLivePresence(state, detail);
@@ -2257,7 +2041,7 @@
       return !!demoBtn.classList.contains("live-connected");
     },
     getLastLiveEventAt: function () {
-      return lastLiveEventAt;
+      return presence.getLastEventAt();
     },
     getProjectId: function () {
       return currentProjectId;
@@ -2315,7 +2099,7 @@
       return mode;
     },
     getLivePresence: function () {
-      return livePresence;
+      return presence.getPresence();
     },
     noteSensitivePath: function (role, path) {
       if (AgentCards && typeof AgentCards.noteSensitivePath === "function") {
@@ -2377,8 +2161,8 @@
 
   if (liveCoachDismiss) {
     liveCoachDismiss.addEventListener("click", function () {
-      markLiveOnboardSeen();
-      setLiveCoachVisible(false);
+      presence.markOnboardSeen();
+      presence.setCoachVisible(false);
     });
   }
 
@@ -2398,7 +2182,7 @@
     jumpToAgent: jumpToAgent,
     setLivePresence: setLivePresence,
     getLivePresence: function () {
-      return livePresence;
+      return presence.getPresence();
     },
     triggerShipCelebration: triggerShipCelebration,
     /* Alert center calls this after snooze/un-snooze so the sound button reflects it. */
@@ -2518,7 +2302,7 @@
     applyLiveEvent: applyLiveEvent,
     jumpToAgent: jumpToAgent,
     getLivePresence: function () {
-      return livePresence;
+      return presence.getPresence();
     },
     setLivePresence: setLivePresence,
     triggerShipCelebration: triggerShipCelebration,
