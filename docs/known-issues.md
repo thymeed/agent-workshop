@@ -99,9 +99,13 @@ Last reviewed: 2026-10-15.
   `dashboard/app.js` calls it from the exported `App.isSoundSuppressed()`, which
   the smoke tests read.
 
-- **`.cursorignore` is tracked while `.gitignore` also lists it.** The ignore rule
-  was inert, since ignore patterns never apply to a tracked file. Resolved by
-  dropping the `.gitignore` entry: the file is a deliberate shared Cursor config.
+- **`.cursorignore` was redundant with `.gitignore`.** The file duplicated roughly
+  95% of `.gitignore` — the same `node_modules/`, `dist/`, `*.exe`, `*.log`,
+  `.cache/`, `.codewhale/`, and `*.event-log.jsonl` patterns — and its only unique
+  content was four credential patterns. It also could never be ignored by
+  `.gitignore`, because ignore rules do not apply to tracked files. Removed: one
+  ignore file, and `.gitignore` now ignores a locally regenerated `.cursorignore`
+  instead of the other way round.
 
 ## Housekeeping
 
