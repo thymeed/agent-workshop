@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Direct unit tests for `lib/transcript-parse.js` and `lib/transcript-tail.js` on the
   built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
-  unknown role, a tool edit, terminal signals, and a malformed line. 62 tests, run by
+  unknown role, a tool edit, terminal signals, and a malformed line. 66 tests, run by
   `npm test` via `npm run test:unit`.
 - `dashboard/bill-math.js`: the DOM-free bill and usage math (rate table, token and
   money formatting, model normalization, summary CSV) split out of `app.js` so it can
@@ -38,7 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   history scrubbing. Alerts that were visual-only now make a sound.
 - Bounded SSE auto-reconnect with jittered exponential backoff (1s doubling to a 30s
   cap, six attempts). A dropped bridge now recovers on its own instead of needing a
-  manual Reconnect; the transition is announced in the presence banner.
+  manual Reconnect, and the presence banner reports the retry attempt and countdown
+  rather than telling you to click Reconnect while it is already retrying. Covered
+  end to end by `test/reconnect-smoke.test.js`, which kills a live bridge under a
+  loaded dashboard.
 - Session summary export from the Session Bill drawer: a local JSON download (totals,
   per-model tokens and estimated cost, advisor calls, subagent count, and activity)
   and a CSV download (one row per model plus a total). Entirely client-side; nothing

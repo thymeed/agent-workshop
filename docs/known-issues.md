@@ -111,13 +111,7 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
    `sessionCostTotal` and `buildSessionSummary` are the next candidates: they read
    `state.usage` and can take it as an argument.
 
-3. **The SSE reconnect loop has no direct test.** `reconnectDelayMs` (the backoff
-   curve and its cap) is unit-tested, and `scheduleLiveReconnect` is asserted to be a
-   no-op off a bridge origin. The retry loop itself is only exercised by reading; a
-   test driving repeated failures would need a live bridge, which the file:// unit
-   layer cannot provide.
-
-4. **Type checking covers the shared contract, not the whole tree.**
+3. **Type checking covers the shared contract, not the whole tree.**
    `npm run typecheck` (`tsc --noEmit`) checks `types/` and `lib/` only. Those are the
    modules the `@typedef` event shapes in `types/events.js` describe, and they pass
    clean. `live-bridge.js`, `scripts/`, and `dashboard/` are not checked: turning on
@@ -126,25 +120,36 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
    that are not worth churning for their own sake. Widening the include list is a
    contained follow-up whenever someone touches those files.
 
-5. **The release workflow fires on any `v*` tag push and publishes publicly.**
+4. **The release workflow fires on any `v*` tag push and publishes publicly.**
    `.github/workflows/release.yml` builds on all three platforms, hashes the artifacts,
    and attaches them plus a combined `SHA256SUMS.txt` to the GitHub Release. A tag
    push therefore publishes without a further confirmation step. Builds stay unsigned
    (no certificate); the checksums are the integrity control.
 
-6. **The alert list still records entries while snoozed.** Only the unread badge
+5. **The alert list still records entries while snoozed.** Only the unread badge
    is hidden. This is inherited master behavior, deliberate in #25, and a product
    decision rather than a defect. Change it only if the list is meant to go quiet
    too.
 
-7. **Snooze reconciliation is last-client-wins, not strictly renderer-wins.**
+6. **Snooze reconciliation is last-client-wins, not strictly renderer-wins.**
    A second client with its own `localStorage` (a genuinely separate browser
    profile hitting the bridge URL) will POST `snoozed: false` and silently clear a
    snooze set elsewhere. Same-origin tabs share the key and are unaffected.
 
-8. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
+7. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
    leaves the bridge out of sync until the next `hydrate()` / reconnect. Accepted
    for now; the reconcile on load covers the common case.
+
+## Verified as non-issues
+
+- **The SSE reconnect loop is covered end to end.** `test/reconnect-smoke.test.js`
+  starts a real bridge, loads the dashboard from it, stops the bridge, and asserts
+  the page notices the drop, reports `bridge-down`, schedules a bounded retry with
+  `attempts` set and `pending` true, and never exceeds the cap. Verified by mutation:
+  removing the `scheduleLiveReconnect()` call makes it fail with "a scheduled retry
+  did not happen", and the file was restored byte-identical. That test also caught a
+  real defect - the bridge-down banner was hardcoded to say "click Reconnect", which
+  contradicted the automatic retry. The banner now reports the retry state.
 
 - **Releases are gated.** `.github/workflows/release.yml` runs `npm run ci` in a
   `verify` job on the tagged commit, and both `create-release` and `publish` depend on

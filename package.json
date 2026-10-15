@@ -31,7 +31,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "checksums": "node scripts/checksums.js",
-    "test": "node test/demo-smoke.test.js && node test/bridge-localhost.test.js && node test/bridge-guards.test.js && node test/insights-smoke.test.js && node test/event-log.test.js && node test/history-api.test.js && node test/transcript-history.test.js && node test/cards-smoke.test.js && node test/paths-windows.test.js && node test/bridge-test-guard.test.js && node test/dashboard-units.test.js && node test/electron-smoke.test.js && npm run test:unit",
+    "test": "node test/demo-smoke.test.js && node test/bridge-localhost.test.js && node test/bridge-guards.test.js && node test/insights-smoke.test.js && node test/event-log.test.js && node test/history-api.test.js && node test/transcript-history.test.js && node test/cards-smoke.test.js && node test/paths-windows.test.js && node test/bridge-test-guard.test.js && node test/dashboard-units.test.js && node test/reconnect-smoke.test.js && node test/electron-smoke.test.js && npm run test:unit",
     "test:unit": "node --test \"test/unit/*.test.js\"",
     "ci": "npm run lint && npm run typecheck && npm run format:check && npm test && npm run build:check"
   },

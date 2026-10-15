@@ -901,8 +901,11 @@
         hint.className = "live-hint err";
         hint.textContent = detail || "Bridge offline. Use npm start or node live-bridge.js";
       }
-      bannerText =
-        "Bridge offline · stations may look idle. Start the bridge, then click Reconnect.";
+      /* When a detail is supplied it describes the retry, so do not also tell the user
+         to click Reconnect - that contradicts the automatic retry that is running. */
+      bannerText = detail
+        ? "Bridge offline · " + detail
+        : "Bridge offline · stations may look idle. Start the bridge, then click Reconnect.";
       bannerClass += " bridge-down";
       showBanner = true;
     } else if (state === "no-projects") {
@@ -2136,19 +2139,14 @@
   function scheduleLiveReconnect() {
     if (mode !== "live" || location.protocol === "file:") return;
     if (reconnectAttempts >= RECONNECT_MAX_ATTEMPTS) {
-      setLivePresence(
-        "bridge-down",
-        "Bridge offline after " +
-          RECONNECT_MAX_ATTEMPTS +
-          " retries. Start it, then click Reconnect."
-      );
+      setLivePresence("bridge-down", "no retries left. Start the bridge, then click Reconnect.");
       return;
     }
     var delay = reconnectDelayMs(reconnectAttempts) + Math.floor(Math.random() * 250);
     reconnectAttempts += 1;
     setLivePresence(
       "bridge-down",
-      "Bridge offline · retry " +
+      "retry " +
         reconnectAttempts +
         "/" +
         RECONNECT_MAX_ATTEMPTS +
@@ -2284,7 +2282,9 @@
         reconnectAttempts = 0;
       }
       liveConnectedSince = 0;
-      onErr("Bridge offline. Use npm start or node live-bridge.js");
+      onErr(
+        "Bridge offline. Retrying on its own; use npm start or node live-bridge.js to restart it."
+      );
       stopLive();
       scheduleLiveReconnect();
     };
