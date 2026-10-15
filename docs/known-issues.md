@@ -91,11 +91,13 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
    `gh release delete-asset`. Worth fixing if artifact names ever change again:
    delete the release's existing assets at the start of `publish`.
 
-2. **`dashboard/app.js` is only partly split.** Two modules have been extracted:
-   `dashboard/sound.js` (audio) and `dashboard/bill-math.js` (the DOM-free usage math:
-   rate table, token and money formatting, model normalization, summary CSV). Both are
-   unit-tested — `bill-math.js` is loaded in a `vm` sandbox by
-   `test/unit/bill-math.test.js`, so it has direct coverage without a browser.
+2. **`dashboard/app.js` is only partly split.** Three modules have been extracted:
+   `dashboard/sound.js` (audio), `dashboard/bill-math.js` (the DOM-free usage math: rate
+   table, token and money formatting, model normalization, summary CSV), and
+   `dashboard/safe-html.js` (the single HTML escaper, previously duplicated in four
+   files that disagreed on null handling). All three are unit-tested — `bill-math.js`
+   and `safe-html.js` are loaded in a `vm` sandbox, so they have direct coverage
+   without a browser.
 
    Still inside `dashboard/app.js` (~2900 lines): stage, presence, view-mode, the DOM
    half of bill, and activity. These are DOM- and animation-heavy with no cheap

@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
   unknown role, a tool edit, terminal signals, and a malformed line. 66 tests, run by
   `npm test` via `npm run test:unit`.
+- `dashboard/safe-html.js`: one canonical HTML escaper replacing four near-duplicate
+  copies in `app.js`, `insights.js`, `cards.js`, and `alerts.js`. The copies disagreed
+  on null handling, and `cards.js` rendered `0` and `false` as empty strings. The
+  shared version preserves falsy-but-meaningful values, renders `null`/`undefined` as
+  empty, and escapes single quotes so the result is safe in an attribute quoted either
+  way. 9 unit tests cover the escaping and inert-ness of hostile transcript payloads.
+- `npm run build:check` now verifies that every dashboard script referenced by the
+  HTML exists, and that `safe-html.js` loads first. Verified by mutation: moving it out
+  of first position and referencing a nonexistent script both fail the check.
 - `dashboard/bill-math.js`: the DOM-free bill and usage math (rate table, token and
   money formatting, model normalization, summary CSV) split out of `app.js` so it can
   be unit-tested without a browser. `test/unit/bill-math.test.js` loads it in a `vm`

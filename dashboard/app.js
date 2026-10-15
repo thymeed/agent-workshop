@@ -18,6 +18,7 @@
     : "http://127.0.0.1:3847";
 
   var AgentCards = window.AgentCards;
+  var escapeHtml = window.SafeHtml.escapeHtml;
   var cards = {};
   var statusEls = {};
 
@@ -1489,14 +1490,6 @@
 
   function pad2(n) {
     return (n < 10 ? "0" : "") + n;
-  }
-
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
   }
 
   function appendLog(role, message, msgClass, timeStr) {

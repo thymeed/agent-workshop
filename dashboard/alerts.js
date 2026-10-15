@@ -5,6 +5,8 @@
 (function (global) {
   "use strict";
 
+  var escapeHtml = global.SafeHtml.escapeHtml;
+
   var CAP = 50;
   var SNOOZE_KEY = "ca.alerts.snoozeUntil";
   /** Sentinel stored in SNOOZE_KEY: snoozed until the user explicitly un-snoozes. */
@@ -21,14 +23,6 @@
   var emptyEl = null;
   var attachedEs = null;
   var onAlertBound = null;
-
-  function escapeHtml(s) {
-    return String(s == null ? "" : s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
 
   function loadReadIds() {
     try {

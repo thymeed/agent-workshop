@@ -6,6 +6,8 @@
 (function (global) {
   "use strict";
 
+  var escapeHtmlText = global.SafeHtml.escapeHtml;
+
   var ROLE_KEYS = ["opus", "advisor", "worker", "explorer", "researcher"];
 
   var ROLE_LABEL = {
@@ -244,14 +246,6 @@
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
       .replace(/&apos;/g, "'");
-  }
-
-  function escapeHtmlText(s) {
-    return String(s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
   }
 
   /**

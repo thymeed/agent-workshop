@@ -45,6 +45,27 @@ if (/<script(?![^>]*\bsrc=)/i.test(html)) {
   failed = true;
 }
 
+/* Every referenced dashboard script must exist, and safe-html.js must load first:
+   every other dashboard module aliases window.SafeHtml at IIFE execution time. */
+const scriptSrcs = [...html.matchAll(/<script\s+src="(dashboard\/[^"]+)"/g)].map((m) => m[1]);
+if (scriptSrcs.length === 0) {
+  console.error("HTML references no dashboard scripts");
+  failed = true;
+}
+for (const rel of scriptSrcs) {
+  if (!fs.existsSync(path.join(root, rel))) {
+    console.error("HTML references a missing script:", rel);
+    failed = true;
+  }
+}
+const safeHtmlAt = scriptSrcs.indexOf("dashboard/safe-html.js");
+if (safeHtmlAt !== 0) {
+  console.error(
+    "dashboard/safe-html.js must be the first dashboard script (found at index " + safeHtmlAt + ")"
+  );
+  failed = true;
+}
+
 const pkg = require(path.join(root, "package.json"));
 const files = (pkg.build && pkg.build.files) || [];
 const needGlobs = ["dashboard/**/*", "model-routing-dashboard.html", "live-bridge.js", "lib/**/*"];
