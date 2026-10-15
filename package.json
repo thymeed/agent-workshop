@@ -85,14 +85,16 @@
         "zip"
       ],
       "category": "public.app-category.developer-tools",
-      "identity": null
+      "identity": null,
+      "artifactName": "Cursor-Agents-Model-Routing-${version}-${arch}.${ext}"
     },
     "linux": {
       "target": [
         "AppImage",
         "deb"
       ],
-      "category": "Development"
+      "category": "Development",
+      "artifactName": "Cursor-Agents-Model-Routing-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": true,
@@ -100,7 +102,8 @@
       "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Cursor Agents Model Routing"
+      "shortcutName": "Cursor Agents Model Routing",
+      "artifactName": "Cursor-Agents-Model-Routing-Setup-${version}.${ext}"
     },
     "portable": {
       "artifactName": "AgentWorkshop.exe"

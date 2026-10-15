@@ -15,6 +15,11 @@ into one folder. The file is plain text, one line per asset:
 
 `SHA256SUMS-<platform>.txt` files are also published if you only care about one platform.
 
+Artifact filenames contain no spaces. That is deliberate: GitHub replaces spaces in an uploaded
+asset's name with dots, so a manifest entry containing a space would no longer match the file you
+downloaded and `sha256sum -c` would report it missing. If a filename in the manifest ever contains a
+space, GitHub has rewritten the asset name and you should compare the hashes by hand.
+
 ## 2. Compare the hash
 
 ### Windows (PowerShell)
@@ -38,7 +43,7 @@ Get-FileHash -Algorithm SHA256 .\AgentWorkshop.exe
 shasum -a 256 -c SHA256SUMS.txt
 
 # or a single file
-shasum -a 256 "Cursor Agents Model Routing-"*.dmg
+shasum -a 256 Cursor-Agents-Model-Routing-*.dmg
 ```
 
 `-c` prints `OK` per file and `FAILED` for any mismatch (missing files are reported too — download all
@@ -51,7 +56,7 @@ assets if you want a clean run).
 sha256sum -c SHA256SUMS.txt
 
 # or a single file (the filename carries the version)
-sha256sum "Cursor Agents Model Routing-"*.AppImage
+sha256sum Cursor-Agents-Model-Routing-*.AppImage
 ```
 
 Both tools exit non-zero on any mismatch. Compare the printed hash to the line in `SHA256SUMS.txt`
