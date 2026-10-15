@@ -50,6 +50,18 @@ Last reviewed: 2026-10-15.
   there is no `.cursor/` directory in the tree. The guidance those files were meant
   to carry is now stated inline in `CLAUDE.md`.
 
+- **The dependency advisories are cleared.**
+  `npm audit` reported 18 (4 moderate, 13 high, 1 critical), including
+  `electron` ≤ 41.10.5 — the runtime of the packaged app, not only a build tool.
+  Upgraded to `electron@44.7.2` and `electron-builder@26.15.3`. The critical `tar`
+  advisory and every `electron` advisory are gone. 8 moderate remain, all one
+  `sprintf-js` denial-of-service reached through `electron-builder`'s build-time
+  download chain (`@electron/get` → `global-agent` → `roarr`), which never runs in
+  the shipped app. npm's suggested fix is a downgrade to `electron-builder@26.5.0`,
+  so it is left alone deliberately. `package.json` `allowScripts` was repinned from
+  `electron@33.4.11` to `electron@44.7.2` and `electron-winstaller` denied, because
+  Electron 44 dropped its `postinstall` hook and fetches its binary on first use.
+
 ## Open
 
 1. **The alert list still records entries while snoozed.** Only the unread badge
@@ -65,20 +77,6 @@ Last reviewed: 2026-10-15.
 3. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
    leaves the bridge out of sync until the next `hydrate()` / reconnect. Accepted
    for now; the reconcile on load covers the common case.
-
-4. **Dependency advisories in the toolchain — including the packaged runtime.**
-   `npm audit` on 2026-10-15 reports 18 vulnerabilities (4 moderate, 13 high,
-   1 critical). Most are build-time packages, but `electron` is the runtime of the
-   packaged desktop app, so its advisories are not purely build-time. Reported:
-   `electron` ≤ 41.10.5 (ASAR integrity bypass, sandbox and `contextBridge`
-   escapes, protocol-handler cross-origin reads, and more), `electron-builder` /
-   `app-builder-lib` ≤ 26.14.0, `builder-util-runtime` < 9.7.0, `extract-zip`,
-   `sprintf-js` (via `@electron/get`), and `tar` ≤ 7.5.20 — the critical one,
-   reached through `electron-builder`. `npm audit fix --force` clears them by
-   installing `electron@44.7.2` and `electron-builder@26.15.3`, both breaking major
-   jumps from the current `electron@^33`. This is its own piece of work: upgrade,
-   then re-verify the in-process bridge, the single-instance lock, desktop
-   notifications, and a real `npm run pack`.
 
 ## Verified as non-issues
 
