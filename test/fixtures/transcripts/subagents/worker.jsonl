@@ -1,0 +1,2 @@
+{"type":"user","role":"user","timestamp":"2026-10-09T14:11:00.000Z","message":{"role":"user","content":[{"type":"text","text":"You are an Implementation worker in this repo.\n\n<user_query>Add direct unit tests for the transcript parsers.</user_query>"}]}}
+{"type":"assistant","role":"assistant","timestamp":"2026-10-09T14:11:30.000Z","message":{"role":"assistant","usage":{"input_tokens":1200,"output_tokens":640},"content":[{"type":"text","text":"Wrote test/unit/transcript-parse.test.js."}]}}

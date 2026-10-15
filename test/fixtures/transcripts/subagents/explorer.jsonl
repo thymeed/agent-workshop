@@ -1,0 +1,2 @@
+{"type":"user","role":"user","timestamp":"2026-10-09T14:12:00.000Z","message":{"role":"user","content":[{"type":"text","text":"You are a file search specialist.\nThoroughness: very thorough\n<user_query>Find every test that imports live-bridge.</user_query>"}]}}
+{"type":"assistant","role":"assistant","timestamp":"2026-10-09T14:12:20.000Z","message":{"role":"assistant","usage":{"input_tokens":700,"output_tokens":210},"content":[{"type":"text","text":"Grepped test/ and lib/; only live-bridge.js requires the parser."}]}}

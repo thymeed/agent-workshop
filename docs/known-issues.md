@@ -83,21 +83,93 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
 
 ## Open
 
-1. **The alert list still records entries while snoozed.** Only the unread badge
+1. **`dashboard/app.js` is only partly split.** `dashboard/sound.js` was extracted
+   (audio, ~280 lines) and is independently tested. The remaining modules from the
+   improvement list — stage, presence, view-mode, activity, bill — are still inside
+   `dashboard/app.js` (~3000 lines).
+
+   Two automated attempts failed, and an advisory review disagreed with the reason
+   recorded here earlier. The blocker is **not** the shared `state` object: that is a
+   five-key bag (`app.js` `var state = { calls, subs, liveSubs, usage, activity }`),
+   module-private, with no external contract — it is a session-metrics value object,
+   not a god-object. The real blocker is that the remaining code is DOM- and
+   animation-heavy with **no cheap verification path**: it can only be exercised
+   through Playwright against the real page, so every extraction is slow to prove
+   safe and the suites that would catch a mistake are the same ones that take minutes.
+
+   The advisory recommendation, which this release did not execute: extract the
+   DOM-free region first — session metrics plus the bill math (`emptyUsage`,
+   `usageGrandTotal`, `formatTokens`, `formatMoney`, `normalizeModel`, `modelCost`,
+   `sessionCostTotal`, `buildSessionSummary`, `summaryToCsv`) — into its own module.
+   Those functions take and return plain values, so they could be unit-tested on
+   `node:test` exactly like `lib/transcript-parse.js`, which is what would then make
+   the DOM-heavy extractions safe to attempt. That is the concrete next step; it is
+   not done here.
+
+2. **The SSE reconnect loop has no direct test.** `reconnectDelayMs` (the backoff
+   curve and its cap) is unit-tested, and `scheduleLiveReconnect` is asserted to be a
+   no-op off a bridge origin. The retry loop itself is only exercised by reading; a
+   test driving repeated failures would need a live bridge, which the file:// unit
+   layer cannot provide.
+
+3. **Type checking covers the shared contract, not the whole tree.**
+   `npm run typecheck` (`tsc --noEmit`) checks `types/` and `lib/` only. Those are the
+   modules the `@typedef` event shapes in `types/events.js` describe, and they pass
+   clean. `live-bridge.js`, `scripts/`, and `dashboard/` are not checked: turning on
+   `checkJs` across them surfaces implicit-any noise and a few JSDoc gaps (notably
+   the `module.exports = fn` plus attached-properties pattern in `scripts/copy-exe.js`)
+   that are not worth churning for their own sake. Widening the include list is a
+   contained follow-up whenever someone touches those files.
+
+4. **The release workflow fires on any `v*` tag push and publishes publicly.**
+   `.github/workflows/release.yml` builds on all three platforms, hashes the artifacts,
+   and attaches them plus a combined `SHA256SUMS.txt` to the GitHub Release. A tag
+   push therefore publishes without a further confirmation step. Builds stay unsigned
+   (no certificate); the checksums are the integrity control.
+
+5. **The alert list still records entries while snoozed.** Only the unread badge
    is hidden. This is inherited master behavior, deliberate in #25, and a product
    decision rather than a defect. Change it only if the list is meant to go quiet
    too.
 
-2. **Snooze reconciliation is last-client-wins, not strictly renderer-wins.**
+6. **Snooze reconciliation is last-client-wins, not strictly renderer-wins.**
    A second client with its own `localStorage` (a genuinely separate browser
    profile hitting the bridge URL) will POST `snoozed: false` and silently clear a
    snooze set elsewhere. Same-origin tabs share the key and are unaffected.
 
-3. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
+7. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
    leaves the bridge out of sync until the next `hydrate()` / reconnect. Accepted
    for now; the reconcile on load covers the common case.
 
-## Verified as non-issues
+- **Releases are gated.** `.github/workflows/release.yml` runs `npm run ci` in a
+  `verify` job on the tagged commit, and both `create-release` and `publish` depend on
+  it, so a tag cannot publish an artifact that has not passed the gate. All three
+  pinned action SHAs were re-verified against their upstream tags
+  (`actions/checkout@3d3c42e5…` = v7.0.1, `actions/setup-node@949feb24…` = v7.1.0,
+  `actions/cache@55cc8345…` = v6.1.0).
+
+- **The `HistoryEventType` union cannot silently drift from the runtime Set.** The
+  JSDoc cast in `lib/event-log.js` asserts what a runtime guard already checked, so
+  `test/unit/event-contract.test.js` proves `EVENT_TYPES` and the documented union
+  agree, and that the `HistoryEvent` typedef matches what `normalizeEvent` returns.
+  Verified by mutation: adding a fifth type to `EVENT_TYPES` makes the test fail with
+  "have drifted apart", and the file was restored byte-identical afterwards.
+
+- **Stage token count and Activity list are already bounded.** `dashboard/app.js` caps
+  in-flight route tokens at `MAX_ROUTE_TOKENS = 3` and evicts the oldest, and the
+  Activity drawer caps at `ACTIVITY_CAP = 40`. The performance item that asked to
+  "virtualize long Activity/History lists, cap DOM stage tokens" was therefore mostly
+  already satisfied by existing design. The one genuinely unbounded list was History:
+  a long session returned every persisted event. `/api/history` now returns the newest
+  2000 (`MAX_HISTORY_EVENTS`), and `eventLog.query` accepts an optional `limit` that
+  keeps the newest rows. Full virtualization was not added, because the cap removes
+  the unbounded growth the item was about.
+
+- **`scripts/checksums.js` is deterministic.** Ran it twice over the same two files in
+  a temp directory: `SHA256SUMS.txt` was byte-identical both times, entries sorted
+  ascending, and it exited 1 on both a missing directory and a directory with no
+  files. Deterministic output is load-bearing: a manifest that reorders between runs
+  would make release verification meaningless.
 
 - **`package.json` had no install-script approval mechanism.** The `allowScripts`
   key is not an npm field and nothing in the tree consumed it, so it enforced
@@ -116,9 +188,11 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
   separator renders correctly in the tracked files; the artifact was the shell's
   console encoding.
 
-- **There is no in-app stall audio path.** `app.js` owns the only Web Audio
-  module, and no `sound.play()` call site fires on a stall. `cards.js` "Stalled"
-  is a visual avatar expression only.
+- **In-app audio now covers alerts and stalls.** `dashboard/sound.js` owns all Web
+  Audio and is called from `app.js` (crates, routes, ship, scrub, bridge presence)
+  and from `alerts.js` (finished / error / stalled). An earlier note here claimed
+  there was no in-app stall audio path; that was true before the cue was added and
+  is no longer. `cards.js` "Stalled" remains a visual avatar expression.
 
 - **The `AlertCenter` snooze exports are intentional public surface.**
   `snooze()`, `unSnooze()`, and `toggleSnooze()` have no in-app caller because the

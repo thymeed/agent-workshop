@@ -73,6 +73,7 @@
                 id="viewStage"
                 class="on"
                 aria-pressed="true"
+                aria-controls="drawers"
                 data-view="stage"
                 data-tip="Stage view"
                 data-tip-detail="Workshop stage and station cards"
@@ -83,6 +84,7 @@
                 type="button"
                 id="viewInsights"
                 aria-pressed="false"
+                aria-controls="drawers"
                 data-view="insights"
                 data-tip="Insights view"
                 data-tip-detail="Forecast, savings ideas, and session breakdown"
@@ -93,6 +95,7 @@
                 type="button"
                 id="viewHistory"
                 aria-pressed="false"
+                aria-controls="drawers"
                 data-view="history"
                 data-tip="History view"
                 data-tip-detail="Replay past events on the workshop stage"
@@ -130,17 +133,31 @@
             >
               Panels
             </button>
-            <button
-              type="button"
-              class="sound-btn"
-              id="soundBtn"
-              aria-pressed="false"
-              title="Sound off (click to unmute)"
-              data-tip="Workshop sound"
-              data-tip-detail="Soft blips when crates fly · muted by default"
-            >
-              🔇
-            </button>
+            <div class="sound-wrap">
+              <button
+                type="button"
+                class="sound-btn"
+                id="soundBtn"
+                aria-pressed="false"
+                title="Sound off (click to unmute)"
+                data-tip="Workshop sound"
+                data-tip-detail="Soft blips when crates fly · muted by default"
+              >
+                🔇
+              </button>
+              <input
+                type="range"
+                class="sound-volume"
+                id="soundVolume"
+                min="0"
+                max="1"
+                step="0.05"
+                value="0.7"
+                aria-label="Workshop sound volume"
+                data-tip="Volume"
+                data-tip-detail="Blip volume · muted by default"
+              />
+            </div>
             <div class="alert-bell-wrap">
               <button
                 type="button"
@@ -865,6 +882,26 @@
                     >
                       estimated · not official usage
                     </div>
+                    <div class="bill-export">
+                      <button
+                        type="button"
+                        class="export-btn"
+                        id="exportJsonBtn"
+                        data-tip="Export session"
+                        data-tip-detail="Download a local JSON summary of this session's estimated tokens and activity"
+                      >
+                        Export JSON
+                      </button>
+                      <button
+                        type="button"
+                        class="export-btn"
+                        id="exportCsvBtn"
+                        data-tip="Export session"
+                        data-tip-detail="Download a local CSV of the same summary, one row per model"
+                      >
+                        Export CSV
+                      </button>
+                    </div>
                   </div>
                   <div
                     class="bill-compare-block"
@@ -1007,6 +1044,7 @@
     <script src="dashboard/alerts.js"></script>
     <script src="dashboard/insights.js"></script>
     <script src="dashboard/replay-stage.js"></script>
+    <script src="dashboard/sound.js"></script>
     <script src="dashboard/app.js"></script>
   </body>
 </html>

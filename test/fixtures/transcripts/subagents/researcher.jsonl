@@ -1,0 +1,2 @@
+{"type":"user","role":"user","timestamp":"2026-10-09T14:13:00.000Z","message":{"role":"user","content":[{"type":"text","text":"You are a docs and external research subagent.\n\n<user_query>Research node:test isolation flags for a directory argument.</user_query>"}]}}
+{"type":"assistant","role":"assistant","timestamp":"2026-10-09T14:13:40.000Z","message":{"role":"assistant","usage":{"input_tokens":800,"output_tokens":260},"content":[{"type":"text","text":"node --test test/unit/ recurses into the directory."}]}}

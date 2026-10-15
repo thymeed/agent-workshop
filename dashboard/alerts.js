@@ -305,6 +305,16 @@
     setOpen(false);
   }
 
+  /** Cue on a genuinely new alert. Finished/error/stalled are otherwise visual-only. */
+  function playAlertCue(status) {
+    var S = window.WorkshopSound;
+    if (!S || typeof S.play !== "function") return;
+    var s = String(status || "").toLowerCase();
+    if (s === "error") S.play("error");
+    else if (s === "stalled") S.play("stall");
+    else S.play("done");
+  }
+
   function push(alert, fromHydrate) {
     if (!alert || alert.id == null) return;
     var id = alert.id;
@@ -335,6 +345,7 @@
       agentId: alert.agentId ? String(alert.agentId) : "",
       read: read
     });
+    if (!fromHydrate && !quiet) playAlertCue(alert.status);
     if (read) {
       readMap[String(id)] = true;
       saveReadIds(readMap);

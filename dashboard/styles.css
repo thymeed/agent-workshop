@@ -476,6 +476,47 @@ h1.headline em {
   border-color: rgba(184, 240, 0, 0.4);
 }
 
+.sound-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sound-volume {
+  appearance: none;
+  width: 62px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+}
+
+.sound-volume:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.sound-volume:focus-visible {
+  outline: 2px solid var(--haiku);
+  outline-offset: 3px;
+}
+
+.sound-volume::-webkit-slider-thumb {
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--haiku);
+}
+
+.sound-volume::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--haiku);
+}
+
 .panels-btn {
   appearance: none;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1724,6 +1765,34 @@ h1.headline em {
   font-size: 9px;
   color: var(--dim);
   margin-top: 4px;
+}
+
+.bill-export {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.export-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.export-btn:hover {
+  color: var(--text);
+  border-color: rgba(184, 240, 0, 0.35);
+}
+
+.export-btn:focus-visible {
+  outline: 2px solid var(--haiku);
+  outline-offset: 2px;
 }
 
 .cost-share {

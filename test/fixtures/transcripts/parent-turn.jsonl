@@ -1,0 +1,2 @@
+{"type":"user","role":"user","timestamp":"2026-10-09T14:00:05.000Z","message":{"role":"user","content":[{"type":"text","text":"<user_query>wire the npm script for the new unit tests</user_query>"}]}}
+{"type":"assistant","role":"assistant","timestamp":"2026-10-09T14:00:09.000Z","message":{"role":"assistant","usage":{"input_tokens":18000,"output_tokens":4200},"content":[{"type":"text","text":"Reading the transcript parser before touching it."},{"type":"tool_use","id":"toolu_01","name":"Read","input":{"file_path":"lib/transcript-parse.js","offset":1,"limit":80}}]}}

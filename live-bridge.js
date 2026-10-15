@@ -44,6 +44,7 @@ const {
   filesFromActivity,
   snippet,
   mapSubagentType,
+  isKnownSubagentType,
   roleToCard,
   roleToModel,
   estimateUsage,
@@ -110,6 +111,8 @@ const MAX_ALERTS = 50;
 const POLL_MS = 900;
 /** Max transcript JSONL files polled per scan (newest by mtime). */
 const TRANSCRIPT_SCAN_LIMIT = 40;
+/** Newest history events returned per request; bounds the replay list on long sessions. */
+const MAX_HISTORY_EVENTS = 2000;
 const TRANSCRIPT_TAIL_BYTES = 8192;
 /** Default agent stall threshold for desktop alerts (no activity). */
 const DEFAULT_STALL_MS = 120000;
@@ -630,6 +633,9 @@ function handleParentLine(obj, filePath) {
     if (isTask) {
       const subType = args.subagent_type || input.subagent_type || "";
       const role = mapSubagentType(subType);
+      /* Local, log-only marker: Cursor can add a subagent type we do not know yet,
+         and silently showing it as a worker hides a format drift. */
+      const unknownRole = !!subType && !isKnownSubagentType(subType);
       const desc = snippet(args.description || args.prompt || subType || "subagent", 72);
       const card = roleToCard(role);
       const delegate = card !== "opus";
@@ -637,7 +643,12 @@ function handleParentLine(obj, filePath) {
       pushEvent({
         role: delegate ? role : "parent",
         kind: "delegates",
-        message: "delegates · " + (subType || role) + " · " + desc,
+        message:
+          "delegates · " +
+          (subType || role) +
+          (unknownRole ? " · unrecognized role" : "") +
+          " · " +
+          desc,
         active: delegate ? [card] : ["opus"],
         route: "delegates",
         routeTo: card,
@@ -1280,7 +1291,7 @@ function createServer() {
       const since = url.searchParams.get("since") || undefined;
       const session = url.searchParams.get("session") || undefined;
       const list = filterHistoryToCurrentProject(
-        eventLog ? eventLog.query({ since, session }) : []
+        eventLog ? eventLog.query({ since, session, limit: MAX_HISTORY_EVENTS }) : []
       );
       sendJson(res, 200, {
         events: list,

@@ -29,6 +29,7 @@ Useful individual commands:
 
 ```sh
 npm run lint          # eslint .
+npm run typecheck     # tsc --noEmit (checked JSDoc contract in lib/ + types/)
 npm run format        # prettier --write .
 npm test              # smoke, unit, and guard suites
 npm run build:check   # dashboard assets + bridge exports
