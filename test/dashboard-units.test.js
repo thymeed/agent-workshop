@@ -87,10 +87,12 @@ async function main() {
           snoozeKey: typeof T.snoozeKey === "string" && T.snoozeKey.length > 0,
           mapHistoryEvent: typeof RS.mapHistoryEvent === "function"
         },
-        reconnect: {
-          delays: [0, 1, 2, 3, 4, 5, 6, 10].map((n) => T.reconnectDelayMs(n)),
-          state: T.reconnectState()
-        },
+        reconnect: (() => {
+          const delays = [0, 1, 2, 3, 4, 5, 6, 10].map((n) => T.reconnectDelayMs(n));
+          const state = T.reconnectState();
+          T.scheduleLiveReconnect();
+          return { delays, state, afterCallFromFileOrigin: T.reconnectState() };
+        })(),
         a11y: (() => {
           const chars = ["opus", "advisor", "worker", "explorer", "researcher"].map((r) => {
             const el = document.getElementById("char-" + r);
@@ -194,6 +196,13 @@ async function main() {
       "reconnect must be bounded by a small max attempt count"
     );
     assert.strictEqual(data.reconnect.state.attempts, 0, "no reconnect attempts before a drop");
+    /* file:// must never schedule a retry: the bridge rejects Origin "null" by design,
+       so a retry loop there is pure noise. */
+    assert.deepStrictEqual(
+      data.reconnect.afterCallFromFileOrigin,
+      { attempts: 0, max: 6, pending: false },
+      "scheduleLiveReconnect must be a no-op off a bridge origin"
+    );
 
     /* Session summary export: stable shape, finite numbers, well-formed CSV. */
     const ex = data.exportSummary;

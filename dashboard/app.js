@@ -194,6 +194,10 @@
   var RECONNECT_MAX_ATTEMPTS = 6;
   var RECONNECT_BASE_MS = 1000;
   var RECONNECT_MAX_MS = 30000;
+  /** A stream must hold this long before the attempt count is forgiven, so a bridge
+      that accepts and immediately drops still converges to the cap. */
+  var RECONNECT_STABLE_MS = 30000;
+  var liveConnectedSince = 0;
   /** True while SSE is draining the bridge's initial backlog (connect / reload / reconnect). */
   var liveSseBacklogReplay = false;
   var liveSseBacklogEndTimer = null;
@@ -843,8 +847,9 @@
     var previous = livePresence;
     livePresence = state || null;
     if (mode === "live") {
+      /* Cue only on terminal transitions: retrying from bridge-down is not "up". */
       if (state === "bridge-down" && previous !== "bridge-down") sound.play("bridgeDown");
-      else if (previous === "bridge-down" && state && state !== "bridge-down")
+      else if (previous === "bridge-down" && (state === "streaming" || state === "quiet-healthy"))
         sound.play("bridgeUp");
     }
     if (appEl) {
@@ -2236,7 +2241,7 @@
     startSyncAgePoll();
 
     function onOk(meta) {
-      reconnectAttempts = 0;
+      if (!liveConnectedSince) liveConnectedSince = Date.now();
       if (meta && meta.projectLabel) {
         currentProjectLabel = meta.projectLabel;
         currentProjectId = meta.projectId || currentProjectId;
@@ -2331,6 +2336,10 @@
       } catch (_) {}
     };
     es.onerror = function () {
+      if (liveConnectedSince && Date.now() - liveConnectedSince >= RECONNECT_STABLE_MS) {
+        reconnectAttempts = 0;
+      }
+      liveConnectedSince = 0;
       onErr("Bridge offline. Use npm start or node live-bridge.js");
       stopLive();
       scheduleLiveReconnect();

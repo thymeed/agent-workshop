@@ -141,6 +141,10 @@
     return ctx;
   }
 
+  function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+
   function note(c, spec, ratio, typeOverride, gainScale) {
     var t0 = c.currentTime + (spec.delay || 0);
     var freq = spec.f * ratio;
@@ -163,17 +167,18 @@
 
   /**
    * Play a cue. opts.role tints pitch/timbre to the agent's station.
-   * @param {string} name cue name; unknown names fall back to a neutral blip
+   * An unrecognized name is ignored (it is recorded for tests, not sounded).
+   * @param {string} name cue name
    * @param {{role?: string}} [opts]
    */
   function play(name, opts) {
-    var cue = CUES[name];
+    var cue = hasOwn(CUES, name) ? CUES[name] : null;
     var role = opts && opts.role;
     lastCue = { name: cue ? name : "default", role: role || null, audible: !shouldMute() };
     if (!cue || shouldMute()) return;
     var c = ensure();
     if (!c) return;
-    var tint = ROLE_TINT[role] || null;
+    var tint = role && hasOwn(ROLE_TINT, role) ? ROLE_TINT[role] : null;
     var ratio = tint ? tint.ratio : 1;
     var type = tint ? tint.type : null;
     var gainScale = tint && tint.gain ? tint.gain : 1;
