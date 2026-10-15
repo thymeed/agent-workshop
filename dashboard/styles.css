@@ -1767,6 +1767,34 @@ h1.headline em {
   margin-top: 4px;
 }
 
+.bill-export {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.export-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.export-btn:hover {
+  color: var(--text);
+  border-color: rgba(184, 240, 0, 0.35);
+}
+
+.export-btn:focus-visible {
+  outline: 2px solid var(--haiku);
+  outline-offset: 2px;
+}
+
 .cost-share {
   display: flex;
   height: 8px;

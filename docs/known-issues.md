@@ -137,9 +137,11 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
   separator renders correctly in the tracked files; the artifact was the shell's
   console encoding.
 
-- **There is no in-app stall audio path.** `app.js` owns the only Web Audio
-  module, and no `sound.play()` call site fires on a stall. `cards.js` "Stalled"
-  is a visual avatar expression only.
+- **In-app audio now covers alerts and stalls.** `dashboard/sound.js` owns all Web
+  Audio and is called from `app.js` (crates, routes, ship, scrub, bridge presence)
+  and from `alerts.js` (finished / error / stalled). An earlier note here claimed
+  there was no in-app stall audio path; that was true before the cue was added and
+  is no longer. `cards.js` "Stalled" remains a visual avatar expression.
 
 - **The `AlertCenter` snooze exports are intentional public surface.**
   `snooze()`, `unSnooze()`, and `toggleSnooze()` have no in-app caller because the

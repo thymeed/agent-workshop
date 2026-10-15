@@ -2723,6 +2723,19 @@
 
   sound.init();
 
+  var exportJsonBtn = document.getElementById("exportJsonBtn");
+  var exportCsvBtn = document.getElementById("exportCsvBtn");
+  if (exportJsonBtn) {
+    exportJsonBtn.addEventListener("click", function () {
+      exportSession("json");
+    });
+  }
+  if (exportCsvBtn) {
+    exportCsvBtn.addEventListener("click", function () {
+      exportSession("csv");
+    });
+  }
+
   if (soundBtn) {
     soundBtn.addEventListener("click", function () {
       sound.toggle();
@@ -2862,6 +2875,107 @@
     setMode("live");
   }
 
+  /**
+   * Local session summary. Built entirely client-side from the numbers already on screen;
+   * nothing is uploaded and the bridge is not involved.
+   */
+  function buildSessionSummary() {
+    var u = state.usage;
+    var models = ["opus", "fable", "sonnet", "haiku", "explorer", "researcher"];
+    var rows = models.map(function (key) {
+      var bucket = u[key] || { in: 0, out: 0 };
+      var rateKey = key === "explorer" || key === "researcher" ? "haiku" : key;
+      return {
+        model: key,
+        inputTokens: Math.max(0, Number(bucket.in) || 0),
+        outputTokens: Math.max(0, Number(bucket.out) || 0),
+        estimatedCostUsd: Number(
+          modelCost(rateKey, Number(bucket.in) || 0, Number(bucket.out) || 0).toFixed(6)
+        )
+      };
+    });
+    var cheapest = ["opus", "fable", "sonnet", "haiku"];
+    var totalIn = cheapest.reduce(function (n, k) {
+      return n + (Number(u[k].in) || 0);
+    }, 0);
+    var totalOut = cheapest.reduce(function (n, k) {
+      return n + (Number(u[k].out) || 0);
+    }, 0);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      mode: mode,
+      projectId: currentProjectId || null,
+      projectLabel: currentProjectLabel || null,
+      disclaimer: ESTIMATES_DISCLAIMER,
+      totals: {
+        inputTokens: totalIn,
+        outputTokens: totalOut,
+        estimatedCostUsd: Number(sessionCostTotal().toFixed(6))
+      },
+      models: rows,
+      advisorCalls: state.calls,
+      subagents: state.subs,
+      activity: state.activity.map(function (a) {
+        return { t: a.t, role: a.role, kind: a.kind, path: a.path, detail: a.detail };
+      })
+    };
+  }
+
+  function csvCell(value) {
+    var s = value == null ? "" : String(value);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  function summaryToCsv(summary) {
+    var lines = ["model,inputTokens,outputTokens,estimatedCostUsd"];
+    summary.models.forEach(function (row) {
+      lines.push([row.model, row.inputTokens, row.outputTokens, row.estimatedCostUsd].join(","));
+    });
+    lines.push(
+      [
+        "TOTAL",
+        summary.totals.inputTokens,
+        summary.totals.outputTokens,
+        summary.totals.estimatedCostUsd
+      ].join(",")
+    );
+    lines.push("");
+    lines.push(csvCell("note") + "," + csvCell(summary.disclaimer));
+    return lines.join("\n") + "\n";
+  }
+
+  function downloadText(filename, text, mime) {
+    var blob = new Blob([text], { type: mime });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 0);
+  }
+
+  function exportSession(format) {
+    var summary = buildSessionSummary();
+    var stamp = summary.generatedAt.replace(/[:.]/g, "-");
+    if (format === "csv") {
+      downloadText("agent-workshop-session-" + stamp + ".csv", summaryToCsv(summary), "text/csv");
+    } else {
+      downloadText(
+        "agent-workshop-session-" + stamp + ".json",
+        JSON.stringify(summary, null, 2),
+        "application/json"
+      );
+    }
+    sound.play("click");
+    showToast("Session summary downloaded");
+    return summary;
+  }
+
   /* Introspection hooks. Defined on every origin, including file:// Demo, so the
      smoke and unit suites can drive the stage without a bridge. Read-only. */
   globalThis.__cursorAgentsDashTest = {
@@ -2929,6 +3043,8 @@
     },
     reconnectDelayMs: reconnectDelayMs,
     scheduleLiveReconnect: scheduleLiveReconnect,
+    buildSessionSummary: buildSessionSummary,
+    summaryToCsv: summaryToCsv,
     /* Snooze-aware audio: true when muted by preference or while alerts are snoozed. */
     isSoundSuppressed: function () {
       return sound.isMuted();

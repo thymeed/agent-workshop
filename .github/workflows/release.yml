@@ -9,8 +9,35 @@ permissions:
   contents: read
 
 jobs:
+  # A tag push must not publish an artifact that has not passed the gate on that
+  # exact commit. This runs the full gate before anything is uploaded.
+  verify:
+    name: Verify tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Gate
+        run: npm run ci
+
   create-release:
     name: Create release
+    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

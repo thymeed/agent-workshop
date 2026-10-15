@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-15
+
+### Added
+
+- Direct unit tests for `lib/transcript-parse.js` and `lib/transcript-tail.js` on the
+  built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
+  unknown role, a tool edit, terminal signals, and a malformed line. 49 tests, run by
+  `npm test` via `npm run test:unit`.
+- `npm run typecheck` (`tsc --noEmit`) over `types/` and `lib/`, plus `types/events.js`:
+  JSDoc `@typedef` shapes for the bridge <-> dashboard contract (`DashEvent`,
+  `HistoryEvent`, `AgentAlert`, `ActivityItem`, `BridgeStatus`, `ProjectEntry`).
+  Added to `npm run ci`.
+- `scripts/checksums.js` writes a deterministic, `shasum`-compatible `SHA256SUMS.txt`
+  for a build directory, and `.github/workflows/release.yml` builds all three
+  platforms on a `v*` tag, hashes the artifacts, and attaches them plus a combined
+  checksum manifest to the GitHub Release.
+- [docs/release-verification.md](docs/release-verification.md): how to verify a
+  downloaded artifact with `Get-FileHash` / `shasum -a 256` / `sha256sum -c`, and why
+  the checksum is the meaningful control while builds are unsigned.
+- Workshop audio is its own module (`dashboard/sound.js`). Cues now run through a
+  master gain and a limiter, so overlapping cues cannot clip. Adds a volume slider
+  beside the mute toggle, role-tinted timbres (an Opus crate and a Haiku crate no
+  longer sound identical), and cues for error, stall, bridge down/up, snooze, and
+  history scrubbing. Alerts that were visual-only now make a sound.
+- Bounded SSE auto-reconnect with jittered exponential backoff (1s doubling to a 30s
+  cap, six attempts). A dropped bridge now recovers on its own instead of needing a
+  manual Reconnect; the transition is announced in the presence banner.
+- Session summary export from the Session Bill drawer: a local JSON download (totals,
+  per-model tokens and estimated cost, advisor calls, subagent count, and activity)
+  and a CSV download (one row per model plus a total). Entirely client-side; nothing
+  is uploaded.
+- README "Format compatibility" section: the transcript path layout, line shape,
+  timestamp fields, role mapping, terminal-signal rules, and usage rules the bridge
+  assumes, with the month they were last checked.
+
+### Changed
+
+- `dashboard/sound.js` loads before `app.js`.
+- An unrecognized `subagent_type` is now marked `unrecognized role` on its delegation
+  line, so a Cursor format change is visible instead of silently becoming a worker.
+  Telemetry stays local; nothing is sent anywhere.
+- `CONTRIBUTING.md` documents `npm run typecheck`; the gate description matches the
+  current `npm run ci` sequence.
+
+### Fixed
+
+- **Audio was silent whenever no volume had ever been stored.** `Number(localStorage.getItem(...))`
+  is `0` for an absent key, so the new volume default read as zero and muted every cue.
+  Caught by the existing snooze-sound smoke test.
+- The empty `state/` directory is gone.
+
+### Notes
+
+- Code signing remains out of scope: it needs a purchased Windows Authenticode and
+  Apple Developer ID certificate. Builds stay unsigned; checksums are the integrity story.
+- `dashboard/app.js` is only partly split. `sound.js` was extracted; the remaining
+  modules (stage, presence, view-mode, activity, bill) share a mutable `state` object
+  and a widely-called stage director, so they were deliberately left in place rather
+  than risk a behavior change. See `docs/known-issues.md`.
+
 ## [1.2.0] - 2026-10-15
 
 ### Added
@@ -78,6 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Token and session cost figures are illustrative estimates, not official Cursor billing.
 
+[1.3.0]: https://github.com/thymeed/agent-workshop/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/thymeed/agent-workshop/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/thymeed/agent-workshop/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/thymeed/agent-workshop/releases/tag/v1.0.0

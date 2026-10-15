@@ -73,6 +73,7 @@
                 id="viewStage"
                 class="on"
                 aria-pressed="true"
+                aria-controls="drawers"
                 data-view="stage"
                 data-tip="Stage view"
                 data-tip-detail="Workshop stage and station cards"
@@ -83,6 +84,7 @@
                 type="button"
                 id="viewInsights"
                 aria-pressed="false"
+                aria-controls="drawers"
                 data-view="insights"
                 data-tip="Insights view"
                 data-tip-detail="Forecast, savings ideas, and session breakdown"
@@ -93,6 +95,7 @@
                 type="button"
                 id="viewHistory"
                 aria-pressed="false"
+                aria-controls="drawers"
                 data-view="history"
                 data-tip="History view"
                 data-tip-detail="Replay past events on the workshop stage"
@@ -878,6 +881,26 @@
                       data-tip-detail="Token deltas are illustrative · not official usage"
                     >
                       estimated · not official usage
+                    </div>
+                    <div class="bill-export">
+                      <button
+                        type="button"
+                        class="export-btn"
+                        id="exportJsonBtn"
+                        data-tip="Export session"
+                        data-tip-detail="Download a local JSON summary of this session's estimated tokens and activity"
+                      >
+                        Export JSON
+                      </button>
+                      <button
+                        type="button"
+                        class="export-btn"
+                        id="exportCsvBtn"
+                        data-tip="Export session"
+                        data-tip-detail="Download a local CSV of the same summary, one row per model"
+                      >
+                        Export CSV
+                      </button>
                     </div>
                   </div>
                   <div

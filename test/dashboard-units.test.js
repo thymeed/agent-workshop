@@ -90,7 +90,54 @@ async function main() {
         reconnect: {
           delays: [0, 1, 2, 3, 4, 5, 6, 10].map((n) => T.reconnectDelayMs(n)),
           state: T.reconnectState()
-        }
+        },
+        a11y: (() => {
+          const chars = ["opus", "advisor", "worker", "explorer", "researcher"].map((r) => {
+            const el = document.getElementById("char-" + r);
+            return el
+              ? {
+                  role: el.getAttribute("role"),
+                  tab: el.getAttribute("tabindex"),
+                  label: !!el.getAttribute("aria-label")
+                }
+              : null;
+          });
+          const portal = document.getElementById("mergePortal");
+          const banner = document.getElementById("livePresenceBanner");
+          const log = document.getElementById("sessionLog");
+          return {
+            chars,
+            portal: portal
+              ? { role: portal.getAttribute("role"), tab: portal.getAttribute("tabindex") }
+              : null,
+            bannerLive: banner ? banner.getAttribute("aria-live") : null,
+            logLive: log ? log.getAttribute("aria-live") : null,
+            viewControls: ["viewStage", "viewInsights", "viewHistory"].map((id) => {
+              const el = document.getElementById(id);
+              return el
+                ? { id, controls: el.getAttribute("aria-controls") }
+                : { id, controls: null };
+            }),
+            volume: (() => {
+              const el = document.getElementById("soundVolume");
+              return el ? { label: !!el.getAttribute("aria-label"), type: el.type } : null;
+            })()
+          };
+        })(),
+        exportSummary: (() => {
+          const s = T.buildSessionSummary();
+          return {
+            keys: Object.keys(s),
+            modelNames: s.models.map((m) => m.model),
+            totalsFinite:
+              Number.isFinite(s.totals.estimatedCostUsd) &&
+              Number.isFinite(s.totals.inputTokens) &&
+              Number.isFinite(s.totals.outputTokens),
+            everyCostFinite: s.models.every((m) => Number.isFinite(m.estimatedCostUsd)),
+            csv: T.summaryToCsv(s),
+            disclaimer: s.disclaimer
+          };
+        })()
       };
     });
 
@@ -147,6 +194,56 @@ async function main() {
       "reconnect must be bounded by a small max attempt count"
     );
     assert.strictEqual(data.reconnect.state.attempts, 0, "no reconnect attempts before a drop");
+
+    /* Session summary export: stable shape, finite numbers, well-formed CSV. */
+    const ex = data.exportSummary;
+    for (const key of [
+      "generatedAt",
+      "mode",
+      "totals",
+      "models",
+      "advisorCalls",
+      "subagents",
+      "activity",
+      "disclaimer"
+    ]) {
+      assert.ok(ex.keys.includes(key), `summary must include ${key}`);
+    }
+    assert.deepStrictEqual(
+      ex.modelNames,
+      ["opus", "fable", "sonnet", "haiku", "explorer", "researcher"],
+      "summary must report every model bucket"
+    );
+    assert.ok(ex.totalsFinite, "summary totals must be finite numbers, never NaN");
+    assert.ok(ex.everyCostFinite, "every model cost must be finite, never NaN");
+    const csvLines = ex.csv.trim().split("\n");
+    assert.strictEqual(
+      csvLines[0],
+      "model,inputTokens,outputTokens,estimatedCostUsd",
+      "CSV header must be stable"
+    );
+    assert.ok(
+      csvLines.some((l) => l.startsWith("TOTAL,")),
+      "CSV must carry a TOTAL row"
+    );
+    assert.strictEqual(csvLines[1].split(",").length, 4, "CSV data rows keep four columns");
+
+    /* Accessibility invariants: these are a regression guard, not a WCAG claim. */
+    const a = data.a11y;
+    for (const c of a.chars) {
+      assert.strictEqual(c.role, "button", "each station must expose role=button");
+      assert.strictEqual(c.tab, "0", "each station must be tab-reachable");
+      assert.ok(c.label, "each station must have an accessible name");
+    }
+    assert.strictEqual(a.portal.role, "button", "merge portal must expose role=button");
+    assert.strictEqual(a.portal.tab, "0", "merge portal must be tab-reachable");
+    assert.strictEqual(a.bannerLive, "polite", "presence banner must announce politely");
+    assert.strictEqual(a.logLive, "polite", "session log must announce politely");
+    for (const v of a.viewControls) {
+      assert.strictEqual(v.controls, "drawers", `${v.id} must declare what it controls`);
+    }
+    assert.ok(a.volume && a.volume.label, "volume control must have an accessible name");
+    assert.strictEqual(a.volume.type, "range", "volume control must be a range input");
 
     console.log("dashboard units OK · formatters, avatar invariants, role mapping");
   } finally {
