@@ -276,3 +276,10 @@ The in-app alert center (header bell) lists the same alerts: mark read, snooze, 
 - Only sees chats that write into the selected project's transcripts folder.
 - History API responses omit events whose `sessionId` is not present under the current transcripts tree.
 - Hooks, statusline, and Cursor SDK are separate integration paths. This dashboard reads transcripts on disk.
+
+## Contributing and security
+
+Contributions are welcome. `npm run ci` is the gate; see [CONTRIBUTING.md](CONTRIBUTING.md).
+The bridge binds loopback only and has no authentication beyond that — read
+[SECURITY.md](SECURITY.md) for the threat model, the guards, and the accepted risks
+before running it on a shared machine. Report vulnerabilities privately, not in an issue.

@@ -42,6 +42,7 @@
     "appId": "com.cursor.agents.model-routing",
     "productName": "Cursor Agents Model Routing",
     "copyright": "Copyright © thymeed",
+    "icon": "assets/icon.png",
     "directories": {
       "output": "dist"
     },
@@ -68,7 +69,7 @@
           ]
         }
       ],
-      "signAndEditExecutable": false
+      "signExecutable": false
     },
     "mac": {
       "target": [

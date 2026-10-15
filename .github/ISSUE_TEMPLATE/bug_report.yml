@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in the dashboard, bridge, or packaged app is wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste transcript contents, prompts, or file paths from your real
+        sessions. Redact them first.
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - Packaged app (AgentWorkshop.exe / dmg / AppImage)
+        - Electron via npm start
+        - Headless bridge + browser
+        - Demo mode (file:// static HTML)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: README badge version, release tag, or commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS and Node version
+      placeholder: Windows 11, Node 24.21.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what happened, what you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Launch ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: Console or terminal output. Redact paths and prompts.
+      render: shell
+    validations:
+      required: false
