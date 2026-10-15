@@ -8,6 +8,11 @@
   var billMath = window.WorkshopBillMath;
   var activity = window.WorkshopActivity;
   var activityKindBucket = activity.activityKindBucket;
+  var view = window.WorkshopViewMode;
+  var setViewMode = view.setViewMode;
+  var remountHistoryReplayIfNeeded = view.remountHistoryReplayIfNeeded;
+  var togglePanels = view.togglePanels;
+  var updateHistoryHint = view.updateHistoryHint;
   var emptyUsage = billMath.emptyUsage;
   var usageGrandTotal = billMath.usageGrandTotal;
   var formatTokens = billMath.formatTokens;
@@ -126,8 +131,6 @@
   var viewInsightsBtn = document.getElementById("viewInsights");
   var viewHistoryBtn = document.getElementById("viewHistory");
   var toastTimer = null;
-  var viewMode = "stage";
-  var VIEW_MODE_KEY = "cursorAgents.viewMode";
   var replaySessionActive = false;
   var lastReplayIndex = -1;
   var ReplayStage = window.ReplayStage || null;
@@ -943,54 +946,6 @@
     maybeShowLiveCoach();
   }
 
-  function normalizeViewMode(mode) {
-    var m = String(mode || "").toLowerCase();
-    if (m === "insights" || m === "history") return m;
-    return "stage";
-  }
-
-  function syncViewModeButtons(mode) {
-    var buttons = [
-      { el: viewStageBtn, mode: "stage" },
-      { el: viewInsightsBtn, mode: "insights" },
-      { el: viewHistoryBtn, mode: "history" }
-    ];
-    buttons.forEach(function (b) {
-      if (!b.el) return;
-      var on = b.mode === mode;
-      b.el.classList.toggle("on", on);
-      b.el.setAttribute("aria-pressed", on ? "true" : "false");
-    });
-  }
-
-  function updateHistoryHint(driving) {
-    if (!historyHint) return;
-    historyHint.textContent = driving
-      ? "Replay driving stage"
-      : "Play or scrub to drive the workshop stage.";
-  }
-
-  function mountHistoryReplay() {
-    var host = document.getElementById("historyReplayHost");
-    if (!host || !insightsPanel || typeof insightsPanel.mountReplay !== "function") return;
-    insightsPanel.mountReplay(host);
-    try {
-      var playBtn = host.querySelector(".insights-transport-btn");
-      (playBtn || host).scrollIntoView({ block: "start", behavior: "smooth" });
-    } catch (_) {}
-  }
-
-  function remountHistoryReplayIfNeeded() {
-    if (viewMode !== "history") return;
-    mountHistoryReplay();
-  }
-
-  if (drawerHistory) {
-    drawerHistory.addEventListener("toggle", function () {
-      if (drawerHistory.open && viewMode === "history") mountHistoryReplay();
-    });
-  }
-
   /**
    * Primary nav: Stage | Insights | History.
    * Sets `data-view-mode` on #app, syncs header buttons, persists to sessionStorage
@@ -1007,135 +962,8 @@
    * inside a sheet and a view change hides that sheet, focus is destroyed and the next
    * Tab restarts from the top of the document. This moves it back to the view control.
    */
-  function focusIsInsideHiddenSheet(nextDrawer) {
-    var active = document.activeElement;
-    if (!active || active === document.body) return false;
-    var sheets = [
-      drawerActivity,
-      drawerBill,
-      drawerLog,
-      drawerStations,
-      drawerInsights,
-      drawerHistory
-    ];
-    for (var i = 0; i < sheets.length; i++) {
-      var d = sheets[i];
-      if (!d || d === nextDrawer) continue;
-      if (d.contains(active)) return true;
-    }
-    return false;
-  }
 
   /** Return focus to the active view control after its sheet took focus away. */
-  function restoreViewFocus() {
-    var el =
-      viewMode === "insights"
-        ? viewInsightsBtn
-        : viewMode === "history"
-          ? viewHistoryBtn
-          : viewStageBtn;
-    if (!el || typeof el.focus !== "function") return;
-    try {
-      el.focus({ preventScroll: true });
-    } catch (_e) {
-      /* ignore */
-    }
-  }
-
-  function setViewMode(mode, opts) {
-    opts = opts || {};
-    viewMode = normalizeViewMode(mode);
-    var reclaimFocus = focusIsInsideHiddenSheet(
-      viewMode === "insights"
-        ? drawerInsights
-        : viewMode === "history"
-          ? drawerHistory
-          : viewMode === "stage"
-            ? drawerActivity
-            : null
-    );
-    if (appEl) appEl.setAttribute("data-view-mode", viewMode);
-    syncViewModeButtons(viewMode);
-    if (!opts.skipPersist) {
-      try {
-        sessionStorage.setItem(VIEW_MODE_KEY, viewMode);
-      } catch (_) {}
-    }
-
-    if (viewMode === "stage") {
-      if (drawerInsights) drawerInsights.open = false;
-      if (drawerHistory) drawerHistory.open = false;
-      if (drawerActivity) drawerActivity.open = true;
-      endReplaySession();
-    } else if (viewMode === "insights") {
-      if (drawerHistory) drawerHistory.open = false;
-      if (drawerActivity) drawerActivity.open = false;
-      if (drawerInsights) drawerInsights.open = true;
-      if (insightsPanel && typeof insightsPanel.showTab === "function") {
-        insightsPanel.showTab("forecast");
-      }
-      if (insightsPanel && typeof insightsPanel.pause === "function") insightsPanel.pause();
-    } else if (viewMode === "history") {
-      if (drawerInsights) drawerInsights.open = false;
-      if (drawerActivity) drawerActivity.open = false;
-      if (drawerStations) drawerStations.open = false;
-      if (drawerBill) drawerBill.open = false;
-      if (drawerLog) drawerLog.open = false;
-      if (drawerHistory) {
-        drawerHistory.open = true;
-        try {
-          drawerHistory.scrollIntoView({ block: "start", behavior: "smooth" });
-          drawerHistory.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        } catch (_) {}
-      }
-      updateHistoryHint(false);
-      if (insightsPanel) {
-        if (typeof insightsPanel.showTab === "function") insightsPanel.showTab("replay");
-        mountHistoryReplay();
-        /* Do not auto-play. User hits Play in History transport. */
-        if (typeof insightsPanel.pause === "function") insightsPanel.pause();
-      }
-    }
-
-    if (reclaimFocus) restoreViewFocus();
-
-    if (viewMode !== "history" && insightsPanel && typeof insightsPanel.pause === "function") {
-      insightsPanel.pause();
-    }
-  }
-
-  function openPanels() {
-    if (drawerBill) drawerBill.open = true;
-    if (drawerLog) drawerLog.open = true;
-    if (drawerInsights) drawerInsights.open = true;
-    if (drawersEl) drawersEl.classList.add("panels-open");
-    if (panelsBtn) {
-      panelsBtn.classList.add("on");
-      panelsBtn.setAttribute("aria-pressed", "true");
-      panelsBtn.setAttribute("title", "Open panels");
-      panelsBtn.setAttribute("aria-label", "Open panels");
-    }
-  }
-
-  function togglePanels() {
-    var anyOpen =
-      (drawerBill && drawerBill.open) ||
-      (drawerLog && drawerLog.open) ||
-      (drawerInsights && drawerInsights.open && viewMode === "stage");
-    if (anyOpen) {
-      if (drawerBill) drawerBill.open = false;
-      if (drawerLog) drawerLog.open = false;
-      if (viewMode === "stage" && drawerInsights) drawerInsights.open = false;
-      if (drawersEl) drawersEl.classList.remove("panels-open");
-      if (panelsBtn) {
-        panelsBtn.classList.remove("on");
-        panelsBtn.setAttribute("aria-pressed", "false");
-      }
-    } else {
-      openPanels();
-    }
-    sound.play("click");
-  }
 
   function prefersReducedMotion() {
     return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1858,7 +1686,7 @@
   function onReplayIndexChange(payload) {
     if (!ReplayStage || !payload) return;
     /* Insights reloads history in the background on Stage/Insights. Only History view owns the stage. */
-    if (viewMode !== "history") {
+    if (view.getMode() !== "history") {
       replaySessionActive = false;
       return;
     }
@@ -1882,7 +1710,7 @@
         });
       }
       lastReplayIndex = index;
-      if (viewMode === "history") updateHistoryHint(true);
+      if (view.getMode() === "history") updateHistoryHint(true);
       return;
     }
 
@@ -1892,7 +1720,7 @@
     });
     if (liveSessionBrowse) replaySessionActive = false;
     lastReplayIndex = index;
-    if (viewMode === "history") updateHistoryHint(true);
+    if (view.getMode() === "history") updateHistoryHint(true);
   }
 
   if (insightsPanel && typeof insightsPanel.onReplayIndex === "function") {
@@ -2549,6 +2377,29 @@
 
   sound.init();
 
+  view.init({
+    appEl: appEl,
+    drawersEl: drawersEl,
+    drawerActivity: drawerActivity,
+    drawerBill: drawerBill,
+    drawerLog: drawerLog,
+    drawerStations: drawerStations,
+    drawerInsights: drawerInsights,
+    drawerHistory: drawerHistory,
+    panelsBtn: panelsBtn,
+    historyHint: historyHint,
+    viewStageBtn: viewStageBtn,
+    viewInsightsBtn: viewInsightsBtn,
+    viewHistoryBtn: viewHistoryBtn,
+    sound: sound,
+    endReplaySession: function () {
+      endReplaySession();
+    },
+    getInsightsPanel: function () {
+      return insightsPanel;
+    }
+  });
+
   activity.init({
     sessionLog: sessionLog,
     activityRead: activityRead,
@@ -2600,16 +2451,9 @@
     panelsBtn.setAttribute("aria-label", "Open panels");
   }
 
-  function bindViewModeButton(btn, mode) {
-    if (!btn) return;
-    btn.addEventListener("click", function () {
-      setViewMode(mode);
-      sound.play("click");
-    });
-  }
-  bindViewModeButton(viewStageBtn, "stage");
-  bindViewModeButton(viewInsightsBtn, "insights");
-  bindViewModeButton(viewHistoryBtn, "history");
+  view.bindViewModeButton(viewStageBtn, "stage");
+  view.bindViewModeButton(viewInsightsBtn, "insights");
+  view.bindViewModeButton(viewHistoryBtn, "history");
 
   Object.keys(stageDirector.chars).forEach(function (role) {
     var el = stageDirector.chars[role];
@@ -2708,13 +2552,6 @@
   activity.clear();
   updateFooterProject();
   sound.syncBtn();
-  (function restoreViewMode() {
-    var stored = null;
-    try {
-      stored = sessionStorage.getItem(VIEW_MODE_KEY);
-    } catch (_) {}
-    setViewMode(normalizeViewMode(stored || "stage"), { skipPersist: true });
-  })();
   requestAnimationFrame(function () {
     layoutFlow();
   });
@@ -2784,7 +2621,7 @@
     triggerShipCelebration: triggerShipCelebration,
     setViewMode: setViewMode,
     getViewMode: function () {
-      return viewMode;
+      return view.getMode();
     },
     replaySeek: function (events, index, source) {
       if (!ReplayStage) return;

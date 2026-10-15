@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
   unknown role, a tool edit, terminal signals, and a malformed line. 66 tests, run by
   `npm test` via `npm run test:unit`.
+- `dashboard/view-mode.js`: header view switching (Stage/Insights/History), the Panels
+  toggle, and the drawer-sheet focus policy, split out of `app.js` (~160 lines). The
+  module owns the current view mode and restores it from `sessionStorage` on init. 9
+  unit tests cover mode normalization, which drawer each mode opens, persistence and
+  `skipPersist`, button state, the focus-reclaim rule, and the Panels toggle.
 - `dashboard/activity.js`: the Activity drawer, Session Log, and their empty states,
   split out of `app.js` (~210 lines). The module owns its row list, log clock, and role
   filter, and takes every DOM and session dependency through one `init(deps)`. 15 unit
