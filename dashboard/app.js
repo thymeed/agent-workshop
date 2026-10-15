@@ -1001,10 +1001,63 @@
    * (unless opts.skipPersist). Each mode opens the matching lower drawer and closes others:
    * stage → Activity; insights → Insights (forecast tab); history → History (replay tab,
    * remounts replay transport, scrolls drawer into view; does not auto-play).
+   * Focus is left on the invoking control (these are non-modal panels); if focus was
+   * inside a sheet that this change hides, it is moved back to the view control.
    */
+  /**
+   * Focus ownership for the drawer sheets. These are non-modal panels revealed by
+   * aria-pressed toggle buttons, so opening one must NOT steal focus - the toggle stays
+   * focused and keyboard users Tab onward. The real hazard is the reverse: if focus sits
+   * inside a sheet and a view change hides that sheet, focus is destroyed and the next
+   * Tab restarts from the top of the document. This moves it back to the view control.
+   */
+  function focusIsInsideHiddenSheet(nextDrawer) {
+    var active = document.activeElement;
+    if (!active || active === document.body) return false;
+    var sheets = [
+      drawerActivity,
+      drawerBill,
+      drawerLog,
+      drawerStations,
+      drawerInsights,
+      drawerHistory
+    ];
+    for (var i = 0; i < sheets.length; i++) {
+      var d = sheets[i];
+      if (!d || d === nextDrawer) continue;
+      if (d.contains(active)) return true;
+    }
+    return false;
+  }
+
+  /** Return focus to the active view control after its sheet took focus away. */
+  function restoreViewFocus() {
+    var el =
+      viewMode === "insights"
+        ? viewInsightsBtn
+        : viewMode === "history"
+          ? viewHistoryBtn
+          : viewStageBtn;
+    if (!el || typeof el.focus !== "function") return;
+    try {
+      el.focus({ preventScroll: true });
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+
   function setViewMode(mode, opts) {
     opts = opts || {};
     viewMode = normalizeViewMode(mode);
+    var reclaimFocus = focusIsInsideHiddenSheet(
+      viewMode === "insights"
+        ? drawerInsights
+        : viewMode === "history"
+          ? drawerHistory
+          : viewMode === "stage"
+            ? drawerActivity
+            : null
+    );
     if (appEl) appEl.setAttribute("data-view-mode", viewMode);
     syncViewModeButtons(viewMode);
     if (!opts.skipPersist) {
@@ -1047,6 +1100,8 @@
         if (typeof insightsPanel.pause === "function") insightsPanel.pause();
       }
     }
+
+    if (reclaimFocus) restoreViewFocus();
 
     if (viewMode !== "history" && insightsPanel && typeof insightsPanel.pause === "function") {
       insightsPanel.pause();

@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   beside the mute toggle, role-tinted timbres (an Opus crate and a Haiku crate no
   longer sound identical), and cues for error, stall, bridge down/up, snooze, and
   history scrubbing. Alerts that were visual-only now make a sound.
+- **Focus is reclaimed when a drawer sheet is hidden.** The drawer sheets are non-modal
+  panels behind `aria-pressed` toggle buttons, so opening one deliberately does not steal
+  focus. The real hazard was the reverse: if focus sat inside a sheet that a view change
+  hid, it was destroyed and the next Tab restarted from the top of the document. Focus
+  now returns to the active view control. Covered by `test/dashboard-units.test.js` and
+  verified by mutation.
 - Bounded SSE auto-reconnect with jittered exponential backoff (1s doubling to a 30s
   cap, six attempts). A dropped bridge now recovers on its own instead of needing a
   manual Reconnect, and the presence banner reports the retry attempt and countdown

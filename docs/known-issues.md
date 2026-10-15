@@ -144,6 +144,12 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
 
 ## Verified as non-issues
 
+- **Focus is not lost when a drawer sheet closes.** `setViewMode` checks whether the
+  focused element sits inside a sheet the view change will hide, and if so returns focus
+  to the active view control. Opening a sheet still does not steal focus, which is
+  correct for a non-modal `aria-pressed` toggle. `test/dashboard-units.test.js` asserts
+  both halves, and removing the reclaim makes it fail.
+
 - **The SSE reconnect loop is covered end to end.** `test/reconnect-smoke.test.js`
   starts a real bridge, loads the dashboard from it, stops the bridge, and asserts
   the page notices the drop, reports `bridge-down`, schedules a bounded retry with

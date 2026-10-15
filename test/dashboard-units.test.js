@@ -93,6 +93,32 @@ async function main() {
           T.scheduleLiveReconnect();
           return { delays, state, afterCallFromFileOrigin: T.reconnectState() };
         })(),
+        focusFlow: (() => {
+          const T = globalThis.__cursorAgentsDashTest;
+          const out = {};
+          const historyBtn = document.getElementById("viewHistory");
+          const drawer = document.getElementById("drawerHistory");
+
+          historyBtn.focus();
+          historyBtn.click();
+          out.viewMode = T.getViewMode();
+          out.drawerOpen = !!drawer.open;
+          /* Opening a non-modal sheet must NOT steal focus from its toggle.
+             (focus() first: a synthetic .click() does not focus the button itself) */
+          out.focusStayedOnToggle = document.activeElement === historyBtn;
+
+          /* Now put focus inside the sheet, then switch away: focus must be reclaimed. */
+          const summary = drawer.querySelector("summary");
+          if (summary) summary.focus();
+          out.focusInsideSheet = drawer.contains(document.activeElement);
+          document.getElementById("viewStage").click();
+          out.restoredToViewControl = !!(
+            document.activeElement && document.activeElement.closest("#viewMode")
+          );
+          out.stageMode = T.getViewMode();
+          out.historyDrawerClosed = !drawer.open;
+          return out;
+        })(),
         a11y: (() => {
           const chars = ["opus", "advisor", "worker", "explorer", "researcher"].map((r) => {
             const el = document.getElementById("char-" + r);
@@ -238,6 +264,21 @@ async function main() {
     assert.strictEqual(csvLines[1].split(",").length, 4, "CSV data rows keep four columns");
 
     /* Accessibility invariants: these are a regression guard, not a WCAG claim. */
+    const ff = data.focusFlow;
+    assert.strictEqual(ff.viewMode, "history", "clicking History must switch the view mode");
+    assert.ok(ff.drawerOpen, "History must open its drawer sheet");
+    assert.ok(
+      ff.focusStayedOnToggle,
+      "opening a non-modal sheet must not steal focus from its toggle"
+    );
+    assert.ok(ff.focusInsideSheet, "the test must be able to put focus inside the sheet");
+    assert.ok(
+      ff.restoredToViewControl,
+      "hiding the sheet that held focus must return focus to a view control"
+    );
+    assert.strictEqual(ff.stageMode, "stage", "Stage click must return to stage mode");
+    assert.ok(ff.historyDrawerClosed, "leaving History must close its drawer");
+
     const a = data.a11y;
     for (const c of a.chars) {
       assert.strictEqual(c.role, "button", "each station must expose role=button");
