@@ -111,6 +111,8 @@ const MAX_ALERTS = 50;
 const POLL_MS = 900;
 /** Max transcript JSONL files polled per scan (newest by mtime). */
 const TRANSCRIPT_SCAN_LIMIT = 40;
+/** Newest history events returned per request; bounds the replay list on long sessions. */
+const MAX_HISTORY_EVENTS = 2000;
 const TRANSCRIPT_TAIL_BYTES = 8192;
 /** Default agent stall threshold for desktop alerts (no activity). */
 const DEFAULT_STALL_MS = 120000;
@@ -1289,7 +1291,7 @@ function createServer() {
       const since = url.searchParams.get("since") || undefined;
       const session = url.searchParams.get("session") || undefined;
       const list = filterHistoryToCurrentProject(
-        eventLog ? eventLog.query({ since, session }) : []
+        eventLog ? eventLog.query({ since, session, limit: MAX_HISTORY_EVENTS }) : []
       );
       sendJson(res, 200, {
         events: list,
