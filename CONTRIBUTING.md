@@ -15,8 +15,7 @@ npm start                         # Electron window with the in-process bridge
 
 ## The gate
 
-`npm run ci` is the pre-push gate. It runs ESLint, `prettier --check`, all nine
-test suites, and the packaging check:
+`npm run ci` is the pre-push gate. It runs ESLint, `prettier --check`, every test suite, and the packaging check:
 
 ```sh
 npm run ci
@@ -31,7 +30,7 @@ Useful individual commands:
 ```sh
 npm run lint          # eslint .
 npm run format        # prettier --write .
-npm test              # nine smoke/unit suites
+npm test              # smoke, unit, and guard suites
 npm run build:check   # dashboard assets + bridge exports
 npm run pack          # Windows portable exe -> repo-root AgentWorkshop.exe
 ```

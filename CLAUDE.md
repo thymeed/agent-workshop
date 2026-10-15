@@ -40,6 +40,9 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 | `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                                                     |
 | `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                                                      |
 | `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                                                                                     |
+| `test/bridge-guards.test.js`   | Route x guard matrix: loopback, method, CSRF, body, static, CORS                                                                 |
+| `test/dashboard-units.test.js` | Dashboard formatters + pixel-cast avatar/brand invariants                                                                        |
+| `test/electron-smoke.test.js`  | Launches Electron; asserts the in-process bridge and served dashboard (skipped on Linux without xvfb)                            |
 | `.github/workflows/ci.yml`     | Lint, format check, smoke test, packaging check, unpacked package build (Ubuntu / Windows / macOS)                               |
 | `README.md`                    | User-facing run instructions and Live-mode limits                                                                                |
 | `docs/known-issues.md`         | Audit findings: fixed / open / verified non-issues (alert snooze, notifications, CI)                                             |

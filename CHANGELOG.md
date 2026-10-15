@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-15
+
+### Added
+
+- macOS (`dmg`, `zip`) and Linux (`AppImage`, `deb`) build targets, plus `npm run pack:win` / `pack:mac` / `pack:linux`. `npm run build` now targets the host platform instead of being Windows-only.
+- macOS and Linux artifacts are produced but unsigned, so Gatekeeper and SmartScreen warn on first launch.
+- A macOS CI leg. CI is now a three-platform matrix and runs an unpacked packaging build per platform, so the toolchain is exercised on macOS and Linux rather than Windows alone. The `dmg` / `AppImage` / `deb` artifact targets themselves are not built in CI.
+- `test/electron-smoke.test.js`: launches the real Electron app and asserts the window title and the in-process bridge, covering the Electron upgrade end to end.
+- Custom application icon (`assets/icon.png`, pixel-cast block agent). The packaged app no longer ships the default Electron icon.
+- [SECURITY.md](SECURITY.md) (threat model, guards, accepted risks), [CONTRIBUTING.md](CONTRIBUTING.md), and issue / pull-request templates.
+- `test/bridge-guards.test.js`: route x guard matrix across loopback enforcement, method guards, CSRF header/site guards, body validation, static traversal, and CORS posture.
+- `test/dashboard-units.test.js`: unit layer for the dashboard formatters and the pixel-cast avatar/brand invariants.
+
+### Changed
+
+- `electron` 33.4.11 → 44.7.2 and `electron-builder` 25.1.8 → 26.15.3. This swaps the runtime of the packaged app.
+  Electron 44 also removed its `postinstall` hook, so `npm install` no longer fetches the Electron binary; it is downloaded lazily on first use (`npm start`, or `npx electron --version`), roughly 200 MB, printing `Downloading Electron binary...`. Expect that on a fresh clone.
+- `live-bridge.js` split into cohesive `lib/` modules (`bridge-http.js`, `transcript-parse.js`, `transcript-tail.js`) behind an unchanged module export surface. Behavior is unchanged; the file drops from 2233 to 1622 lines.
+- README and CLAUDE.md document POSIX setup, and the build section is no longer Windows-only.
+
+### Fixed
+
+- **18 dependency advisories down to 8.** The critical `tar` advisory and every `electron` advisory are gone, including the runtime ones that applied to the shipped app (ASAR integrity, sandbox and `contextBridge` escapes). The 8 remaining are a single moderate `sprintf-js` denial-of-service in `electron-builder`'s build-time download chain, which never runs in the shipped app; npm's suggested fix is a downgrade, so it is deliberately not applied.
+- `scripts/copy-exe.js` failed the build on non-Windows platforms and on any target that produces no portable artifact. It now skips with a message, and the `electron-builder` hook no longer treats a missing portable exe as an error.
+- The event log narrowed the mode of its containing directory unconditionally. A `CURSOR_EVENT_LOG_DIR` override pointing at a shared directory (for example `$HOME`) silently chmod-ed unrelated data to `0700`. The directory is now narrowed only when it holds nothing but the log; the log file itself is still `0600`.
+- Redaction missed signed-URL parameters that are not named `token`/`key`, so AWS presigned queries (`X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`), generic `Signature`/`code`/`session` parameters, `npm_` tokens, and credentials in URL userinfo could reach the local event log unredacted. Patterns added.
+- Windows executables carried no icon or version metadata. `signAndEditExecutable: false` suppressed icon and metadata along with signing; replaced with `signExecutable: false`, which keeps both.
+
 ## [1.1.0] - 2026-10-15
 
 ### Added
@@ -50,5 +78,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Token and session cost figures are illustrative estimates, not official Cursor billing.
 
+[1.2.0]: https://github.com/thymeed/agent-workshop/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/thymeed/agent-workshop/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/thymeed/agent-workshop/releases/tag/v1.0.0
