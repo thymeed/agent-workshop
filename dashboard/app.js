@@ -3,12 +3,16 @@
 
   var STEP_MS = 1500;
   var ACTIVITY_CAP = 40;
-  var RATES = {
-    opus: { in: 4.0, out: 20.0 },
-    fable: { in: 10.0, out: 50.0 },
-    sonnet: { in: 2.0, out: 10.0 },
-    haiku: { in: 0.1, out: 0.5 }
-  };
+  /* Pure bill/usage math lives in dashboard/bill-math.js so it can be unit tested
+     without a browser. Aliased to the old names so call sites are unchanged. */
+  var billMath = window.WorkshopBillMath;
+  var emptyUsage = billMath.emptyUsage;
+  var usageGrandTotal = billMath.usageGrandTotal;
+  var formatTokens = billMath.formatTokens;
+  var formatMoney = billMath.formatMoney;
+  var normalizeModel = billMath.normalizeModel;
+  var modelCost = billMath.modelCost;
+  var summaryToCsv = billMath.summaryToCsv;
   var BRIDGE = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(location.origin)
     ? location.origin
     : "http://127.0.0.1:3847";
@@ -1084,17 +1088,6 @@
     sound.play("click");
   }
 
-  function emptyUsage() {
-    return {
-      opus: { in: 0, out: 0 },
-      fable: { in: 0, out: 0 },
-      sonnet: { in: 0, out: 0 },
-      haiku: { in: 0, out: 0 },
-      explorer: { in: 0, out: 0 },
-      researcher: { in: 0, out: 0 }
-    };
-  }
-
   function prefersReducedMotion() {
     return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
@@ -1234,18 +1227,6 @@
     el.innerHTML = html;
   }
 
-  function usageGrandTotal(usage) {
-    var t = 0;
-    if (!usage) return 0;
-    Object.keys(usage).forEach(function (key) {
-      if (key === "explorer" || key === "researcher") return;
-      var bucket = usage[key];
-      if (!bucket) return;
-      t += (Number(bucket.in) || 0) + (Number(bucket.out) || 0);
-    });
-    return t;
-  }
-
   function syncDailyStatsFromUsage() {
     if (!AgentCards) return;
     if (mode === "live") {
@@ -1256,37 +1237,6 @@
     var delta = total - lastDemoUsageTotal;
     if (delta > 0 && typeof AgentCards.addTokens === "function") AgentCards.addTokens(delta);
     lastDemoUsageTotal = total;
-  }
-
-  function formatTokens(n) {
-    n = Math.max(0, Math.round(n || 0));
-    if (n >= 1000000) {
-      return (n / 1000000).toFixed(n % 100000 === 0 ? 1 : 2).replace(/\.00$/, ".0") + "M";
-    }
-    if (n >= 1000) return Math.round(n / 1000) + "K";
-    return String(n);
-  }
-
-  function formatMoney(n) {
-    if (!isFinite(n) || n < 0) n = 0;
-    if (n > 0 && n < 0.01) return "$" + n.toFixed(3);
-    return "$" + n.toFixed(2);
-  }
-
-  function normalizeModel(model, role) {
-    var m = String(model || "").toLowerCase();
-    var r = String(role || "").toLowerCase();
-    if (m === "opus" || m === "fable" || m === "sonnet" || m === "haiku") return m;
-    if (r === "parent" || r === "opus") return "opus";
-    if (r === "advisor" || r === "fable") return "fable";
-    if (r === "worker" || r === "sonnet") return "sonnet";
-    if (r === "explorer" || r === "researcher" || r === "haiku") return "haiku";
-    return "opus";
-  }
-
-  function modelCost(model, inn, out) {
-    var rates = RATES[model] || RATES.opus;
-    return (inn / 1000000) * rates.in + (out / 1000000) * rates.out;
   }
 
   function renderBill() {
@@ -2929,29 +2879,6 @@
         return { t: a.t, role: a.role, kind: a.kind, path: a.path, detail: a.detail };
       })
     };
-  }
-
-  function csvCell(value) {
-    var s = value == null ? "" : String(value);
-    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-  }
-
-  function summaryToCsv(summary) {
-    var lines = ["model,inputTokens,outputTokens,estimatedCostUsd"];
-    summary.models.forEach(function (row) {
-      lines.push([row.model, row.inputTokens, row.outputTokens, row.estimatedCostUsd].join(","));
-    });
-    lines.push(
-      [
-        "TOTAL",
-        summary.totals.inputTokens,
-        summary.totals.outputTokens,
-        summary.totals.estimatedCostUsd
-      ].join(",")
-    );
-    lines.push("");
-    lines.push(csvCell("note") + "," + csvCell(summary.disclaimer));
-    return lines.join("\n") + "\n";
   }
 
   function downloadText(filename, text, mime) {

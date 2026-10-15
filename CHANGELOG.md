@@ -13,8 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Direct unit tests for `lib/transcript-parse.js` and `lib/transcript-tail.js` on the
   built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
-  unknown role, a tool edit, terminal signals, and a malformed line. 49 tests, run by
+  unknown role, a tool edit, terminal signals, and a malformed line. 62 tests, run by
   `npm test` via `npm run test:unit`.
+- `dashboard/bill-math.js`: the DOM-free bill and usage math (rate table, token and
+  money formatting, model normalization, summary CSV) split out of `app.js` so it can
+  be unit-tested without a browser. `test/unit/bill-math.test.js` loads it in a `vm`
+  sandbox and covers the boundaries: formatter thresholds, rate lookups, unknown-model
+  fallback, CSV quoting, and the empty-usage contract.
 - `npm run typecheck` (`tsc --noEmit`) over `types/` and `lib/`, plus `types/events.js`:
   JSDoc `@typedef` shapes for the bridge <-> dashboard contract (`DashEvent`,
   `HistoryEvent`, `AgentAlert`, `ActivityItem`, `BridgeStatus`, `ProjectEntry`).
@@ -62,10 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Code signing remains out of scope: it needs a purchased Windows Authenticode and
   Apple Developer ID certificate. Builds stay unsigned; checksums are the integrity story.
-- `dashboard/app.js` is only partly split. `sound.js` was extracted; the remaining
-  modules (stage, presence, view-mode, activity, bill) share a mutable `state` object
-  and a widely-called stage director, so they were deliberately left in place rather
-  than risk a behavior change. See `docs/known-issues.md`.
+- `dashboard/app.js` is only partly split. `sound.js` (audio) and `bill-math.js`
+  (DOM-free usage math) were extracted, and the extracted math is unit-tested.
+  The remaining modules (stage, presence, view-mode, activity, and the DOM half of
+  bill) are still in `app.js`: they are DOM- and animation-heavy with no cheap
+  verification path, so they were left in place rather than risk a behavior change.
+  See `docs/known-issues.md` for the recommended next step.
 
 ## [1.2.0] - 2026-10-15
 

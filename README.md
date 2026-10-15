@@ -128,6 +128,7 @@ Keep `node_modules\` unless you are ready for a full `npm ci` / `npm install` (l
 | `dashboard/tips.css`           | TipLayer floating tooltip styles                                                                                                        |
 | `dashboard/alerts.css`         | Alert center bell / popover styles                                                                                                      |
 | `dashboard/app.js`             | Orchestrator: Demo playbook, Live SSE client, mode switching, project picker, jump-to-agent, ship celebration, `__cursorAgentsDashTest` |
+| `dashboard/bill-math.js`       | Pure bill/usage math: rates, token and money formatting, model normalization, summary CSV · no DOM                                      |
 | `dashboard/sound.js`           | Workshop audio cues (Web Audio, synthesized, no assets): master gain + limiter, volume, role-tinted timbres · muted by default          |
 | `dashboard/insights.js`        | Insights forecast, cost-ranked suggestions, History/Replay UI                                                                           |
 | `dashboard/replay-stage.js`    | Replay transport to workshop stage                                                                                                      |

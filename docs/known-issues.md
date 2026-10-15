@@ -91,28 +91,25 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
    `gh release delete-asset`. Worth fixing if artifact names ever change again:
    delete the release's existing assets at the start of `publish`.
 
-2. **`dashboard/app.js` is only partly split.** `dashboard/sound.js` was extracted
-   (audio, ~280 lines) and is independently tested. The remaining modules from the
-   improvement list — stage, presence, view-mode, activity, bill — are still inside
-   `dashboard/app.js` (~3000 lines).
+2. **`dashboard/app.js` is only partly split.** Two modules have been extracted:
+   `dashboard/sound.js` (audio) and `dashboard/bill-math.js` (the DOM-free usage math:
+   rate table, token and money formatting, model normalization, summary CSV). Both are
+   unit-tested — `bill-math.js` is loaded in a `vm` sandbox by
+   `test/unit/bill-math.test.js`, so it has direct coverage without a browser.
 
-   Two automated attempts failed, and an advisory review disagreed with the reason
-   recorded here earlier. The blocker is **not** the shared `state` object: that is a
-   five-key bag (`app.js` `var state = { calls, subs, liveSubs, usage, activity }`),
-   module-private, with no external contract — it is a session-metrics value object,
-   not a god-object. The real blocker is that the remaining code is DOM- and
-   animation-heavy with **no cheap verification path**: it can only be exercised
-   through Playwright against the real page, so every extraction is slow to prove
-   safe and the suites that would catch a mistake are the same ones that take minutes.
+   Still inside `dashboard/app.js` (~2900 lines): stage, presence, view-mode, the DOM
+   half of bill, and activity. These are DOM- and animation-heavy with no cheap
+   verification path — they can only be exercised through Playwright against the real
+   page, so an extraction is slow to prove safe.
 
-   The advisory recommendation, which this release did not execute: extract the
-   DOM-free region first — session metrics plus the bill math (`emptyUsage`,
-   `usageGrandTotal`, `formatTokens`, `formatMoney`, `normalizeModel`, `modelCost`,
-   `sessionCostTotal`, `buildSessionSummary`, `summaryToCsv`) — into its own module.
-   Those functions take and return plain values, so they could be unit-tested on
-   `node:test` exactly like `lib/transcript-parse.js`, which is what would then make
-   the DOM-heavy extractions safe to attempt. That is the concrete next step; it is
-   not done here.
+   A correction worth keeping: an earlier note here blamed a shared `state` object.
+   An advisory review disproved that. `state` is a five-key, module-private
+   session-metrics bag (`calls`, `subs`, `liveSubs`, `usage`, `activity`) with an
+   existing setter seam, not a god-object. The blocker is verification cost, not
+   coupling — which is why the fix is to keep pulling DOM-free code out first (as
+   `bill-math.js` now does) until the DOM-heavy extractions have a cheap safety net.
+   `sessionCostTotal` and `buildSessionSummary` are the next candidates: they read
+   `state.usage` and can take it as an argument.
 
 3. **The SSE reconnect loop has no direct test.** `reconnectDelayMs` (the backoff
    curve and its cap) is unit-tested, and `scheduleLiveReconnect` is asserted to be a

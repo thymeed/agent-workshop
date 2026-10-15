@@ -30,6 +30,7 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 | `dashboard/insights.js`        | Insights forecast + cost-ranked suggestions + History/Replay UI                                                                  |
 | `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                                                            |
 | `dashboard/cards.js`           | Station cards, pixel-cast `faceMarkup` / `blockAgentSvgInner`, daily stats, privacy meter, ship celebration                      |
+| `dashboard/bill-math.js`       | Pure bill/usage math (rates, formatting, model normalization, summary CSV); no DOM, unit tested in `test/unit/bill-math.test.js` |
 | `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                                |
 | `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`; indefinite snooze with un-snooze; mini faces via `AgentCards.faceMarkup`)  |
 | `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts`, `/api/snooze`               |
