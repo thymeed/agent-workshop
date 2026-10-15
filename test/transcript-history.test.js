@@ -161,7 +161,7 @@ function fetchAlerts(port) {
  * POST /api/snooze with the same-origin hint a real browser sends, so the origin
  * guard passes and the X-Cursor-Bridge check is the gate under test.
  * @param {number} port
- * @param {boolean|undefined} snoozed - omitted sends an empty body
+ * @param {boolean|undefined} snoozed - omitted sends an empty body (the route rejects it)
  * @param {Object} [headers] - extra headers, e.g. {"X-Cursor-Bridge":"1"}
  */
 function postSnooze(port, snoozed, headers) {
@@ -1057,6 +1057,13 @@ async function testSnoozeRouteGuards() {
       req.end(body);
     });
     assert(badJson === 400, "invalid JSON body must be 400, got " + badJson);
+
+    /* An absent body must not implicitly mean "snooze on": intent is explicit or rejected. */
+    const emptyBody = await postSnooze(port, undefined, { "X-Cursor-Bridge": "1" });
+    assert(emptyBody.status === 400, "empty body must be 400, got " + emptyBody.status);
+
+    const wrongType = await postSnooze(port, "yes", { "X-Cursor-Bridge": "1" });
+    assert(wrongType.status === 400, "non-boolean snoozed must be 400, got " + wrongType.status);
 
     const ok = await postSnooze(port, true, { "X-Cursor-Bridge": "1" });
     assert(

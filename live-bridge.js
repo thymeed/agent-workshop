@@ -1857,17 +1857,22 @@ function createServer() {
       }
       readRequestBody(req)
         .then((raw) => {
-          let snoozed = true;
-          if (raw && String(raw).trim()) {
-            try {
-              const parsed = JSON.parse(raw);
-              if (parsed && typeof parsed.snoozed === "boolean") snoozed = parsed.snoozed;
-            } catch (_e) {
-              sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
-              return;
-            }
+          let parsed = null;
+          try {
+            parsed = raw && String(raw).trim() ? JSON.parse(raw) : null;
+          } catch (_e) {
+            sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+            return;
           }
-          snoozeIndefinite = snoozed;
+          /* Explicit intent only: an absent body must not mean "snooze on". */
+          if (!parsed || typeof parsed.snoozed !== "boolean") {
+            sendJson(res, 400, {
+              ok: false,
+              error: "Body must be JSON { snoozed: boolean }"
+            });
+            return;
+          }
+          snoozeIndefinite = parsed.snoozed;
           sendJson(res, 200, { ok: true, snoozed: snoozeIndefinite });
         })
         .catch(() => {
