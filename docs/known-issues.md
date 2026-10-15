@@ -1,33 +1,30 @@
 # Known issues
 
-Audit findings for the alert-snooze work (PRs #25 and #26) and the surrounding
-notification paths. Each item says whether it is fixed, open, or verified as a
-non-issue, so nobody re-litigates a settled question or assumes an open one is
-closed.
+Audit findings for the alert-snooze work and the surrounding notification paths.
+Each item says whether it is fixed, open, or verified as a non-issue, so nobody
+re-litigates a settled question or assumes an open one is closed.
 
 Last reviewed: 2026-10-12.
 
 ## Fixed
 
-- **Snooze did not silence the stall sound ([#24](https://github.com/thymeed/cursor-agents-model-routing/issues/24)).**
+- **Snooze did not silence the stall sound.**
   The dashboard has no audio path for stalls, so the sound was the Windows
   notification sound from `new Notification({ silent: false })` in
-  `electron/main.js`. Snooze only hid the unread badge. Fixed in
-  [#25](https://github.com/thymeed/cursor-agents-model-routing/pull/25): snooze is
-  now indefinite and the bridge skips creating the desktop notification while
+  `electron/main.js`. Snooze only hid the unread badge. Fixed by making snooze
+  indefinite: the bridge now skips creating the desktop notification while
   snoozed. The SSE `alert` event and the in-memory ring still flow.
 
 - **Snooze did not survive a restart.**
   The bridge holds snooze in memory and reset it on `stopBridge()`, so a fresh
   bridge started unsnoozed while the renderer's `localStorage` still said
-  snoozed — the dashboard showed snooze active while desktop toasts fired again.
-  Fixed in [#26](https://github.com/thymeed/cursor-agents-model-routing/pull/26):
-  `hydrate()` in `dashboard/alerts.js` reconciles against `GET /api/status` and
-  re-pushes the persisted state. Renderer wins, because `localStorage` is the
-  durable user choice.
+  snoozed, so the dashboard showed snooze active while desktop toasts fired again.
+  Fixed by reconciling on load: `hydrate()` in `dashboard/alerts.js` reads
+  `GET /api/status` and re-pushes the persisted state. Renderer wins, because
+  `localStorage` is the durable user choice.
 
 - **Session Bill `Out` column rendered Sonnet cost instead of output tokens.**
-  Fixed in #25; `formatTokens` restored.
+  Fixed; `formatTokens` restored.
 
 ## Open
 
@@ -59,8 +56,8 @@ Last reviewed: 2026-10-12.
 6. **CI re-downloads Chromium every run.** `.github/workflows/ci.yml` runs
    `npx playwright install --with-deps chromium` on both jobs with no browser
    cache, fetching roughly 320 MB per run (Chrome for Testing ~198 MB, Headless
-   Shell ~118 MB, plus FFmpeg). Not a correctness problem — both jobs finish well
-   inside the 20-minute timeout. If it ever matters, cache
+   Shell ~118 MB, plus FFmpeg). Not a correctness problem, since both jobs finish
+   well inside the 20-minute timeout. If it ever matters, cache
    `~/.cache/ms-playwright` (Windows: `%USERPROFILE%\AppData\Local\ms-playwright`)
    keyed on the Playwright version, or use the `mcr.microsoft.com/playwright`
    image on Linux.

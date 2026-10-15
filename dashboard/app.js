@@ -165,7 +165,7 @@
   var mode = "demo"; /* demo | live */
   var insightsPanel = null;
 
-  /* Insights sheet. mount inside #drawerInsights (not a stacked sibling under drawers). */
+  /* Insights sheet. Mount inside #drawerInsights (not a stacked sibling under drawers). */
   if (window.Insights && typeof window.Insights.init === "function") {
     try {
       insightsPanel = window.Insights.init(
@@ -1147,7 +1147,7 @@
       if (insightsPanel) {
         if (typeof insightsPanel.showTab === "function") insightsPanel.showTab("replay");
         mountHistoryReplay();
-        /* Do not auto-play. user hits Play in History transport. */
+        /* Do not auto-play. User hits Play in History transport. */
         if (typeof insightsPanel.pause === "function") insightsPanel.pause();
       }
     }
@@ -1473,7 +1473,7 @@
       state.usage[role].in += inn;
       state.usage[role].out += out;
     } else if (model === "haiku") {
-      /* Live may send model=haiku without role. attribute to explorer by default */
+      /* Live may send model=haiku without role. Attribute to explorer by default */
       state.usage.explorer.in += inn;
       state.usage.explorer.out += out;
     }
@@ -1688,7 +1688,7 @@
   }
 
   function layoutFlow() {
-    /* Workshop paths are fixed in SVG viewBox. no card-geometry layout. */
+    /* Workshop paths are fixed in SVG viewBox. No card-geometry layout. */
   }
 
   function pulsePath(id) {
@@ -1986,7 +1986,7 @@
     if (!ev) return;
     opts = opts || {};
     var isReplay = !!opts.replay;
-    /* History replay owns the stage. ignore Live/Demo ingress until Stage resumes. */
+    /* History replay owns the stage. Ignore Live/Demo ingress until Stage resumes. */
     if (replaySessionActive && !isReplay) return;
 
     var alreadySeen = false;
@@ -2141,7 +2141,7 @@
 
   function onReplayIndexChange(payload) {
     if (!ReplayStage || !payload) return;
-    /* Insights reloads history in the background on Stage/Insights. only History view owns the stage. */
+    /* Insights reloads history in the background on Stage/Insights. Only History view owns the stage. */
     if (viewMode !== "history") {
       replaySessionActive = false;
       return;
@@ -2169,7 +2169,7 @@
       return;
     }
 
-    /* scrub / play-start / session / test. rebuild [0..index] */
+    /* Scrub / play-start / session / test. Rebuild [0..index] */
     ReplayStage.seek(replayStageApi, events, index, {
       prefersReducedMotion: prefersReducedMotion()
     });
@@ -2395,7 +2395,7 @@
     };
   }
 
-  /* Demo narrative. advances Opus / Fable / Sonnet / Haiku bill buckets */
+  /* Demo narrative. Advances Opus / Fable / Sonnet / Haiku bill buckets */
   var steps = [
     function () {
       setActive(["opus"]);

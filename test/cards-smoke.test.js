@@ -320,7 +320,7 @@ async function smokeLiveReplaySkipsFastestTiming(browser) {
       { timeout: liveWaitTimeout }
     );
     // Wait on the app's active-start clock (same Date.now used by setActive), not a
-    // separate wall-clock probe. Windows timer/poll jitter made a 55ms+≥40 SLA flaky.
+    // Separate wall-clock probe. Windows timer/poll jitter made a 55ms+≥40 SLA flaky.
     const minActiveMs = process.platform === "win32" ? 200 : 150;
     await page.waitForFunction(
       (minMs) => {

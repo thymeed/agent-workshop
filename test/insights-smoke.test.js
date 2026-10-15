@@ -125,7 +125,7 @@ async function assertInsightsUi(page, label, errors) {
     errors.push(label + ": forecast pace/spend should use all sessions, not selected session");
   }
 
-  /* Suggestions. ranked by savings, jump event, honesty hint */
+  /* Suggestions. Ranked by savings, jump event, honesty hint */
   await page.click('.insights-tab[data-tab="suggestions"]');
   await page.waitForSelector('[data-panel="suggestions"].on', { timeout: 3000 });
   const suggestOk = await page.evaluate(() => {
@@ -455,7 +455,7 @@ async function smokeFile(browser) {
   await page.goto(FILE_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
   await assertInsightsUi(page, "file://", errors);
   await page.close();
-  /* file:// fixture fetch may fail; inlined demo fallback is OK. ignore those */
+  /* file:// fixture fetch may fail; inlined demo fallback is OK. Ignore those */
   const ignored = failedRequests.filter(
     (u) => !/history-demo\.json/i.test(u) && !/fixtures\//i.test(u)
   );

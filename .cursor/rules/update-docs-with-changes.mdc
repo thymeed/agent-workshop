@@ -14,7 +14,7 @@ Whenever you ship a **product or behavior** change in this repo, update the matc
 - **Inline docs.** Brief JSDoc or a one-line comment on new/changed **public helpers** and non-obvious APIs (e.g. `stageDirector.*` exports).
 - Prefer **repo docs** over plan files; skip or lightly note plans unless the user asked for them.
 
-## Checklist (before “done”)
+## Checklist (before "done")
 
 1. Would another agent miss this feature if they only read `CLAUDE.md` / `README.md`? → update those.
 2. Did you add a helper callers rely on? → document params/side effects briefly at the definition.

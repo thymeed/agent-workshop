@@ -11,7 +11,7 @@ Use this agent for the pre-commit/push gate (see `.cursor/rules/advisor-before-c
 
 ## CI foresight (required before go on commit/push)
 
-Before returning **go** on a commit/push review, explicitly check for likely **GitHub Actions** failures from this repo’s workflow (`.github/workflows/ci.yml`):
+Before returning **go** on a commit/push review, explicitly check for likely **GitHub Actions** failures from this repo's workflow (`.github/workflows/ci.yml`):
 
 | Gate        | Command                | Watch for                                                                       |
 | ----------- | ---------------------- | ------------------------------------------------------------------------------- |

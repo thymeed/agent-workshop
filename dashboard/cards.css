@@ -6,7 +6,7 @@
   cursor: help;
 }
 
-/* â”€â”€ Soft station cards (warmer than industrial HUD) â”€â”€ */
+/* Soft station cards (warmer than industrial HUD) */
 .stations-panel .card {
   border-radius: 16px;
   background:
@@ -81,7 +81,7 @@
   gap: 10px;
 }
 
-/* â”€â”€ Pixel-cast block agents (role = fill tint only) â”€â”€ */
+/* Pixel-cast block agents (role = fill tint only) */
 .agent-avatar.block-agent {
   --avatar-size: 44px;
   --block-fill: #cfd6d6;
@@ -311,7 +311,7 @@
   background: #ff7a7a;
 }
 
-/* Daily bench â€” soft workshop strip */
+/* Daily bench, soft workshop strip */
 .daily-stats-card {
   margin-top: 10px;
   border-radius: 16px;

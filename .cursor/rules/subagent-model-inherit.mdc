@@ -23,6 +23,6 @@ When spawning subagents via **Task** / **CallDynamicTool** (`subagent_type`: `wo
 ## Examples
 
 - ✅ `Task(subagent_type: "worker", prompt: "...")` with no `model` field
-- ✅ User says “run Bugbot on Sonnet” → pass the slug **they** named
+- ✅ User says "run Bugbot on Sonnet" → pass the slug **they** named
 - ❌ `Task(..., model: "claude-sonnet-5-5-high")` for routine worker/explore/advisor delegation
-- ❌ Choosing slugs from the global “available subagent models” list without a user request
+- ❌ Choosing slugs from the global "available subagent models" list without a user request

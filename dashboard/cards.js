@@ -449,7 +449,7 @@
 
   /**
    * Pixel-cast block agent SVG innards (shared by cards, alerts, optional tokens).
-   * @param {{ limbs?: boolean, compact?: boolean }} shape. stage adds arms; compact drops limbs for dense rows
+   * @param {{ limbs?: boolean, compact?: boolean }} shape. Stage adds arms; compact drops limbs for dense rows
    */
   function blockAgentSvgInner(shape) {
     shape = shape || {};
@@ -471,7 +471,7 @@
   }
 
   /**
-   * Block-agent face markup. rect body, square eyes, role tint via `data-avatar` only.
+   * Block-agent face markup. Rect body, square eyes, role tint via `data-avatar` only.
    */
   function faceMarkup(role, opts) {
     opts = opts || {};
@@ -697,7 +697,7 @@
 
   /**
    * Ship / merge payoff for avatars only (portal + toast stay in app.js).
-   * @param {string[]|string} [roles]. roles to celebrate; defaults to currently active cards
+   * @param {string[]|string} [roles]. Roles to celebrate; defaults to currently active cards
    */
   function celebrateShip(roles) {
     var list = [];

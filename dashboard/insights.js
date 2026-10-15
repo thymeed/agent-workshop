@@ -695,7 +695,7 @@
   }
 
   async function loadDemoEvents() {
-    /* file:// and the live bridge do not ship test/fixtures. use inlined copy */
+    /* file:// and the live bridge do not ship test/fixtures. Use inlined copy */
     if (useInlinedDemoHistory()) {
       return DEMO_HISTORY.events.slice();
     }

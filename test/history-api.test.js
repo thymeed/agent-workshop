@@ -138,7 +138,7 @@ async function main() {
 
   try {
     // Seed via internal record path by writing through the running log API after append:
-    // Use require of event-log with same dir. bridge already created log there.
+    // Use require of event-log with same dir. Bridge already created log there.
     const { createEventLog } = require("../lib/event-log");
     const seed = createEventLog({ logDir });
     seed.append({

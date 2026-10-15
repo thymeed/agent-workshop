@@ -62,7 +62,7 @@ AgentWorkshop.exe
 
 Copied to the repo root by `scripts/copy-exe.js` from `dist\AgentWorkshop.exe` (portable only, never `win-unpacked`). Gitignored `*.exe` / `dist/`. Same silent GUI as Electron, no CMD popup.
 
-**Local bloat:** `dist\`, root `*.exe`, and builder caches are rebuildable (`npm run pack`). Safe to delete; prefer keeping `node_modules` unless doing a deliberate `npm ci`. See README “Local disk cleanup”.
+**Local bloat:** `dist\`, root `*.exe`, and builder caches are rebuildable (`npm run pack`). Safe to delete; prefer keeping `node_modules` unless doing a deliberate `npm ci`. See README "Local disk cleanup".
 
 **Headless / browser:**
 
@@ -99,7 +99,7 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 - **Inbound route tokens.** `stageDirector.spawnRouteToken(role)` flies a mini block-agent glyph along the pulse path into the station on ask/delegate (`animateRoute`); cap concurrent tokens; respect reduced motion / narrow layouts.
 - **TipLayer** (`tips.js`). One floating tip host for chrome, stage, cards, Insights, History, alerts; prefer `data-tip` / `data-tip-detail` over bare `title=` on primary controls.
 - **Alert center** (`alerts.js`). Header bell; bridge SSE `event: alert` + `GET /api/alerts` (name/status/`agentId` only); loads after `cards.js` so rows can show role mini faces via `faceMarkup` + `roleFromAgentHint`; Electron desktop Notification stays on the same emit path.
-- **Alert snooze** (`alerts.js` + `app.js` + `live-bridge.js`). **Indefinite** snooze, not a 15-minute timer: `ca.alerts.snoozeUntil` stores the sentinel `"indefinite"` (numeric legacy timestamps still honour `Date.now() <` until). The popover action toggles between **Snooze** and **Un-snooze** and stays open so un-snooze is reachable. While snoozed the unread badge is hidden, workshop audio is silenced (`sound.shouldMute()` = preference OR snoozed; the sound preference itself is untouched), and `alerts.js` posts `POST /api/snooze` so the bridge suppresses Electron **desktop toasts** while the SSE `alert` event and the in-memory ring keep flowing. Snooze is reconciled on load: `hydrate()` reads `GET /api/status` and re-pushes the renderer's `localStorage` state when the bridge disagrees, since the bridge resets snooze on `stopBridge()` — so snooze survives an app or bridge restart instead of silently un-gating toasts. Renderer wins because `localStorage` is the durable choice.
+- **Alert snooze** (`alerts.js` + `app.js` + `live-bridge.js`). **Indefinite** snooze, not a 15-minute timer: `ca.alerts.snoozeUntil` stores the sentinel `"indefinite"` (numeric legacy timestamps still honour `Date.now() <` until). The popover action toggles between **Snooze** and **Un-snooze** and stays open so un-snooze is reachable. While snoozed the unread badge is hidden, workshop audio is silenced (`sound.shouldMute()` = preference OR snoozed; the sound preference itself is untouched), and `alerts.js` posts `POST /api/snooze` so the bridge suppresses Electron **desktop toasts** while the SSE `alert` event and the in-memory ring keep flowing. Snooze is reconciled on load: `hydrate()` reads `GET /api/status` and re-pushes the renderer's `localStorage` state when the bridge disagrees, since the bridge resets snooze on `stopBridge()`, so snooze survives an app or bridge restart instead of silently un-gating toasts. Renderer wins because `localStorage` is the durable choice.
 - **Insights / Stations.** Insights forecast + cost-ranked suggestions; Stations drawer hosts living cards; row/alert click → `jumpToAgent` (does not change Cursor routing).
 - **Ship celebration.** Portal burst + avatar `done` on merge/ship; respect `prefers-reduced-motion`.
 - **Live presence.** `data-live-presence` on `#app` (`file-origin` … `streaming`); see table above.
@@ -115,7 +115,7 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 - **Do not commit secrets** (`.env*`, tokens, credentials). Ignore `dist/`, `*.exe`, and `node_modules` via `.gitignore`. Local `dist\` / stale exes are safe to delete and rebuild from git + npm.
 - Before **commit + push** of product changes, run a **quick Advisor** go/fix gate (`.cursor/rules/advisor-before-commit-push.mdc`). Advisor instructions + CI foresight (lint, `format:check`, smoke, packaging) live in **`.cursor/agents/advisor.md`** (workflow: `.github/workflows/ci.yml`).
 
-## Limits (don’t “fix” these away casually)
+## Limits (don't "fix" these away casually)
 
 - Near-real file polling, not hook-level realtime.
 - Token deltas are illustrative estimates from transcript activity.

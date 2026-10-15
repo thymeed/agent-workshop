@@ -195,7 +195,7 @@
 
     showTimer = setTimeout(function () {
       showTimer = null;
-      /* Dropped nodes (list re-render) are disconnected. skip stale tips. */
+      /* Dropped nodes (list re-render) are disconnected. Skip stale tips. */
       if (!el.isConnected) return;
       show(
         el,
@@ -307,7 +307,7 @@
   function init(options) {
     options = options || {};
     ensureHost();
-    /* Prefer document so every worker’s dynamic data-tip attrs are covered. */
+    /* Prefer document so every worker's dynamic data-tip attrs are covered. */
     bind(options.root || document);
     ready = true;
     return api;

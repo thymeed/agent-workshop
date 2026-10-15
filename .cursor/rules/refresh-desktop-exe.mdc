@@ -36,7 +36,7 @@ Both `pack` and `build` run `scripts/copy-exe.js`, which copies the **portable**
 
 `scripts/copy-exe.js` must use portable candidates only. Never prefer win-unpacked by mtime.
 
-## Checklist (before “done”)
+## Checklist (before "done")
 
 1. Did the change alter Demo/Live UI, stage/cards/chrome, or the Electron window? → refresh the root exe.
 2. Confirm **`AgentWorkshop.exe`** exists at the repo root after pack/build (mtime updated).

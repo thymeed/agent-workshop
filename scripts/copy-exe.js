@@ -62,7 +62,7 @@ function copyRootExe() {
   return true;
 }
 
-// electron-builder afterAllArtifactBuild hook. receive context, still copy from dist/
+// electron-builder afterAllArtifactBuild hook. Receive context, still copy from dist/
 function afterAllArtifactBuild() {
   copyRootExe();
 }
