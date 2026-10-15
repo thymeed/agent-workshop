@@ -91,18 +91,22 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
    `gh release delete-asset`. Worth fixing if artifact names ever change again:
    delete the release's existing assets at the start of `publish`.
 
-2. **`dashboard/app.js` is only partly split.** Three modules have been extracted:
+2. **`dashboard/app.js` is only partly split.** Four modules have been extracted:
    `dashboard/sound.js` (audio), `dashboard/bill-math.js` (the DOM-free usage math: rate
-   table, token and money formatting, model normalization, summary CSV), and
+   table, token and money formatting, model normalization, summary CSV),
    `dashboard/safe-html.js` (the single HTML escaper, previously duplicated in four
-   files that disagreed on null handling). All three are unit-tested — `bill-math.js`
-   and `safe-html.js` are loaded in a `vm` sandbox, so they have direct coverage
+   files that disagreed on null handling), and `dashboard/activity.js` (Activity drawer,
+   Session Log, and their empty states). All four are unit-tested - `bill-math.js`,
+   `safe-html.js`, and `activity.js` via a `vm` sandbox, so they have direct coverage
    without a browser.
 
-   Still inside `dashboard/app.js` (~2900 lines): stage, presence, view-mode, the DOM
-   half of bill, and activity. These are DOM- and animation-heavy with no cheap
-   verification path — they can only be exercised through Playwright against the real
-   page, so an extraction is slow to prove safe.
+   Still inside `dashboard/app.js` (~2800 lines): stage, presence, view-mode, the DOM
+   half of bill, the Live SSE client, the demo playbook, and the project picker. These
+   are DOM- and animation-heavy with no cheap verification path — they can only be
+   exercised through Playwright against the real page, so an extraction is slow to
+   prove safe. The `activity.js` extraction is the template: its dependency list was
+   mapped first (`logSeq`, `activityFilterRole`, `logEmpty`, plus element refs), then
+   ownership moved into the module and the call sites were delegated one by one.
 
    A correction worth keeping: an earlier note here blamed a shared `state` object.
    An advisory review disproved that. `state` is a five-key, module-private

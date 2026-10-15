@@ -6,6 +6,8 @@
   /* Pure bill/usage math lives in dashboard/bill-math.js so it can be unit tested
      without a browser. Aliased to the old names so call sites are unchanged. */
   var billMath = window.WorkshopBillMath;
+  var activity = window.WorkshopActivity;
+  var activityKindBucket = activity.activityKindBucket;
   var emptyUsage = billMath.emptyUsage;
   var usageGrandTotal = billMath.usageGrandTotal;
   var formatTokens = billMath.formatTokens;
@@ -32,7 +34,6 @@
   var projectPicker = document.getElementById("projectPicker");
   var footerProject = document.getElementById("footerProject");
   var sessionLog = document.getElementById("sessionLog");
-  var logEmpty = document.getElementById("logEmpty");
   var activityRead = document.getElementById("activityRead");
   var activityEdit = document.getElementById("activityEdit");
   var currentProjectLabel = null;
@@ -124,7 +125,6 @@
   var viewStageBtn = document.getElementById("viewStage");
   var viewInsightsBtn = document.getElementById("viewInsights");
   var viewHistoryBtn = document.getElementById("viewHistory");
-  var activityFilterRole = null;
   var toastTimer = null;
   var viewMode = "stage";
   var VIEW_MODE_KEY = "cursorAgents.viewMode";
@@ -188,7 +188,6 @@
   var lastDemoUsageTotal = 0;
   var playing = false;
   var timers = [];
-  var logSeq = 0;
   /** Live event ids already applied to UI + daily stats, keyed by project scope. */
   var liveSeenByProject = {};
   var es = null;
@@ -244,8 +243,7 @@
     calls: 0,
     subs: 0,
     liveSubs: {},
-    usage: emptyUsage(),
-    activity: []
+    usage: emptyUsage()
   };
 
   /** Shared with alerts.js and dashboard/sound.js through localStorage; sound.js reads it. */
@@ -664,9 +662,8 @@
   }
 
   function openActivityDrawer(filterRole) {
-    activityFilterRole = filterRole || null;
+    activity.setFilter(filterRole);
     if (drawerActivity) drawerActivity.open = true;
-    renderActivity();
     sound.play("click");
   }
 
@@ -835,8 +832,7 @@
   function refreshEmptyLogIfIdle() {
     if (!sessionLog) return;
     if (sessionLog.querySelector(".log-line")) return;
-    var empty = document.getElementById("logEmpty") || logEmpty;
-    if (empty) empty.textContent = emptyLogMessage();
+    activity.refreshEmptyLog();
   }
 
   /**
@@ -1421,113 +1417,6 @@
     syncDailyStatsFromUsage();
   }
 
-  function clearActivity() {
-    state.activity = [];
-    if (activityRead) {
-      activityRead.innerHTML = "";
-      var er = document.createElement("div");
-      er.className = "activity-empty";
-      er.id = "activityReadEmpty";
-      er.textContent = "No reads yet…";
-      activityRead.appendChild(er);
-    }
-    if (activityEdit) {
-      activityEdit.innerHTML = "";
-      var ee = document.createElement("div");
-      ee.className = "activity-empty";
-      ee.id = "activityEditEmpty";
-      ee.textContent = "No edits yet…";
-      activityEdit.appendChild(ee);
-    }
-  }
-
-  function activityKindBucket(kind) {
-    var k = String(kind || "").toLowerCase();
-    if (k === "edit" || k === "edited" || k === "write" || k === "strreplace") return "edit";
-    if (k === "read" || k === "search" || k === "grep" || k === "glob" || k === "webfetch")
-      return "read";
-    if (k === "run") return "edit";
-    return "read";
-  }
-
-  function appendActivity(item, timeStr) {
-    if (!item) return;
-    var kind = activityKindBucket(item.kind);
-    var role = item.role || "parent";
-    if (role === "parent") role = "parent";
-    var path = item.path || "n/a";
-    var detail = item.detail || "";
-    var t = timeStr;
-    if (!t) {
-      var sec = Math.floor(logSeq * (STEP_MS / 1000));
-      t = "00:" + pad2(Math.min(59, sec));
-    }
-    var entry = {
-      kind: kind,
-      role: role,
-      path: path,
-      detail: detail,
-      t: t
-    };
-    state.activity.unshift(entry);
-    if (state.activity.length > ACTIVITY_CAP) {
-      state.activity.length = ACTIVITY_CAP;
-    }
-    if (AgentCards && typeof AgentCards.noteSensitivePath === "function") {
-      var privacyRole = role === "parent" ? "opus" : role;
-      AgentCards.noteSensitivePath(privacyRole, path);
-    }
-    renderActivity();
-    stageDirector.spawnCrate(entry);
-  }
-
-  function renderActivity() {
-    if (!activityRead || !activityEdit) return;
-    activityRead.innerHTML = "";
-    activityEdit.innerHTML = "";
-    var filter = activityFilterRole;
-    var filtered = state.activity.filter(function (a) {
-      if (!filter) return true;
-      var r = a.role === "parent" ? "opus" : a.role;
-      return r === filter;
-    });
-    var reads = filtered.filter(function (a) {
-      return a.kind === "read";
-    });
-    var edits = filtered.filter(function (a) {
-      return a.kind === "edit";
-    });
-    var emptyHint = filter ? "No " + (ROLE_LABEL[filter] || filter) + " activity yet…" : null;
-    function paint(list, host, emptyMsg) {
-      if (!list.length) {
-        var empty = document.createElement("div");
-        empty.className = "activity-empty";
-        empty.textContent = emptyHint || emptyMsg;
-        host.appendChild(empty);
-        return;
-      }
-      list.forEach(function (a) {
-        var row = document.createElement("div");
-        row.className = "activity-row role-" + a.role;
-        row.innerHTML =
-          '<span class="t">' +
-          escapeHtml(a.t) +
-          "</span>" +
-          '<span class="role">' +
-          escapeHtml(a.role) +
-          "</span>" +
-          '<span class="body"><div class="path">' +
-          escapeHtml(a.path) +
-          "</div>" +
-          (a.detail ? '<div class="detail">' + escapeHtml(a.detail) + "</div>" : "") +
-          "</span>";
-        host.appendChild(row);
-      });
-    }
-    paint(reads, activityRead, "No reads yet…");
-    paint(edits, activityEdit, "No edits yet…");
-  }
-
   function setCalls(n) {
     state.calls = n;
     advisorCallsEl.textContent = String(n);
@@ -1541,39 +1430,6 @@
 
   function setEffort(label) {
     if (hudEffort) hudEffort.textContent = label || "mixed";
-  }
-
-  function pad2(n) {
-    return (n < 10 ? "0" : "") + n;
-  }
-
-  function appendLog(role, message, msgClass, timeStr) {
-    if (logEmpty && logEmpty.parentNode) {
-      logEmpty.parentNode.removeChild(logEmpty);
-      logEmpty = null;
-    }
-    logSeq += 1;
-    var t = timeStr;
-    if (!t) {
-      var sec = Math.floor((logSeq - 1) * (STEP_MS / 1000));
-      t = "00:" + pad2(Math.min(59, sec));
-    }
-    var line = document.createElement("div");
-    line.className = "log-line role-" + role;
-    line.innerHTML =
-      '<span class="t">' +
-      escapeHtml(t) +
-      "</span>" +
-      '<span class="role">' +
-      escapeHtml(role) +
-      "</span>" +
-      '<span class="msg' +
-      (msgClass ? " " + msgClass : "") +
-      '">' +
-      escapeHtml(message) +
-      "</span>";
-    sessionLog.appendChild(line);
-    sessionLog.scrollTop = sessionLog.scrollHeight;
   }
 
   function layoutFlow() {
@@ -1636,26 +1492,6 @@
         pulsePath("path-d-researcher-pulse");
       }
     }
-  }
-
-  function emptyLogMessage() {
-    if (mode !== "live") return "Waiting for session… choose Demo · Play or Live.";
-    if (livePresence === "file-origin") {
-      return "Live needs the bridge. Open via npm start or http://127.0.0.1…";
-    }
-    if (livePresence === "bridge-down") {
-      return "Bridge offline · click Reconnect after starting the bridge.";
-    }
-    if (livePresence === "no-projects") {
-      return "No Cursor projects found · open a project in Cursor, then Reconnect.";
-    }
-    if (livePresence === "connecting") {
-      return "Connecting to the Live bridge…";
-    }
-    if (livePresence === "quiet-healthy") {
-      return "Workshop idle · waiting for transcript activity…";
-    }
-    return "Live mode · waiting for transcript events from the bridge…";
   }
 
   function updateFooterProject() {
@@ -1801,9 +1637,8 @@
     clearTimers();
     clearStickyActive();
     playing = false;
-    logSeq = 0;
+    activity.resetSeq();
     state.liveSubs = {};
-    activityFilterRole = null;
     stageDirector.reset();
     demoBtn.classList.remove("playing");
     demoBtn.setAttribute("aria-pressed", "false");
@@ -1833,7 +1668,7 @@
     state.usage = emptyUsage();
     lastDemoUsageTotal = 0;
     renderBill();
-    clearActivity();
+    activity.clear();
     if (AgentCards && typeof AgentCards.reset === "function") {
       AgentCards.reset({ keepDaily: mode === "live", mode: mode });
     }
@@ -1842,12 +1677,7 @@
         ? ESTIMATES_DISCLAIMER + " · near-real transcript activity"
         : ESTIMATES_DISCLAIMER + " · demo narrative";
     refreshSyncAgeChip();
-    sessionLog.innerHTML = "";
-    logEmpty = document.createElement("div");
-    logEmpty.className = "log-empty";
-    logEmpty.id = "logEmpty";
-    logEmpty.textContent = emptyLogMessage();
-    sessionLog.appendChild(logEmpty);
+    activity.resetLogEmpty();
   }
 
   function liveProjectScope() {
@@ -1950,7 +1780,7 @@
       );
     }
     if (ev.activity) {
-      appendActivity(
+      activity.append(
         {
           kind: ev.activity.kind,
           path: ev.activity.path,
@@ -1963,7 +1793,7 @@
     if (ev.route && !skipMotion) animateRoute(ev.route, ev.routeTo || cardRole);
 
     var logRole = role === "parent" ? "parent" : role;
-    appendLog(logRole, msg, ev.replayError ? "err" : null, ev.ts);
+    activity.appendLog(logRole, msg, ev.replayError ? "err" : null, ev.ts);
 
     if (!isReplay && !alreadySeen && mode === "live") {
       lastLiveEventAt = Date.now();
@@ -2009,13 +1839,8 @@
     state.usage = emptyUsage();
     state.liveSubs = {};
     renderBill();
-    clearActivity();
-    sessionLog.innerHTML = "";
-    logEmpty = document.createElement("div");
-    logEmpty.className = "log-empty";
-    logEmpty.id = "logEmpty";
-    logEmpty.textContent = "Replay session…";
-    sessionLog.appendChild(logEmpty);
+    activity.clear();
+    activity.resetLogEmpty("Replay session…");
   }
 
   function endReplaySession() {
@@ -2343,7 +2168,7 @@
     function () {
       setActive(["opus"]);
       setStatus("opus", '<span class="live">Task received · refactor billing webhooks</span>');
-      appendLog("parent", "task received · refactor billing webhooks");
+      activity.appendLog("parent", "task received · refactor billing webhooks");
       setUsageSnapshot(
         {
           opus: { in: 18000, out: 4200 },
@@ -2361,8 +2186,8 @@
       setActive(["opus", "advisor"]);
       setStatus("opus", '<span class="live">Calling advisor · before the plan</span>');
       setStatus("advisor", '<span class="live">Reviewing approach…</span>');
-      appendLog("parent", "calling advisor · before the plan");
-      appendLog("advisor", "triggered · before plan");
+      activity.appendLog("parent", "calling advisor · before the plan");
+      activity.appendLog("advisor", "triggered · before plan");
       setUsageSnapshot(
         {
           opus: { in: 24000, out: 6100 },
@@ -2382,7 +2207,7 @@
       setStatus("advisor", '<span class="live">Quiet</span>');
       setStatus("opus", '<span class="live">Plan approved · delegating reads & edits</span>');
       advisorLastEl.textContent = "Last advice: keep Haiku on reads; Sonnet owns edits";
-      appendLog("advisor", "reviews approach → quiet; calls = 1");
+      activity.appendLog("advisor", "reviews approach → quiet; calls = 1");
       setUsageSnapshot(
         {
           opus: { in: 28000, out: 7200 },
@@ -2410,26 +2235,26 @@
         },
         "explorer"
       );
-      appendActivity({
+      activity.append({
         kind: "read",
         role: "explorer",
         path: "src/billing/**",
         detail: "glob · webhook handlers"
       });
-      appendActivity({
+      activity.append({
         kind: "read",
         role: "explorer",
         path: "src/billing/webhooks.ts",
         detail: "lines 1-240"
       });
       /* Demo fixture: sensitive path lights privacy meter (path never shown on badge). */
-      appendActivity({
+      activity.append({
         kind: "read",
         role: "explorer",
         path: "config/.env.example",
         detail: "pattern scan · no values loaded"
       });
-      appendLog("explorer", "searching src/billing/** · Session Bill climbs");
+      activity.appendLog("explorer", "searching src/billing/** · Session Bill climbs");
       animateRoute("delegates", "explorer");
     },
     function () {
@@ -2447,13 +2272,13 @@
         },
         "researcher"
       );
-      appendActivity({
+      activity.append({
         kind: "read",
         role: "researcher",
         path: "docs/webhooks.md",
         detail: "signature verify patterns"
       });
-      appendLog("researcher", "pulling docs · Session Bill climbs");
+      activity.appendLog("researcher", "pulling docs · Session Bill climbs");
       animateRoute("delegates", "researcher");
     },
     function () {
@@ -2473,25 +2298,25 @@
         },
         "worker"
       );
-      appendActivity({
+      activity.append({
         kind: "edit",
         role: "worker",
         path: "src/billing/webhooks.ts",
         detail: "edited · signature check"
       });
-      appendActivity({
+      activity.append({
         kind: "edit",
         role: "worker",
         path: "src/billing/verify.ts",
         detail: "edited · HMAC helper"
       });
-      appendLog("worker", "editing 4 files · running tests → FAIL", "fail");
+      activity.appendLog("worker", "editing 4 files · running tests → FAIL", "fail");
       animateRoute("delegates", "worker");
     },
     function () {
       setActive(["worker"]);
       setStatus("worker", "Same error again → FAIL", "fail");
-      appendLog("worker", "same error again → FAIL", "fail");
+      activity.appendLog("worker", "same error again → FAIL", "fail");
       setUsageSnapshot(
         {
           opus: { in: 40000, out: 10000 },
@@ -2508,7 +2333,7 @@
       setActive(["opus", "advisor"]);
       setStatus("opus", '<span class="live">Calling advisor · same error twice</span>');
       setStatus("advisor", '<span class="live">Analyzing failure loop…</span>');
-      appendLog("parent", "calling advisor · same error twice");
+      activity.appendLog("parent", "calling advisor · same error twice");
       setUsageSnapshot(
         {
           opus: { in: 52000, out: 14000 },
@@ -2529,7 +2354,7 @@
       advisorLastEl.textContent =
         "Last advice: stop / change approach. Fix signature mismatch first";
       setStatus("worker", '<span class="live">Awaiting revised approach</span>');
-      appendLog("advisor", "stop / change approach; calls = 2");
+      activity.appendLog("advisor", "stop / change approach; calls = 2");
       setUsageSnapshot(
         {
           opus: { in: 56000, out: 15000 },
@@ -2556,13 +2381,13 @@
         },
         "worker"
       );
-      appendActivity({
+      activity.append({
         kind: "edit",
         role: "worker",
         path: "src/billing/webhooks.test.ts",
         detail: "edited · fixture sig"
       });
-      appendLog("worker", "fix + tests → PASS", "pass");
+      activity.appendLog("worker", "fix + tests → PASS", "pass");
       animateRoute("delegates", "worker");
     },
     function () {
@@ -2570,7 +2395,7 @@
       setStatus("opus", '<span class="live">Calling advisor · before done</span>');
       setStatus("advisor", '<span class="live">Final review…</span>');
       setCalls(3);
-      appendLog("parent", "calling advisor · before done; calls = 3");
+      activity.appendLog("parent", "calling advisor · before done; calls = 3");
       setUsageSnapshot(
         {
           opus: { in: 78000, out: 22000 },
@@ -2603,7 +2428,7 @@
         },
         "opus"
       );
-      appendLog(
+      activity.appendLog(
         "parent",
         "reviewed · shipped · Session Bill shows multi-model savings vs all-Opus"
       );
@@ -2724,6 +2549,30 @@
 
   sound.init();
 
+  activity.init({
+    sessionLog: sessionLog,
+    activityRead: activityRead,
+    activityEdit: activityEdit,
+    escapeHtml: escapeHtml,
+    roleLabel: ROLE_LABEL,
+    stepMs: STEP_MS,
+    cap: ACTIVITY_CAP,
+    getMode: function () {
+      return mode;
+    },
+    getLivePresence: function () {
+      return livePresence;
+    },
+    noteSensitivePath: function (role, path) {
+      if (AgentCards && typeof AgentCards.noteSensitivePath === "function") {
+        AgentCards.noteSensitivePath(role, path);
+      }
+    },
+    spawnCrate: function (entry) {
+      stageDirector.spawnCrate(entry);
+    }
+  });
+
   var exportJsonBtn = document.getElementById("exportJsonBtn");
   var exportCsvBtn = document.getElementById("exportCsvBtn");
   if (exportJsonBtn) {
@@ -2813,7 +2662,6 @@
   var mergePortal = document.getElementById("mergePortal");
   if (mergePortal) {
     function onPortal() {
-      activityFilterRole = null;
       stageDirector.clearSelection();
       openActivityDrawer(null);
       stageDirector.pulsePortal();
@@ -2857,7 +2705,7 @@
         : ESTIMATES_DISCLAIMER + " · demo narrative";
   }
   refreshSyncAgeChip();
-  clearActivity();
+  activity.clear();
   updateFooterProject();
   sound.syncBtn();
   (function restoreViewMode() {
@@ -2889,7 +2737,7 @@
       disclaimer: ESTIMATES_DISCLAIMER,
       advisorCalls: state.calls,
       subagents: state.subs,
-      activity: state.activity
+      activity: activity.getItems()
     });
   }
 

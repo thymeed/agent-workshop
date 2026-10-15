@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
   unknown role, a tool edit, terminal signals, and a malformed line. 66 tests, run by
   `npm test` via `npm run test:unit`.
+- `dashboard/activity.js`: the Activity drawer, Session Log, and their empty states,
+  split out of `app.js` (~210 lines). The module owns its row list, log clock, and role
+  filter, and takes every DOM and session dependency through one `init(deps)`. 15 unit
+  tests cover kind bucketing, the row cap, the role filter, escaping of transcript-derived
+  fields, empty-state copy, and the log clock. Verified by mutation: removing the cap,
+  ignoring the filter, or dropping the escaping each fails the suite.
 - `dashboard/safe-html.js`: one canonical HTML escaper replacing four near-duplicate
   copies in `app.js`, `insights.js`, `cards.js`, and `alerts.js`. The copies disagreed
   on null handling, and `cards.js` rendered `0` and `false` as empty strings. The
