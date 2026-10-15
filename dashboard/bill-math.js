@@ -73,6 +73,64 @@
     return modelKey === "explorer" || modelKey === "researcher" ? "haiku" : modelKey;
   }
 
+  /** Sum of the four billed buckets. Explorer/researcher ride on Haiku, not on top of it. */
+  function sessionCostTotal(usage) {
+    var u = usage || emptyUsage();
+    return ["opus", "fable", "sonnet", "haiku"].reduce(function (sum, key) {
+      var bucket = u[key] || { in: 0, out: 0 };
+      return sum + modelCost(key, Number(bucket.in) || 0, Number(bucket.out) || 0);
+    }, 0);
+  }
+
+  /**
+   * Serialize a session summary. Pure: every input comes from ctx, so the caller owns
+   * session state and this can be unit tested without a dashboard.
+   * @param {{usage: object, mode?: string, projectId?: string|null, projectLabel?: string|null,
+   *          disclaimer?: string, advisorCalls?: number, subagents?: number,
+   *          activity?: object[]}} ctx
+   */
+  function buildSessionSummary(ctx) {
+    var c = ctx || {};
+    var u = c.usage || emptyUsage();
+    var models = MODEL_KEYS.map(function (key) {
+      var bucket = u[key] || { in: 0, out: 0 };
+      var inn = Math.max(0, Number(bucket.in) || 0);
+      var out = Math.max(0, Number(bucket.out) || 0);
+      return {
+        model: key,
+        inputTokens: inn,
+        outputTokens: out,
+        estimatedCostUsd: Number(modelCost(rateKeyFor(key), inn, out).toFixed(6))
+      };
+    });
+    var billed = ["opus", "fable", "sonnet", "haiku"];
+    var totalIn = billed.reduce(function (n, k) {
+      return n + (Number((u[k] || {}).in) || 0);
+    }, 0);
+    var totalOut = billed.reduce(function (n, k) {
+      return n + (Number((u[k] || {}).out) || 0);
+    }, 0);
+
+    return {
+      generatedAt: c.generatedAt || new Date().toISOString(),
+      mode: c.mode || "demo",
+      projectId: c.projectId || null,
+      projectLabel: c.projectLabel || null,
+      disclaimer: c.disclaimer || "",
+      totals: {
+        inputTokens: totalIn,
+        outputTokens: totalOut,
+        estimatedCostUsd: Number(sessionCostTotal(u).toFixed(6))
+      },
+      models: models,
+      advisorCalls: Number(c.advisorCalls) || 0,
+      subagents: Number(c.subagents) || 0,
+      activity: (c.activity || []).map(function (a) {
+        return { t: a.t, role: a.role, kind: a.kind, path: a.path, detail: a.detail };
+      })
+    };
+  }
+
   function csvCell(value) {
     var s = value == null ? "" : String(value);
     return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -106,6 +164,8 @@
     normalizeModel: normalizeModel,
     modelCost: modelCost,
     rateKeyFor: rateKeyFor,
+    sessionCostTotal: sessionCostTotal,
+    buildSessionSummary: buildSessionSummary,
     csvCell: csvCell,
     summaryToCsv: summaryToCsv
   };

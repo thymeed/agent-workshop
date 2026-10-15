@@ -734,13 +734,7 @@
   }
 
   function sessionCostTotal() {
-    var u = state.usage;
-    return (
-      modelCost("opus", u.opus.in, u.opus.out) +
-      modelCost("fable", u.fable.in, u.fable.out) +
-      modelCost("sonnet", u.sonnet.in, u.sonnet.out) +
-      modelCost("haiku", u.haiku.in, u.haiku.out)
-    );
+    return billMath.sessionCostTotal(state.usage);
   }
 
   function triggerShipCelebration(roles, label) {
@@ -2839,46 +2833,16 @@
    * nothing is uploaded and the bridge is not involved.
    */
   function buildSessionSummary() {
-    var u = state.usage;
-    var models = ["opus", "fable", "sonnet", "haiku", "explorer", "researcher"];
-    var rows = models.map(function (key) {
-      var bucket = u[key] || { in: 0, out: 0 };
-      var rateKey = key === "explorer" || key === "researcher" ? "haiku" : key;
-      return {
-        model: key,
-        inputTokens: Math.max(0, Number(bucket.in) || 0),
-        outputTokens: Math.max(0, Number(bucket.out) || 0),
-        estimatedCostUsd: Number(
-          modelCost(rateKey, Number(bucket.in) || 0, Number(bucket.out) || 0).toFixed(6)
-        )
-      };
-    });
-    var cheapest = ["opus", "fable", "sonnet", "haiku"];
-    var totalIn = cheapest.reduce(function (n, k) {
-      return n + (Number(u[k].in) || 0);
-    }, 0);
-    var totalOut = cheapest.reduce(function (n, k) {
-      return n + (Number(u[k].out) || 0);
-    }, 0);
-
-    return {
-      generatedAt: new Date().toISOString(),
+    return billMath.buildSessionSummary({
+      usage: state.usage,
       mode: mode,
       projectId: currentProjectId || null,
       projectLabel: currentProjectLabel || null,
       disclaimer: ESTIMATES_DISCLAIMER,
-      totals: {
-        inputTokens: totalIn,
-        outputTokens: totalOut,
-        estimatedCostUsd: Number(sessionCostTotal().toFixed(6))
-      },
-      models: rows,
       advisorCalls: state.calls,
       subagents: state.subs,
-      activity: state.activity.map(function (a) {
-        return { t: a.t, role: a.role, kind: a.kind, path: a.path, detail: a.detail };
-      })
-    };
+      activity: state.activity
+    });
   }
 
   function downloadText(filename, text, mime) {

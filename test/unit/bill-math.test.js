@@ -124,6 +124,94 @@ test("rateKeyFor maps the Haiku sublines onto the Haiku rate", () => {
   assert.equal(M.rateKeyFor("researcher"), "haiku");
 });
 
+test("sessionCostTotal sums only the four billed buckets", () => {
+  assert.equal(M.sessionCostTotal(null), 0);
+  assert.equal(M.sessionCostTotal({}), 0);
+  const u = M.emptyUsage();
+  u.opus = { in: 1000000, out: 0 };
+  u.haiku = { in: 0, out: 1000000 };
+  assert.ok(Math.abs(M.sessionCostTotal(u) - (4 + 0.5)) < 1e-9, "opus in + haiku out");
+  u.explorer = { in: 5000000, out: 5000000 };
+  u.researcher = { in: 5000000, out: 5000000 };
+  assert.ok(
+    Math.abs(M.sessionCostTotal(u) - (4 + 0.5)) < 1e-9,
+    "explorer/researcher must not be billed on top of Haiku"
+  );
+});
+
+test("buildSessionSummary takes its inputs explicitly and is pure", () => {
+  const u = M.emptyUsage();
+  u.opus = { in: 1000000, out: 1000000 };
+  const ctx = {
+    usage: u,
+    mode: "live",
+    projectId: "proj-1",
+    projectLabel: "Proj One",
+    disclaimer: "Estimates - not official invoices",
+    advisorCalls: 3,
+    subagents: 2,
+    activity: [{ t: "00:01", role: "worker", kind: "edit", path: "a.js", detail: "d" }]
+  };
+  const s = M.buildSessionSummary(ctx);
+
+  assert.deepEqual(Object.keys(s), [
+    "generatedAt",
+    "mode",
+    "projectId",
+    "projectLabel",
+    "disclaimer",
+    "totals",
+    "models",
+    "advisorCalls",
+    "subagents",
+    "activity"
+  ]);
+  assert.equal(s.mode, "live");
+  assert.equal(s.projectId, "proj-1");
+  assert.equal(s.advisorCalls, 3);
+  assert.equal(s.subagents, 2);
+  assert.equal(s.activity.length, 1);
+  assert.equal(s.activity[0].path, "a.js");
+  assert.equal(s.models.length, 6);
+  assert.equal(s.totals.inputTokens, 1000000);
+  assert.ok(Math.abs(s.totals.estimatedCostUsd - 24) < 1e-6, "1M opus in + 1M out = $24");
+
+  const s2 = M.buildSessionSummary(ctx);
+  assert.deepEqual(s2.totals, s.totals, "same inputs must give the same totals");
+  assert.deepEqual(s2.models, s.models);
+  assert.deepEqual(s2.activity, s.activity);
+});
+
+test("buildSessionSummary defaults safely with no context", () => {
+  const s = M.buildSessionSummary();
+  assert.equal(s.mode, "demo");
+  assert.equal(s.projectId, null);
+  assert.equal(s.projectLabel, null);
+  assert.equal(s.advisorCalls, 0);
+  assert.equal(s.subagents, 0);
+  assert.equal(s.activity.length, 0, "no context means no activity rows");
+  assert.equal(s.totals.estimatedCostUsd, 0);
+  assert.equal(s.models.length, 6);
+  for (const row of s.models) assert.equal(row.estimatedCostUsd, 0);
+  assert.ok(typeof s.disclaimer === "string");
+});
+
+test("summaryToCsv round-trips a built summary", () => {
+  const u = M.emptyUsage();
+  u.sonnet = { in: 250000, out: 250000 };
+  const s = M.buildSessionSummary({ usage: u, disclaimer: "estimates" });
+  const lines = M.summaryToCsv(s).trim().split("\n");
+  assert.equal(lines[0], "model,inputTokens,outputTokens,estimatedCostUsd");
+  assert.equal(lines[1], "opus,0,0,0");
+  const total = lines.find((l) => l.startsWith("TOTAL,"));
+  assert.ok(total, "TOTAL row present");
+  assert.equal(total.split(",")[1], "250000");
+  assert.ok(
+    lines.some((l) => l.includes("estimates")),
+    "disclaimer carried into the CSV note"
+  );
+});
+
 test("csvCell quotes only when needed and doubles inner quotes", () => {
   assert.equal(M.csvCell("plain"), "plain");
   assert.equal(M.csvCell(42), "42");
