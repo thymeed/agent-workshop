@@ -1,10 +1,9 @@
 /**
- * Copy the portable Windows GUI exe from dist/ to the repo root for easy double-click.
- * Invoked after `npm run build` / `npm run pack` (and as electron-builder afterAllArtifactBuild).
+ * Refresh the repo-root AgentWorkshop.exe from the packaged portable artifact.
+ * Windows-only: other platforms have no single-file portable exe and this is a no-op.
  *
- * Only copies electron-builder **portable** artifacts (self-contained single file).
- * Never copies `dist/win-unpacked/*.exe`. That binary needs ffmpeg.dll and sibling deps
- * beside it and will fail with a missing-DLL System Error if launched alone from the repo root.
+ * Never copies dist/win-unpacked/*.exe. That binary needs ffmpeg.dll and sibling
+ * deps beside it and fails with a missing-DLL error when launched alone.
  */
 "use strict";
 
@@ -17,23 +16,17 @@ const DIST = path.join(ROOT, "dist");
 const DEST = path.join(ROOT, ROOT_NAME);
 const LEGACY_ROOT_NAME = "CursorAgentsModelRouting-Portable.exe";
 
-/** Portable-only candidates, in preference order (never win-unpacked). */
 const PORTABLE_CANDIDATES = [
   path.join(DIST, ROOT_NAME),
   path.join(DIST, LEGACY_ROOT_NAME),
   path.join(DIST, "Cursor Agents Model Routing.exe")
 ];
 
-/**
- * Prefer the first existing portable artifact. Do not pick by mtime across unpacked vs portable.
- * a fresher win-unpacked exe is not a valid root single-file launch.
- * @returns {string|null}
- */
+/** First existing portable artifact. Never picks by mtime: a fresher win-unpacked exe is not a valid single-file launch. */
 function findSource() {
   for (const p of PORTABLE_CANDIDATES) {
     if (!fs.existsSync(p) || !fs.statSync(p).isFile()) continue;
-    const rel = path.relative(ROOT, p).replace(/\\/g, "/");
-    if (rel.includes("win-unpacked/")) continue;
+    if (path.relative(ROOT, p).replace(/\\/g, "/").includes("win-unpacked/")) continue;
     return p;
   }
   return null;
@@ -46,25 +39,41 @@ function removeLegacyRootCopy() {
   console.log("copy-exe: removed legacy", path.relative(ROOT, legacy));
 }
 
-function copyRootExe() {
-  const src = findSource();
-  if (!src) {
-    console.error(
-      "copy-exe: no portable exe found under dist/ (e.g. dist/AgentWorkshop.exe). " +
-        "Run `npm run pack` or `npm run build`. do not copy win-unpacked Electron.exe alone."
-    );
-    process.exitCode = 1;
+/**
+ * @param {{required?: boolean}} [opts] required (default true) fails the process when
+ * no portable artifact exists. The electron-builder hook passes false: `--dir` builds
+ * and non-Windows builds legitimately produce no portable exe.
+ */
+function copyRootExe(opts) {
+  const required = !opts || opts.required !== false;
+
+  if (process.platform !== "win32") {
+    console.log("copy-exe: skipped · repo-root exe is a Windows-only artifact");
     return false;
   }
+
+  const src = findSource();
+  if (!src) {
+    const detail =
+      "no portable exe found under dist/ (e.g. dist/AgentWorkshop.exe). " +
+      "Run `npm run pack` or `npm run pack:win`.";
+    if (required) {
+      console.error("copy-exe: " + detail);
+      process.exitCode = 1;
+    } else {
+      console.log("copy-exe: nothing to refresh · " + detail);
+    }
+    return false;
+  }
+
   fs.copyFileSync(src, DEST);
   removeLegacyRootCopy();
   console.log("copy-exe: refreshed", path.relative(ROOT, DEST), "←", path.relative(ROOT, src));
   return true;
 }
 
-// electron-builder afterAllArtifactBuild hook. Receive context, still copy from dist/
 function afterAllArtifactBuild() {
-  copyRootExe();
+  copyRootExe({ required: false });
 }
 
 if (require.main === module) {

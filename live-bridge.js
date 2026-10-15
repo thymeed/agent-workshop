@@ -23,7 +23,49 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { createEventLog } = require("./lib/event-log");
-const { isSubagentTranscriptPath, subagentUuidFromTranscriptPath } = require("./lib/path-segments");
+const { subagentUuidFromTranscriptPath } = require("./lib/path-segments");
+const {
+  sendJson,
+  readRequestBody,
+  allowProjectSelect,
+  rejectIfNotLocal,
+  serveDashboard,
+  serveStatic
+} = require("./lib/bridge-http");
+const {
+  nowIso,
+  transcriptTimestamp,
+  extractToolResults,
+  terminalTypeFromTranscript,
+  resolveTaskChildAgentId,
+  agentIdFromFile,
+  isSubagentFile,
+  roleDisplayName,
+  filesFromActivity,
+  snippet,
+  mapSubagentType,
+  roleToCard,
+  roleToModel,
+  estimateUsage,
+  toolArgs,
+  resolveToolName,
+  toolActivity,
+  toolEstimateChars,
+  onceUsage,
+  inferRoleFromSubagentText,
+  extractToolUses,
+  extractText,
+  estimateReadTokens
+} = require("./lib/transcript-parse");
+const {
+  TRANSCRIPT_READ_MAX_PER_POLL,
+  readBytesAtSync,
+  newlineByteLength,
+  findFirstNewlineByte,
+  completeLinesEndExclusive,
+  forEachCompleteLine,
+  findNextNewlineOffset
+} = require("./lib/transcript-tail");
 
 const PROJECTS_ROOT = path.join(os.homedir(), ".cursor", "projects");
 /** @type {string|null} */
@@ -59,9 +101,9 @@ function assertBridgeTestOpts(opts) {
 }
 
 /** Placeholder watch path when no --dir / env / discovered project exists yet. */
-const EMPTY_TRANSCRIPTS = path.join(PROJECTS_ROOT, "_none", "agent-transcripts");
-const DASHBOARD = path.join(__dirname, "model-routing-dashboard.html");
-const STATIC_ROOT = path.join(__dirname, "dashboard");
+function emptyTranscripts() {
+  return path.join(projectsRootPath(), "_none", "agent-transcripts");
+}
 const MAX_EVENTS = 400;
 /** In-memory ring for agent alerts (SSE + GET /api/alerts). */
 const MAX_ALERTS = 50;
@@ -69,8 +111,6 @@ const POLL_MS = 900;
 /** Max transcript JSONL files polled per scan (newest by mtime). */
 const TRANSCRIPT_SCAN_LIMIT = 40;
 const TRANSCRIPT_TAIL_BYTES = 8192;
-/** Max bytes read from a transcript file per scan poll (resume at last newline). */
-const TRANSCRIPT_READ_MAX_PER_POLL = 256 * 1024;
 /** Default agent stall threshold for desktop alerts (no activity). */
 const DEFAULT_STALL_MS = 120000;
 const STALL_CHECK_MS = 15000;
@@ -85,21 +125,9 @@ let currentIngestFile = "";
 /** @type {number} */
 let currentIngestLine = 0;
 
-const MIME = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-  ".webp": "image/webp",
-  ".map": "application/json; charset=utf-8"
-};
-
 let PORT = 3847;
 /** @type {string} */
-let TRANSCRIPTS = EMPTY_TRANSCRIPTS;
+let TRANSCRIPTS = emptyTranscripts();
 /** @type {string|null} */
 let currentProjectId = null;
 /** @type {string|null} */
@@ -158,10 +186,6 @@ function log(...args) {
 
 function logErr(...args) {
   if (!quiet) console.error(...args);
-}
-
-function nowIso() {
-  return new Date().toISOString();
 }
 
 function clock() {
@@ -267,8 +291,8 @@ function resolveDefaultTranscripts(opts) {
     return TRANSCRIPTS;
   }
 
-  // Runtime placeholder under ~/.cursor/projects. No hardcoded machine/user path
-  TRANSCRIPTS = EMPTY_TRANSCRIPTS;
+  // Runtime placeholder under the projects root. No hardcoded machine/user path
+  TRANSCRIPTS = emptyTranscripts();
   currentProjectId = null;
   currentProjectLabel = "no Cursor projects found";
   return TRANSCRIPTS;
@@ -395,54 +419,6 @@ function checkStalledAgents() {
   }
 }
 
-function transcriptTimestamp(obj) {
-  if (!obj || typeof obj !== "object") return nowIso();
-  const candidates = [
-    obj.timestamp,
-    obj.ts,
-    obj.createdAt,
-    obj.created_at,
-    obj.message && obj.message.timestamp
-  ];
-  for (const c of candidates) {
-    if (c != null && !Number.isNaN(Date.parse(String(c)))) {
-      return new Date(c).toISOString();
-    }
-  }
-  return nowIso();
-}
-
-function extractToolResults(obj) {
-  const content = obj && obj.message && obj.message.content;
-  if (!Array.isArray(content)) return [];
-  return content.filter((p) => p && p.type === "tool_result");
-}
-
-/**
- * Structured terminal signals only. Never prose keywords like "error" or "done".
- * @returns {"error"|"done"|null}
- */
-function terminalTypeFromTranscript(obj) {
-  if (!obj || !obj.role) return null;
-  if (obj.role === "assistant") {
-    const text = extractText(obj);
-    if (/<\/?error\b/i.test(text)) return "error";
-    if (/<\/?final\b/i.test(text)) return "done";
-  }
-  return null;
-}
-
-function resolveTaskChildAgentId(args, input) {
-  const raw = String(
-    (args && (args.subagent_id || args.subagentId || args.agent_id || args.agentId || args.id)) ||
-      (input && (input.subagent_id || input.subagentId || input.id)) ||
-      ""
-  ).trim();
-  if (!raw) return null;
-  if (/^[0-9a-f-]{36}$/i.test(raw)) return raw;
-  return null;
-}
-
 function sessionIdFromFile(filePath, transcriptsRoot) {
   const root = transcriptsRoot || TRANSCRIPTS;
   try {
@@ -492,21 +468,6 @@ function filterHistoryToCurrentProject(events) {
   return (events || []).filter((ev) => allowed.has(String(ev.sessionId || "")));
 }
 
-function agentIdFromFile(filePath, role) {
-  if (isSubagentFile(filePath)) {
-    return path.basename(filePath, ".jsonl");
-  }
-  return "parent:" + (role || "parent");
-}
-
-function roleDisplayName(role) {
-  if (role === "advisor") return "Advisor";
-  if (role === "worker") return "Worker";
-  if (role === "explorer") return "Explorer";
-  if (role === "researcher") return "Researcher";
-  return "Parent";
-}
-
 /**
  * Persist a contract-shaped history event (redacted inside event-log).
  * @param {object} partial
@@ -543,15 +504,6 @@ function recordHistoryFromTranscript(partial, meta) {
   const ev = recordHistoryEvent(partial, meta);
   if (ev && historyKey) seenHistoryKeys.add(historyKey);
   return ev;
-}
-
-function filesFromActivity(activity) {
-  if (!activity) return [];
-  if (Array.isArray(activity)) {
-    return activity.map((a) => (a && a.path ? String(a.path) : "")).filter(Boolean);
-  }
-  if (activity.path) return [String(activity.path)];
-  return [];
 }
 
 function resetWatchState() {
@@ -622,268 +574,6 @@ function statusPayload() {
     pollMs: POLL_MS,
     time: nowIso()
   };
-}
-
-function snippet(text, max) {
-  if (!text) return "";
-  const one = String(text)
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return one.length > max ? one.slice(0, max - 1) + "…" : one;
-}
-
-function mapSubagentType(type) {
-  const t = String(type || "")
-    .toLowerCase()
-    .trim();
-  if (!t) return "parent";
-  if (t === "advisor") return "advisor";
-  if (t === "explore" || t === "explorer") return "explorer";
-  if (t === "researcher") return "researcher";
-  if (
-    t === "worker" ||
-    t === "shell" ||
-    t === "bugbot" ||
-    t === "security-review" ||
-    t === "ci-investigator" ||
-    t === "generalpurpose" ||
-    t === "general-purpose" ||
-    t === "agents" ||
-    t === "best-of-n-runner"
-  ) {
-    return "worker";
-  }
-  // Unknown non-empty Task types share the worker card, never the parent.
-  return "worker";
-}
-
-function roleToCard(role) {
-  if (role === "advisor") return "advisor";
-  if (role === "worker") return "worker";
-  if (role === "explorer") return "explorer";
-  if (role === "researcher") return "researcher";
-  return "opus";
-}
-
-/** Dashboard bill model keys: opus | fable | sonnet | haiku */
-function roleToModel(role) {
-  if (role === "advisor") return "fable";
-  if (role === "worker") return "sonnet";
-  if (role === "explorer" || role === "researcher") return "haiku";
-  return "opus";
-}
-
-function clampTokens(n) {
-  const x = Math.round(Number(n) || 0);
-  if (!Number.isFinite(x) || x < 0) return 0;
-  return Math.min(120000, x);
-}
-
-function charsToTokens(text) {
-  return clampTokens(String(text || "").length / 4);
-}
-
-/**
- * Prefer transcript message.usage; else chars/4 clamped.
- * @returns {{model:string,role:string,in:number,out:number}}
- */
-function estimateUsage(role, obj, opts) {
-  opts = opts || {};
-  const r = role || "parent";
-  const model = roleToModel(r);
-  const msg = obj && obj.message;
-  const raw = (msg && msg.usage) || (obj && obj.usage) || null;
-  if (raw && typeof raw === "object") {
-    const inn = clampTokens(
-      raw.input_tokens != null
-        ? raw.input_tokens
-        : raw.inputTokens != null
-          ? raw.inputTokens
-          : raw.in != null
-            ? raw.in
-            : raw.prompt_tokens
-    );
-    const out = clampTokens(
-      raw.output_tokens != null
-        ? raw.output_tokens
-        : raw.outputTokens != null
-          ? raw.outputTokens
-          : raw.out != null
-            ? raw.out
-            : raw.completion_tokens
-    );
-    if (inn > 0 || out > 0) {
-      return { model, role: r, in: inn, out };
-    }
-  }
-  const inn = opts.inChars != null ? clampTokens(opts.inChars / 4) : charsToTokens(opts.inText);
-  const out = opts.outChars != null ? clampTokens(opts.outChars / 4) : charsToTokens(opts.outText);
-  return { model, role: r, in: inn, out };
-}
-
-function toolArgs(tool) {
-  const input = (tool && tool.input) || {};
-  if (input.arguments && typeof input.arguments === "object") return input.arguments;
-  return input;
-}
-
-function resolveToolName(tool) {
-  const name = (tool && tool.name) || "";
-  const input = (tool && tool.input) || {};
-  const args = toolArgs(tool);
-  if (name === "CallDynamicTool") {
-    return String(input.toolName || args.toolName || name);
-  }
-  return String(name);
-}
-
-/** Short path/url for activity; never file body. */
-function activityPath(args) {
-  if (!args || typeof args !== "object") return "";
-  const p =
-    args.path ||
-    args.file_path ||
-    args.filePath ||
-    args.target_file ||
-    args.target_directory ||
-    args.working_directory ||
-    args.url ||
-    "";
-  return snippet(String(p), 120);
-}
-
-/**
- * Map a tool_use to activity preview payload.
- * @returns {{kind:string,path:string,detail:string}|null}
- */
-function toolActivity(tool) {
-  if (!tool) return null;
-  const name = resolveToolName(tool);
-  const args = toolArgs(tool);
-  const p = activityPath(args);
-
-  if (/^(Read|WebFetch)$/i.test(name)) {
-    let detail = "read";
-    if (name === "Read") {
-      const parts = [];
-      if (args.offset != null) parts.push("@" + args.offset);
-      if (args.limit != null) parts.push("+" + args.limit);
-      detail = parts.length ? parts.join(" ") : "read";
-    } else {
-      detail = "fetch";
-    }
-    return { kind: "read", path: p, detail: snippet(detail, 80) };
-  }
-
-  if (/^(Grep|Glob|WebSearch|GetDynamicTools)$/i.test(name)) {
-    let detail = "";
-    if (/^Grep$/i.test(name)) detail = args.pattern || "";
-    else if (/^Glob$/i.test(name)) detail = args.glob_pattern || args.glob || "";
-    else if (/^WebSearch$/i.test(name)) detail = args.search_term || args.query || "";
-    else detail = args.namespace || args.pattern || "tools";
-    return { kind: "search", path: p, detail: snippet(detail, 80) };
-  }
-
-  if (/^(Write|StrReplace|Edit|EditNotebook)$/i.test(name)) {
-    return { kind: "edit", path: p, detail: "edited" };
-  }
-
-  if (/^(Shell|AwaitShell)$/i.test(name)) {
-    const cmd = args.command || args.cmd || "";
-    return {
-      kind: "run",
-      path: p || snippet(args.working_directory || "", 120),
-      detail: snippet(cmd, 80)
-    };
-  }
-
-  return null;
-}
-
-/** Char count for out-estimate from tools. Uses write body length, not contents string. */
-function toolEstimateChars(tool) {
-  if (!tool) return 0;
-  const name = resolveToolName(tool);
-  const args = toolArgs(tool);
-  if (/^(Write|StrReplace|Edit|EditNotebook)$/i.test(name)) {
-    const body =
-      args.contents || args.new_string || args.newString || args.old_string || args.oldString || "";
-    return Math.min(480000, String(body).length);
-  }
-  try {
-    return JSON.stringify({
-      name,
-      path: activityPath(args),
-      keys: Object.keys(args || {})
-    }).length;
-  } catch (_) {
-    return String(name).length;
-  }
-}
-
-function onceUsage(usage) {
-  let used = false;
-  return function take() {
-    if (used) return null;
-    used = true;
-    return usage;
-  };
-}
-
-function inferRoleFromSubagentText(text) {
-  const raw = String(text || "");
-  const m =
-    raw.match(/operating as the ["']([^"']+)["'] custom subagent/i) ||
-    raw.match(/subagent_type["']?\s*[:=]\s*["']([^"']+)["']/i) ||
-    raw.match(/Task description to exactly ["']([^"']+)["']/i);
-  if (m) {
-    const mapped = mapSubagentType(m[1]);
-    if (mapped !== "parent") return mapped;
-  }
-
-  const queryMatch = raw.match(/<user_query>([\s\S]*?)<\/user_query>/);
-  const query = queryMatch ? queryMatch[1] : raw;
-
-  if (/You are the Advisor/i.test(raw) || /^\s*Advisor\b/i.test(query)) return "advisor";
-  if (/Implementation worker/i.test(raw)) return "worker";
-  if (/file search specialist/i.test(raw)) return "explorer";
-  if (/Thoroughness\s*:/i.test(raw)) return "explorer";
-  if (
-    /docs and external/i.test(raw) ||
-    /^\s*Research\b/i.test(query) ||
-    /(?:^|[^/])\bresearcher\b(?:[^/]|$)/i.test(query)
-  ) {
-    return "researcher";
-  }
-  if (/\bexplor(?:e|ing)\b/i.test(raw)) return "explorer";
-  if (/(?:^|[^/])\badvisor\b(?:[^/]|$)/i.test(query.slice(0, 180))) return "advisor";
-  // Subagent files never fall through to the parent card.
-  return "worker";
-}
-
-function extractToolUses(obj) {
-  const out = [];
-  const content = obj && obj.message && obj.message.content;
-  if (!Array.isArray(content)) return out;
-  for (const part of content) {
-    if (part && part.type === "tool_use") out.push(part);
-  }
-  return out;
-}
-
-function extractText(obj) {
-  const content = obj && obj.message && obj.message.content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((p) => p && p.type === "text" && p.text)
-    .map((p) => p.text)
-    .join("\n");
-}
-
-function estimateReadTokens(text) {
-  const n = Math.round(String(text || "").length / 4);
-  return Math.min(120000, Math.max(800, n));
 }
 
 function handleParentLine(obj, filePath) {
@@ -1228,10 +918,6 @@ function listJsonlFiles(root) {
   });
 }
 
-function isSubagentFile(filePath) {
-  return isSubagentTranscriptPath(filePath);
-}
-
 function roleForFile(filePath) {
   if (!isSubagentFile(filePath)) return null;
   const uuid = path.basename(filePath, ".jsonl");
@@ -1257,125 +943,6 @@ function primeSubagentRole(filePath) {
     if (role && role !== "parent") subagentRoles.set(uuid, role);
   } catch (_) {
     /* ignore priming failures */
-  }
-}
-
-function isTransientReadError(err) {
-  const code = err && err.code;
-  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
-}
-
-function sleepMsSync(ms) {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    /* Sync ingest path. Short backoff for Windows shared reads */
-  }
-}
-
-function readBytesAtSync(filePath, readFrom, len, maxAttempts = 6) {
-  let lastErr;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    let fd;
-    try {
-      fd = fs.openSync(filePath, "r");
-      const buf = Buffer.alloc(len);
-      fs.readSync(fd, buf, 0, len, readFrom);
-      fs.closeSync(fd);
-      return buf;
-    } catch (e) {
-      lastErr = e;
-      if (fd != null) {
-        try {
-          fs.closeSync(fd);
-        } catch (_e) {
-          /* ignore */
-        }
-      }
-      if (!isTransientReadError(e) || attempt === maxAttempts - 1) throw e;
-      sleepMsSync(25 * (attempt + 1));
-    }
-  }
-  throw lastErr;
-}
-
-function newlineByteLength(buf, nlIndex) {
-  if (buf[nlIndex] === 0x0a) return 1;
-  if (buf[nlIndex] === 0x0d && nlIndex + 1 < buf.length && buf[nlIndex + 1] === 0x0a) {
-    return 2;
-  }
-  return 1;
-}
-
-function findFirstNewlineByte(buf, fromIndex) {
-  const from = fromIndex || 0;
-  for (let i = from; i < buf.length; i++) {
-    if (buf[i] === 0x0a) return i;
-    if (buf[i] === 0x0d && i + 1 < buf.length && buf[i + 1] === 0x0a) return i;
-  }
-  return -1;
-}
-
-/** Exclusive end offset within buf after the last complete line (includes trailing newline). */
-function completeLinesEndExclusive(buf) {
-  let end = -1;
-  let i = 0;
-  while (i < buf.length) {
-    const nl = findFirstNewlineByte(buf, i);
-    if (nl < 0) break;
-    end = nl + newlineByteLength(buf, nl);
-    i = end;
-  }
-  return end;
-}
-
-function forEachCompleteLine(buf, baseFileOffset, fn) {
-  let i = 0;
-  while (i < buf.length) {
-    const lineStart = i;
-    const nl = findFirstNewlineByte(buf, i);
-    if (nl < 0) break;
-    const lineEnd = nl;
-    const adv = newlineByteLength(buf, nl);
-    const lineStartByte = baseFileOffset + lineStart;
-    const trimmed = buf.subarray(lineStart, lineEnd).toString("utf8").trim();
-    fn(lineStartByte, trimmed);
-    i = nl + adv;
-  }
-}
-
-/**
- * Scan forward from startOffset in capped chunks until a newline is found.
- * Does not load a full line into memory. Returns exclusive offset after newline, or -1 at EOF.
- */
-function findNextNewlineOffset(filePath, startOffset, fileSize) {
-  let pos = startOffset;
-  if (pos >= fileSize) return -1;
-  let fd;
-  const scratch = Buffer.alloc(TRANSCRIPT_READ_MAX_PER_POLL);
-  try {
-    fd = fs.openSync(filePath, "r");
-    while (pos < fileSize) {
-      const len = Math.min(fileSize - pos, TRANSCRIPT_READ_MAX_PER_POLL);
-      const nread = fs.readSync(fd, scratch, 0, len, pos);
-      if (nread <= 0) break;
-      const slice = scratch.subarray(0, nread);
-      const nl = findFirstNewlineByte(slice, 0);
-      if (nl >= 0) {
-        return pos + nl + newlineByteLength(slice, nl);
-      }
-      pos += nread;
-    }
-    return -1;
-  } catch (_) {
-    return -1;
-  } finally {
-    if (fd != null) {
-      try {
-        fs.closeSync(fd);
-      } catch (_e) {
-        /* ignore */
-      }
-    }
   }
 }
 
@@ -1543,185 +1110,9 @@ function scan() {
   lastScanAt = nowIso();
 }
 
-function sendJson(res, code, obj) {
-  const body = JSON.stringify(obj, null, 2);
-  res.writeHead(code, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store"
-  });
-  res.end(body);
-}
-
-/** Read request body (capped) for POST JSON handlers. */
-function readRequestBody(req, limitBytes) {
-  const limit = limitBytes || 65536;
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let size = 0;
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        reject(new Error("body too large"));
-        try {
-          req.destroy();
-        } catch (_e) {
-          /* ignore */
-        }
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => {
-      resolve(Buffer.concat(chunks).toString("utf8"));
-    });
-    req.on("error", reject);
-  });
-}
-
-/** True for IPv4/IPv6 loopback (incl. IPv4-mapped). */
-function isLoopbackAddress(addr) {
-  if (!addr || typeof addr !== "string") return false;
-  if (addr === "127.0.0.1" || addr === "::1" || addr === "localhost") return true;
-  if (addr.startsWith("::ffff:")) {
-    return isLoopbackAddress(addr.slice("::ffff:".length));
-  }
-  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(addr);
-}
-
-/** Host header must name localhost / loopback (optional port). */
-function isLocalhostHost(hostHeader) {
-  if (!hostHeader || typeof hostHeader !== "string") return false;
-  const host = hostHeader.trim().toLowerCase();
-  if (host.startsWith("[")) {
-    const end = host.indexOf("]");
-    if (end < 0) return false;
-    const name = host.slice(1, end);
-    return name === "::1" || name === "127.0.0.1";
-  }
-  const name = host.split(":")[0];
-  return name === "localhost" || name === "127.0.0.1";
-}
-
-/**
- * Origin header: absent is OK (navigations, curl, same-origin without CORS).
- * If present, must be http(s) to localhost / 127.0.0.1 / ::1 on this bridge's port.
- */
-function isAllowedOrigin(origin) {
-  if (origin == null || origin === "") return true;
-  if (origin === "null") return false;
-  try {
-    const u = new URL(origin);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
-    const h = u.hostname.replace(/^\[|\]$/g, "");
-    if (!(h === "localhost" || h === "127.0.0.1" || h === "::1")) return false;
-    const originPort = u.port || (u.protocol === "https:" ? "443" : "80");
-    return originPort === String(PORT);
-  } catch (_) {
-    return false;
-  }
-}
-
-/**
- * /api/select CSRF guard.
- * Cross-site <img>/<script> GETs omit Origin but send Sec-Fetch-Site: cross-site.
- * Reject cross-site / same-site; if Sec-Fetch-Site is absent, require a valid Origin
- * (fetch always sends Origin; simple cross-site loads omit it).
- */
-function allowProjectSelect(req) {
-  const site = String(req.headers["sec-fetch-site"] || "").toLowerCase();
-  if (site === "cross-site" || site === "same-site") return false;
-  if (site === "same-origin" || site === "none") return true;
-  const origin = req.headers.origin;
-  return !!(origin && isAllowedOrigin(origin));
-}
-
-/**
- * Reject cross-site / non-loopback access so other websites cannot read or drive the bridge.
- * Checks socket remote address, Host, and Origin (when sent). Origin "null" is never allowed.
- * @returns {boolean} true if the request was rejected
- */
-function rejectIfNotLocal(req, res) {
-  const remote = (req.socket && req.socket.remoteAddress) || "";
-  const host = req.headers.host;
-  const origin = req.headers.origin;
-  if (!isLoopbackAddress(remote) || !isLocalhostHost(host) || !isAllowedOrigin(origin)) {
-    res.writeHead(403, {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store"
-    });
-    res.end("Forbidden · localhost only");
-    return true;
-  }
-  return false;
-}
-
-function serveDashboard(res) {
-  fs.readFile(DASHBOARD, (err, data) => {
-    if (err) {
-      res.writeHead(500, { "Content-Type": "text/plain" });
-      res.end("Missing model-routing-dashboard.html next to live-bridge.js");
-      return;
-    }
-    res.writeHead(200, {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store"
-    });
-    res.end(data);
-  });
-}
-
-/**
- * Serve files under /dashboard/* from the dashboard/ folder (CSS/JS split).
- * Rejects path traversal; only GET-friendly static assets.
- */
-function serveStatic(urlPath, res) {
-  if (!urlPath.startsWith("/dashboard/")) return false;
-  let rel;
-  try {
-    rel = decodeURIComponent(urlPath.slice("/dashboard/".length));
-  } catch (_e) {
-    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("Bad path");
-    return true;
-  }
-  if (!rel || rel.includes("\0") || path.isAbsolute(rel)) {
-    res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("Bad path");
-    return true;
-  }
-  const resolved = path.resolve(STATIC_ROOT, rel);
-  const rootResolved = path.resolve(STATIC_ROOT) + path.sep;
-  if (resolved !== path.resolve(STATIC_ROOT) && !resolved.startsWith(rootResolved)) {
-    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("Forbidden");
-    return true;
-  }
-  fs.stat(resolved, (statErr, st) => {
-    if (statErr || !st.isFile()) {
-      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end("Not found");
-      return;
-    }
-    fs.readFile(resolved, (err, data) => {
-      if (err) {
-        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end("Read error");
-        return;
-      }
-      const ext = path.extname(resolved).toLowerCase();
-      res.writeHead(200, {
-        "Content-Type": MIME[ext] || "application/octet-stream",
-        "Cache-Control": "no-store"
-      });
-      res.end(data);
-    });
-  });
-  return true;
-}
-
 function createServer() {
   return http.createServer((req, res) => {
-    if (rejectIfNotLocal(req, res)) return;
+    if (rejectIfNotLocal(req, res, PORT)) return;
 
     let url;
     try {
@@ -1770,7 +1161,7 @@ function createServer() {
         sendJson(res, 405, { ok: false, error: "POST required" });
         return;
       }
-      if (!allowProjectSelect(req)) {
+      if (!allowProjectSelect(req, PORT)) {
         sendJson(res, 403, {
           ok: false,
           error: "Forbidden · same-origin required for project select"
@@ -1841,7 +1232,7 @@ function createServer() {
         sendJson(res, 405, { ok: false, error: "POST required" });
         return;
       }
-      if (!allowProjectSelect(req)) {
+      if (!allowProjectSelect(req, PORT)) {
         sendJson(res, 403, {
           ok: false,
           error: "Forbidden · same-origin required for snooze"
@@ -1903,7 +1294,7 @@ function createServer() {
         sendJson(res, 405, { ok: false, error: "POST required" });
         return;
       }
-      if (!allowProjectSelect(req)) {
+      if (!allowProjectSelect(req, PORT)) {
         sendJson(res, 403, {
           ok: false,
           error: "Forbidden · same-origin required for history clear"

@@ -1,6 +1,6 @@
 {
   "name": "agent-workshop",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Cursor Agents · Model Routing. Electron desktop dashboard with in-process live bridge",
   "main": "electron/main.js",
   "author": "Thymeed",
@@ -15,21 +15,24 @@
   "scripts": {
     "start": "electron .",
     "bridge": "node live-bridge.js",
-    "build": "electron-builder --win && node scripts/copy-exe.js",
+    "build": "electron-builder && node scripts/copy-exe.js",
     "build:check": "node scripts/check-packaging.js",
     "copy-exe": "node scripts/copy-exe.js",
     "pack": "electron-builder --win portable && node scripts/copy-exe.js",
-    "pack:dir": "electron-builder --win --dir",
+    "pack:win": "electron-builder --win && node scripts/copy-exe.js",
+    "pack:mac": "electron-builder --mac && node scripts/copy-exe.js",
+    "pack:linux": "electron-builder --linux && node scripts/copy-exe.js",
+    "pack:dir": "electron-builder --dir",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node test/demo-smoke.test.js && node test/bridge-localhost.test.js && node test/insights-smoke.test.js && node test/event-log.test.js && node test/history-api.test.js && node test/transcript-history.test.js && node test/cards-smoke.test.js && node test/paths-windows.test.js && node test/bridge-test-guard.test.js",
+    "test": "node test/demo-smoke.test.js && node test/bridge-localhost.test.js && node test/bridge-guards.test.js && node test/insights-smoke.test.js && node test/event-log.test.js && node test/history-api.test.js && node test/transcript-history.test.js && node test/cards-smoke.test.js && node test/paths-windows.test.js && node test/bridge-test-guard.test.js && node test/dashboard-units.test.js && node test/electron-smoke.test.js",
     "ci": "npm run lint && npm run format:check && npm test && npm run build:check"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.22.0",
     "globals": "^16.0.0",
     "playwright": "^1.51.0",
@@ -39,6 +42,7 @@
     "appId": "com.cursor.agents.model-routing",
     "productName": "Cursor Agents Model Routing",
     "copyright": "Copyright © thymeed",
+    "icon": "assets/icon.png",
     "directories": {
       "output": "dist"
     },
@@ -65,7 +69,22 @@
           ]
         }
       ],
-      "signAndEditExecutable": false
+      "signExecutable": false
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools",
+      "identity": null
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development"
     },
     "nsis": {
       "oneClick": true,
@@ -79,8 +98,5 @@
       "artifactName": "AgentWorkshop.exe"
     },
     "afterAllArtifactBuild": "./scripts/copy-exe.js"
-  },
-  "allowScripts": {
-    "electron@33.4.11": true
   }
 }

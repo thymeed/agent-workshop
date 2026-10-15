@@ -4,7 +4,7 @@ Audit findings for the dashboard, the alert-snooze work, CI, and the dependency
 tree. Each item says whether it is fixed, open, or verified as a non-issue, so
 nobody re-litigates a settled question or assumes an open one is closed.
 
-Last reviewed: 2026-10-15.
+Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
 
 ## Fixed
 
@@ -44,11 +44,42 @@ Last reviewed: 2026-10-15.
   The lock recorded `UNLICENSED` while `package.json` declares `MIT`. Regenerated
   with `npm install --package-lock-only`, which also recorded `engines`.
 
+- **The fallback transcripts path ignored `CURSOR_PROJECTS_ROOT`.**
+  The placeholder watch path was built from the hardcoded home directory, so a
+  bridge started with an isolated projects root still reported (and watched) the
+  real `~/.cursor/projects/_none/agent-transcripts`. Found by the new
+  `test/electron-smoke.test.js` on its first run. Now derived from the resolved
+  projects root.
+
+- **The event log chmod-ed a caller-supplied directory.** `secureLogDir` narrowed
+  any existing directory to `0700`, so `CURSOR_EVENT_LOG_DIR=$HOME` silently
+  restricted everything in the home directory. It now narrows the directory only
+  when it holds nothing but the log file; the log file itself stays `0600`.
+  Covered by `testSharedLogDirNotChmodded`.
+
+- **Redaction missed signed-URL parameters not named `token`/`key`.** AWS presigned
+  queries (`X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`), generic
+  `Signature`/`Sig`/`code`/`session` parameters, `npm_` tokens, and credentials in
+  URL userinfo reached the local event log unredacted. Patterns added; covered by
+  `testRedactionSignedUrls`.
+
 - **`CLAUDE.md` cited rule files that do not exist.**
   It pointed at `.cursor/rules/refresh-desktop-exe.mdc`,
   `.cursor/rules/advisor-before-commit-push.mdc`, and `.cursor/agents/advisor.md`;
   there is no `.cursor/` directory in the tree. The guidance those files were meant
   to carry is now stated inline in `CLAUDE.md`.
+
+- **The dependency advisories are cleared.**
+  `npm audit` reported 18 (4 moderate, 13 high, 1 critical), including
+  `electron` ≤ 41.10.5 — the runtime of the packaged app, not only a build tool.
+  Upgraded to `electron@44.7.2` and `electron-builder@26.15.3`. The critical `tar`
+  advisory and every `electron` advisory are gone. 8 moderate remain, all one
+  `sprintf-js` denial-of-service reached through `electron-builder`'s build-time
+  download chain (`@electron/get` → `global-agent` → `roarr`), which never runs in
+  the shipped app. npm's suggested fix is a downgrade to `electron-builder@26.5.0`,
+  so it is left alone deliberately. `package.json` `allowScripts` was repinned from
+  `electron@33.4.11` to `electron@44.7.2` and `electron-winstaller` denied, because
+  Electron 44 dropped its `postinstall` hook and fetches its binary on first use.
 
 ## Open
 
@@ -66,21 +97,20 @@ Last reviewed: 2026-10-15.
    leaves the bridge out of sync until the next `hydrate()` / reconnect. Accepted
    for now; the reconcile on load covers the common case.
 
-4. **Dependency advisories in the toolchain — including the packaged runtime.**
-   `npm audit` on 2026-10-15 reports 18 vulnerabilities (4 moderate, 13 high,
-   1 critical). Most are build-time packages, but `electron` is the runtime of the
-   packaged desktop app, so its advisories are not purely build-time. Reported:
-   `electron` ≤ 41.10.5 (ASAR integrity bypass, sandbox and `contextBridge`
-   escapes, protocol-handler cross-origin reads, and more), `electron-builder` /
-   `app-builder-lib` ≤ 26.14.0, `builder-util-runtime` < 9.7.0, `extract-zip`,
-   `sprintf-js` (via `@electron/get`), and `tar` ≤ 7.5.20 — the critical one,
-   reached through `electron-builder`. `npm audit fix --force` clears them by
-   installing `electron@44.7.2` and `electron-builder@26.15.3`, both breaking major
-   jumps from the current `electron@^33`. This is its own piece of work: upgrade,
-   then re-verify the in-process bridge, the single-instance lock, desktop
-   notifications, and a real `npm run pack`.
-
 ## Verified as non-issues
+
+- **`package.json` had no install-script approval mechanism.** The `allowScripts`
+  key is not an npm field and nothing in the tree consumed it, so it enforced
+  nothing. Removed rather than left as false assurance. Electron 44 fetches its
+  binary lazily on first run anyway (`install.js` via `index.js`), confirmed by
+  clearing the binary state and watching `npx electron --version` re-download it —
+  so a fresh clone needs no install-script approval to work.
+
+- **The `live-bridge.js` split changed no behavior.** The only logic delta in the
+  refactor is a `port` parameter threaded into `isAllowedOrigin`,
+  `allowProjectSelect`, and `rejectIfNotLocal`; every other changed line is moved
+  code. The 17-name `module.exports` surface is unchanged, and
+  `test/bridge-guards.test.js` exercises the parameterized guards over real HTTP.
 
 - **A `Â·` seen in shell output was not file corruption.** The middle-dot
   separator renders correctly in the tracked files; the artifact was the shell's

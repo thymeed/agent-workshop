@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/thymeed/agent-workshop/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/thymeed/agent-workshop/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.0-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.0-informational)](CHANGELOG.md)
 
 Desktop dashboard that shows how a Cursor Agents session routes work across Opus (parent), Fable (advisor), Worker (Sonnet), and Explorer / Researcher (Haiku).
 
@@ -30,19 +30,33 @@ A second launch focuses the existing window (single-instance lock) and does not 
 
 ## Install and start (development)
 
+Windows:
+
 ```bat
 cd /d path\to\agent-workshop
 npm install
 npm start
 ```
 
+macOS / Linux:
+
+```sh
+cd path/to/agent-workshop
+npm install
+npm start
+```
+
 - Opens the Electron window only (`electron .`).
 - Bridge listens on `http://127.0.0.1:3847/` in the same process.
-- Optional port override: set `CURSOR_BRIDGE_PORT` before `npm start` (default `3847`).
+- Optional port override (default `3847`):
 
 ```bat
 set CURSOR_BRIDGE_PORT=3848
 npm start
+```
+
+```sh
+CURSOR_BRIDGE_PORT=3848 npm start
 ```
 
 ### Live project picker
@@ -57,7 +71,9 @@ Choosing a project:
 
 While Live is connected, loading a session into History (project change or session picker) paints the replay frame on the stage but does not pause Live SSE until you scrub the timeline or press Play. Scrub or Play sets replay ownership so Live events no longer overwrite the stage until you leave History or run Demo/Live again.
 
-## Build and run the Windows `.exe` (silent GUI)
+## Build and run
+
+Windows portable `.exe` (primary launch, silent GUI):
 
 ```bat
 npm run pack
@@ -65,17 +81,27 @@ npm run pack
 
 Builds the portable single-file exe and copies it to repo-root `AgentWorkshop.exe` (via `scripts/copy-exe.js`). Double-click that root file. No install, no sibling DLLs.
 
-Full portable + NSIS installer pass:
+Full pass with the NSIS installer:
 
 ```bat
 npm run build
 ```
 
-| File                                          | Use                                       |
-| --------------------------------------------- | ----------------------------------------- |
-| `AgentWorkshop.exe` (repo root)               | Primary launch: portable GUI, no install  |
-| `dist\AgentWorkshop.exe`                      | Same portable artifact before/after copy  |
-| `Cursor Agents Model Routing Setup x.x.x.exe` | Optional NSIS installer (`npm run build`) |
+macOS / Linux:
+
+```sh
+npm run pack:mac     # dmg + zip
+npm run pack:linux   # AppImage + deb
+npm run build        # current platform, all configured targets
+```
+
+Artifacts land in `dist/`. The repo-root `AgentWorkshop.exe` copy is Windows-only; on other platforms `scripts/copy-exe.js` logs a skip instead of failing. macOS builds are unsigned (no Developer ID), so Gatekeeper needs a right-click → Open on first launch.
+
+| File                                          | Use                                          |
+| --------------------------------------------- | -------------------------------------------- |
+| `AgentWorkshop.exe` (repo root)               | Primary launch: portable GUI, no install     |
+| `dist\AgentWorkshop.exe`                      | Same portable artifact before/after copy     |
+| `Cursor Agents Model Routing Setup x.x.x.exe` | Optional NSIS installer (`npm run pack:win`) |
 
 Packaged apps use the Windows GUI subsystem: no console window on launch. There is no `.cmd` wrapper.
 
@@ -250,3 +276,10 @@ The in-app alert center (header bell) lists the same alerts: mark read, snooze, 
 - Only sees chats that write into the selected project's transcripts folder.
 - History API responses omit events whose `sessionId` is not present under the current transcripts tree.
 - Hooks, statusline, and Cursor SDK are separate integration paths. This dashboard reads transcripts on disk.
+
+## Contributing and security
+
+Contributions are welcome. `npm run ci` is the gate; see [CONTRIBUTING.md](CONTRIBUTING.md).
+The bridge binds loopback only and has no authentication beyond that — read
+[SECURITY.md](SECURITY.md) for the threat model, the guards, and the accepted risks
+before running it on a shared machine. Report vulnerabilities privately, not in an issue.
