@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/thymeed/agent-workshop/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/thymeed/agent-workshop/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.0-informational)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.3.1-informational)](CHANGELOG.md)
 
 Desktop dashboard that shows how a Cursor Agents session routes work across Opus (parent), Fable (advisor), Worker (Sonnet), and Explorer / Researcher (Haiku).
 

@@ -54,6 +54,40 @@ ESLint and Prettier enforce the mechanical parts. Beyond that:
 History uses `type(scope): summary` — `fix`, `feat`, `docs`, `chore`, `test`,
 `ci`, `style`. Keep the summary in the imperative and under about 70 characters.
 
+`master` is always releasable: every commit on it passes `npm run ci`.
+
+## Releases
+
+Work lands on `master` through a pull request, so CI runs against the exact change set
+before it merges. For a release, branch as `release/<version>`.
+
+**The changelog boundary is the part that goes wrong.** Follow it literally:
+
+1. While developing, add entries **only** to `## [Unreleased]`. Never touch a section
+   that already has a version and a date — that section describes a tag that exists, and
+   editing it makes the published changelog disagree with the published artifact.
+2. To cut a release, rename `## [Unreleased]` to `## [<version>] - <date>`, then add a
+   fresh, **empty** `## [Unreleased]` above it.
+3. Bump `package.json` (and regenerate `package-lock.json`) in the same commit, and update
+   the README version badge.
+4. Add the `[<version>]:` compare link at the bottom, and point `[Unreleased]:` at
+   `compare/v<version>...HEAD`.
+5. Merge the branch, then tag `v<version>` on the merge commit.
+
+**Tagging publishes.** `.github/workflows/release.yml` fires on any `v*` tag, runs the
+full gate on that commit, builds all three platforms, and attaches the artifacts and a
+combined `SHA256SUMS.txt` to the GitHub Release. That upload is public and immediate —
+the tag is the irreversible step, not the merge. Verify the tag points where you think
+before pushing it:
+
+```sh
+git rev-parse --short 'v1.3.1^{commit}'   # must be the merge you intend
+```
+
+Before tagging, confirm the version is consistent everywhere
+(`package.json`, the lockfile, the README badge, and the changelog heading all agree),
+and that the changelog section describes what is actually on the tagged commit.
+
 ## Pull requests
 
 - One concern per PR.

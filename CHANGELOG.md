@@ -7,75 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-15
+
+Refactors and test depth on top of 1.3.0. No user-visible behaviour change beyond one
+audio fix; see Fixed.
+
+### Added
+
+- Seven more dashboard modules split out of `app.js`, each unit-tested in `test/unit/`:
+  `activity.js` (Activity drawer, Session Log, empty states), `view-mode.js` (view
+  switching, Panels toggle, drawer-sheet focus policy), `projects.js` (the Live project
+  picker and the `/api/select` round-trip), `presence.js` (the presence state machine,
+  coach, and bridge sync-age poll), `bill.js` (Session Bill state and DOM),
+  `demo-playbook.js` (the scripted demo beats), and `safe-html.js` (one canonical HTML
+  escaper). `app.js` drops from 3064 to 1977 lines.
+- `dashboard/bill-math.js`: the DOM-free bill and usage math, so it can be unit-tested
+  without a browser.
+- `dashboard/safe-html.js` replaces four near-duplicate escapers in `app.js`,
+  `insights.js`, `cards.js`, and `alerts.js`. The copies disagreed on null handling,
+  and `cards.js` rendered `0` and `false` as empty strings. The shared version
+  preserves falsy-but-meaningful values, renders `null`/`undefined` as empty, and
+  escapes single quotes so the result is safe in an attribute quoted either way.
+- `npm run build:check` now verifies that every dashboard script referenced by the HTML
+  exists and that `safe-html.js` loads first. Verified by mutation: moving it out of
+  first position, or referencing a nonexistent script, both fail the check.
+- Focus is reclaimed when a drawer sheet is hidden. The sheets are non-modal panels
+  behind `aria-pressed` toggles, so opening one deliberately does not steal focus; the
+  hazard was the reverse - focus inside a sheet that a view change hid was destroyed and
+  the next Tab restarted from the top of the document.
+- `test/reconnect-smoke.test.js` covers the SSE reconnect loop end to end: it starts a
+  real bridge, loads the dashboard, stops the bridge, and asserts the page reports
+  `bridge-down`, schedules a bounded retry, and respects the cap.
+- Unit coverage grew from 49 to 153 tests as the extracted modules gained direct tests.
+
+### Changed
+
+- `dashboard/demo-playbook.js` was lifted **verbatim** from `app.js`, verified
+  byte-identical against the original block, with exactly one documented substitution:
+  the final beat ends the run through a `setPlaying(false)` setter instead of assigning
+  `app.js`'s private flag.
+- The bridge-down banner reports the retry attempt and countdown rather than telling the
+  user to click Reconnect while it is already retrying.
+
+### Fixed
+
+- **The bridge recovery cue never sounded.** It fired only on a direct
+  `bridge-down` -> healthy transition, but a retry passes through `connecting` on the
+  way back up, so the cue was effectively dead. It now tracks a "was down" flag that
+  survives the transient `connecting` state and cues exactly once on recovery. Verified
+  by mutation: restoring the old rule fails the suite.
+
+### Notes
+
+- `dashboard/app.js` remains partly split. `stage` (the workshop animation) and the
+  Live SSE client are still in it: both are DOM- and animation-heavy and call back into
+  `app.js` state from many places, so extracting them buys less isolation than the nine
+  modules already done. Worth stating plainly: the split cost more code than it removed -
+  `app.js` went 3064 -> 1977 lines, but the extracted modules total roughly 1950, so the
+  dashboard is net larger. The indirection is not gratuitous (`<script type="module">`
+  would remove all the window globals and `init(deps)` plumbing, but module scripts are
+  CORS-blocked from `file://`, and Demo is promised to work by double-clicking the HTML),
+  but future effort is better spent deleting dead code than adding a tenth module. See
+  `docs/known-issues.md`.
+
 ## [1.3.0] - 2026-10-15
 
 ### Added
 
 - Direct unit tests for `lib/transcript-parse.js` and `lib/transcript-tail.js` on the
   built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
-  unknown role, a tool edit, terminal signals, and a malformed line. 66 tests, run by
+  unknown role, a tool edit, terminal signals, and a malformed line. 49 tests, run by
   `npm test` via `npm run test:unit`.
-- `dashboard/demo-playbook.js`: the scripted Demo narrative, split out of `app.js`
-  (~280 lines). One closure per story beat; `app.js` keeps only the transport that
-  schedules them. The step bodies were lifted **verbatim** and verified byte-identical
-  against the original block, with exactly one documented substitution: the final beat
-  ends the run through a `setPlaying(false)` setter instead of assigning app.js's
-  private flag. 8 unit tests cover the beat ordering, the advisor call escalation, the
-  fail/pass status pair, the subagent accounting, the six-bucket usage snapshots, and
-  the teardown.
-- `dashboard/bill.js`: the Session Bill, split out of `app.js` (~230 lines). Owns the
-  usage counters' presentation, the savings comparison, the HUD totals, and the demo
-  daily baseline. The shared session state object is passed in by reference, so every
-  other reader of `state.usage` / `state.calls` / `state.subs` (including the test hook)
-  is unchanged. 18 unit tests run the real `bill-math.js` behind it and cover
-  accumulation, the explorer/researcher and roleless-haiku attribution rules, snapshot
-  replacement, the Haiku max rule, live-vs-demo token routing, and the daily baseline.
-- `dashboard/presence.js`: the Live presence state machine (header hint, stage banner,
-  coach sheet, empty-log copy) plus the bridge sync-age chip and its poll, split out of
-  `app.js` (~230 lines). It owns the presence value, the quiet-healthy timer, the
-  last-event clock, and the scan metadata. 16 unit tests cover every presence state's
-  copy, the bridge cue transitions, quiet-healthy scheduling, the sync-age buckets, and
-  the onboarding coach.
-
-  That work also **fixed a real defect in the bridge cue**. The earlier cue fired only on
-  a direct `bridge-down` -> healthy transition, but a retry passes through `connecting`
-  on the way back up, so the recovery cue never sounded. It now tracks a "was down" flag
-  that survives the transient `connecting` state, so the bridge-up cue fires exactly once
-  on recovery. Verified by mutation: restoring the old rule fails the suite.
-
-- `dashboard/projects.js`: the Live project picker, split out of `app.js` (~170 lines).
-  Renders the project list, switches the bridge's transcript scope over `/api/select`,
-  and hands the new scope to Insights and History. The selected id/label stay owned by
-  `app.js` and are reached through getters/setters, so no other reader changed. 12 unit
-  tests cover rendering, the empty and recovery presence transitions, picking up
-  `streaming` vs `quiet-healthy` from recent traffic, the `/api/select` POST shape
-  (including the required `X-Cursor-Bridge` header), a failed switch, and the
-  re-entrancy guard.
-- `dashboard/view-mode.js`: header view switching (Stage/Insights/History), the Panels
-  toggle, and the drawer-sheet focus policy, split out of `app.js` (~160 lines). The
-  module owns the current view mode and restores it from `sessionStorage` on init. 9
-  unit tests cover mode normalization, which drawer each mode opens, persistence and
-  `skipPersist`, button state, the focus-reclaim rule, and the Panels toggle.
-- `dashboard/activity.js`: the Activity drawer, Session Log, and their empty states,
-  split out of `app.js` (~210 lines). The module owns its row list, log clock, and role
-  filter, and takes every DOM and session dependency through one `init(deps)`. 15 unit
-  tests cover kind bucketing, the row cap, the role filter, escaping of transcript-derived
-  fields, empty-state copy, and the log clock. Verified by mutation: removing the cap,
-  ignoring the filter, or dropping the escaping each fails the suite.
-- `dashboard/safe-html.js`: one canonical HTML escaper replacing four near-duplicate
-  copies in `app.js`, `insights.js`, `cards.js`, and `alerts.js`. The copies disagreed
-  on null handling, and `cards.js` rendered `0` and `false` as empty strings. The
-  shared version preserves falsy-but-meaningful values, renders `null`/`undefined` as
-  empty, and escapes single quotes so the result is safe in an attribute quoted either
-  way. 9 unit tests cover the escaping and inert-ness of hostile transcript payloads.
-- `npm run build:check` now verifies that every dashboard script referenced by the
-  HTML exists, and that `safe-html.js` loads first. Verified by mutation: moving it out
-  of first position and referencing a nonexistent script both fail the check.
-- `dashboard/bill-math.js`: the DOM-free bill and usage math (rate table, token and
-  money formatting, model normalization, summary CSV) split out of `app.js` so it can
-  be unit-tested without a browser. `test/unit/bill-math.test.js` loads it in a `vm`
-  sandbox and covers the boundaries: formatter thresholds, rate lookups, unknown-model
-  fallback, CSV quoting, and the empty-usage contract.
 - `npm run typecheck` (`tsc --noEmit`) over `types/` and `lib/`, plus `types/events.js`:
   JSDoc `@typedef` shapes for the bridge <-> dashboard contract (`DashEvent`,
   `HistoryEvent`, `AgentAlert`, `ActivityItem`, `BridgeStatus`, `ProjectEntry`).
@@ -92,18 +94,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   beside the mute toggle, role-tinted timbres (an Opus crate and a Haiku crate no
   longer sound identical), and cues for error, stall, bridge down/up, snooze, and
   history scrubbing. Alerts that were visual-only now make a sound.
-- **Focus is reclaimed when a drawer sheet is hidden.** The drawer sheets are non-modal
-  panels behind `aria-pressed` toggle buttons, so opening one deliberately does not steal
-  focus. The real hazard was the reverse: if focus sat inside a sheet that a view change
-  hid, it was destroyed and the next Tab restarted from the top of the document. Focus
-  now returns to the active view control. Covered by `test/dashboard-units.test.js` and
-  verified by mutation.
 - Bounded SSE auto-reconnect with jittered exponential backoff (1s doubling to a 30s
   cap, six attempts). A dropped bridge now recovers on its own instead of needing a
-  manual Reconnect, and the presence banner reports the retry attempt and countdown
-  rather than telling you to click Reconnect while it is already retrying. Covered
-  end to end by `test/reconnect-smoke.test.js`, which kills a live bridge under a
-  loaded dashboard.
+  manual Reconnect; the transition is announced in the presence banner.
 - Session summary export from the Session Bill drawer: a local JSON download (totals,
   per-model tokens and estimated cost, advisor calls, subagent count, and activity)
   and a CSV download (one row per model plus a total). Entirely client-side; nothing
@@ -132,12 +125,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Code signing remains out of scope: it needs a purchased Windows Authenticode and
   Apple Developer ID certificate. Builds stay unsigned; checksums are the integrity story.
-- `dashboard/app.js` is only partly split. `sound.js` (audio) and `bill-math.js`
-  (DOM-free usage math) were extracted, and the extracted math is unit-tested.
-  The remaining modules (stage, presence, view-mode, activity, and the DOM half of
-  bill) are still in `app.js`: they are DOM- and animation-heavy with no cheap
-  verification path, so they were left in place rather than risk a behavior change.
-  See `docs/known-issues.md` for the recommended next step.
+- `dashboard/app.js` is only partly split. `sound.js` was extracted; the remaining
+  modules (stage, presence, view-mode, activity, bill) share a mutable `state` object
+  and a widely-called stage director, so they were deliberately left in place rather
+  than risk a behavior change. See `docs/known-issues.md`.
 
 ## [1.2.0] - 2026-10-15
 
@@ -210,6 +201,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Token and session cost figures are illustrative estimates, not official Cursor billing.
 
+[Unreleased]: https://github.com/thymeed/agent-workshop/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/thymeed/agent-workshop/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/thymeed/agent-workshop/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/thymeed/agent-workshop/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/thymeed/agent-workshop/compare/v1.0.0...v1.1.0
