@@ -91,23 +91,28 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
    `gh release delete-asset`. Worth fixing if artifact names ever change again:
    delete the release's existing assets at the start of `publish`.
 
-2. **`dashboard/app.js` is only partly split.** Eight modules have been extracted:
+2. **`dashboard/app.js` is only partly split.** Nine modules have been extracted:
    `dashboard/sound.js` (audio), `dashboard/bill-math.js` (the DOM-free usage math),
-   `dashboard/bill.js` (Session Bill state and DOM), `dashboard/safe-html.js` (the single
-   HTML escaper), `dashboard/activity.js` (Activity drawer, Session Log, empty states),
+   `dashboard/bill.js` (Session Bill state and DOM), `dashboard/demo-playbook.js` (the
+   scripted demo beats), `dashboard/safe-html.js` (the single HTML escaper),
+   `dashboard/activity.js` (Activity drawer, Session Log, empty states),
    `dashboard/view-mode.js` (view switching, Panels, focus policy),
    `dashboard/projects.js` (the Live project picker), and `dashboard/presence.js`
-   (presence state, coach, sync-age poll). All eight are unit-tested - seven of them via
-   a `vm` sandbox with element/fetch/timer stubs, so they have direct coverage without a
-   browser.
+   (presence state, coach, sync-age poll). The first eight are unit-tested in `test/unit/`.
 
-   Still inside `dashboard/app.js` (~1750 lines): stage (the workshop animation), the
-   Live SSE client, and the demo playbook. These are the most DOM- and animation-heavy
-   parts, so an extraction is slow to prove safe. The pattern that works (used for
-   `activity.js`, `view-mode.js`, `projects.js`, `presence.js`, and `bill.js`): map the
-   dependency list first, move ownership of the module's own state into it, pass the
-   shared session object and DOM refs through one `init(deps)`, and rewrite the call
-   sites.
+   **Worth stating plainly: the split cost more code than it removed.** `app.js` went
+   3064 -> 1978 lines, but the extracted modules total ~1950 lines, so the dashboard is
+   net larger. The indirection is not gratuitous - `<script type="module">` would remove
+   all the window globals and `init(deps)` plumbing, but module scripts are CORS-blocked
+   from `file://`, and the README promises Demo works by double-clicking the HTML. That
+   constraint is the reason for the pattern. Even so, two modules remain and neither is
+   clearly worth the churn; future effort is better spent deleting dead code from
+   `app.js` than adding a tenth module.
+
+   Still inside `dashboard/app.js` (~1980 lines): stage (the workshop animation) and the
+   Live SSE client. These are the most DOM- and animation-heavy parts, and both call back
+   into app.js state from many places, so an extraction is slow to prove safe and buys
+   less isolation than the ones already done.
 
    A correction worth keeping: an earlier note here blamed a shared `state` object.
    An advisory review disproved that. `state` is a five-key, module-private

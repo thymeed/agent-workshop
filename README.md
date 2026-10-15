@@ -134,6 +134,7 @@ Keep `node_modules\` unless you are ready for a full `npm ci` / `npm install` (l
 | `dashboard/presence.js`        | Live presence (hint, banner, coach, empty-log copy), the bridge sync-age chip, and its poll                                             |
 | `dashboard/bill-math.js`       | Pure bill/usage math: rates, token and money formatting, model normalization, summary CSV · no DOM                                      |
 | `dashboard/bill.js`            | Session Bill: usage counters and their DOM, savings comparison, HUD totals; owns the demo daily baseline                                |
+| `dashboard/demo-playbook.js`   | The scripted Demo narrative: one closure per story beat; app.js schedules them                                                          |
 | `dashboard/safe-html.js`       | The single HTML escaper (`window.SafeHtml`); every other dashboard module aliases it · loads first                                      |
 | `dashboard/sound.js`           | Workshop audio cues (Web Audio, synthesized, no assets): master gain + limiter, volume, role-tinted timbres · muted by default          |
 | `dashboard/insights.js`        | Insights forecast, cost-ranked suggestions, History/Replay UI                                                                           |

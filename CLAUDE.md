@@ -32,6 +32,7 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 | `dashboard/cards.js`           | Station cards, pixel-cast `faceMarkup` / `blockAgentSvgInner`, daily stats, privacy meter, ship celebration                      |
 | `dashboard/bill-math.js`       | Pure bill/usage math (rates, formatting, model normalization, summary CSV); no DOM, unit tested in `test/unit/bill-math.test.js` |
 | `dashboard/bill.js`            | Session Bill state + DOM; owns the demo daily baseline, unit tested in `test/unit/bill.test.js`                                  |
+| `dashboard/demo-playbook.js`   | Scripted demo beats; step bodies lifted verbatim, unit tested in `test/unit/demo-playbook.test.js`                               |
 | `dashboard/activity.js`        | Activity drawer + Session Log + empty states; owns rows/log clock/role filter, unit tested in `test/unit/activity.test.js`       |
 | `dashboard/view-mode.js`       | View switching + Panels toggle + focus policy; owns the current view, unit tested in `test/unit/view-mode.test.js`               |
 | `dashboard/projects.js`        | Live project picker + /api/select; owns the in-flight guard, unit tested in `test/unit/projects.test.js`                         |

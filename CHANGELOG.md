@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
   unknown role, a tool edit, terminal signals, and a malformed line. 66 tests, run by
   `npm test` via `npm run test:unit`.
+- `dashboard/demo-playbook.js`: the scripted Demo narrative, split out of `app.js`
+  (~280 lines). One closure per story beat; `app.js` keeps only the transport that
+  schedules them. The step bodies were lifted **verbatim** and verified byte-identical
+  against the original block, with exactly one documented substitution: the final beat
+  ends the run through a `setPlaying(false)` setter instead of assigning app.js's
+  private flag. 8 unit tests cover the beat ordering, the advisor call escalation, the
+  fail/pass status pair, the subagent accounting, the six-bucket usage snapshots, and
+  the teardown.
 - `dashboard/bill.js`: the Session Bill, split out of `app.js` (~230 lines). Owns the
   usage counters' presentation, the savings comparison, the HUD totals, and the demo
   daily baseline. The shared session state object is passed in by reference, so every
