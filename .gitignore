@@ -40,6 +40,9 @@ event-log.jsonl
 # Coverage / test
 coverage/
 
+# Local AI agent state (transcripts may echo working-tree contents)
+.codewhale/
+
 # OS junk
 .DS_Store
 Thumbs.db
