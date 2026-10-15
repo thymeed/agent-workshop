@@ -1,6 +1,6 @@
 # Cursor Agents · Model Routing
 
-[![CI](https://github.com/thymeed/cursor-agents-model-routing/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/thymeed/cursor-agents-model-routing/actions/workflows/ci.yml)
+[![CI](https://github.com/thymeed/agent-workshop/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/thymeed/agent-workshop/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.0.0-informational)](CHANGELOG.md)
 
@@ -31,7 +31,7 @@ A second launch focuses the existing window (single-instance lock) and does not 
 ## Install and start (development)
 
 ```bat
-cd /d path\to\cursor-agents-model-routing
+cd /d path\to\agent-workshop
 npm install
 npm start
 ```

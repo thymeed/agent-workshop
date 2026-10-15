@@ -44,4 +44,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Token and session cost figures are illustrative estimates, not official Cursor billing.
 
-[1.0.0]: https://github.com/thymeed/cursor-agents-model-routing/releases/tag/v1.0.0
+[1.0.0]: https://github.com/thymeed/agent-workshop/releases/tag/v1.0.0
