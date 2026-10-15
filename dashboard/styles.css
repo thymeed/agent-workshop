@@ -476,6 +476,47 @@ h1.headline em {
   border-color: rgba(184, 240, 0, 0.4);
 }
 
+.sound-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sound-volume {
+  appearance: none;
+  width: 62px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+}
+
+.sound-volume:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.sound-volume:focus-visible {
+  outline: 2px solid var(--haiku);
+  outline-offset: 3px;
+}
+
+.sound-volume::-webkit-slider-thumb {
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--haiku);
+}
+
+.sound-volume::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--haiku);
+}
+
 .panels-btn {
   appearance: none;
   border: 1px solid rgba(255, 255, 255, 0.12);

@@ -83,21 +83,42 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
 
 ## Open
 
-1. **The alert list still records entries while snoozed.** Only the unread badge
+1. **Type checking covers the shared contract, not the whole tree.**
+   `npm run typecheck` (`tsc --noEmit`) checks `types/` and `lib/` only. Those are the
+   modules the `@typedef` event shapes in `types/events.js` describe, and they pass
+   clean. `live-bridge.js`, `scripts/`, and `dashboard/` are not checked: turning on
+   `checkJs` across them surfaces implicit-any noise and a few JSDoc gaps (notably
+   the `module.exports = fn` plus attached-properties pattern in `scripts/copy-exe.js`)
+   that are not worth churning for their own sake. Widening the include list is a
+   contained follow-up whenever someone touches those files.
+
+2. **The release workflow fires on any `v*` tag push and publishes publicly.**
+   `.github/workflows/release.yml` builds on all three platforms, hashes the artifacts,
+   and attaches them plus a combined `SHA256SUMS.txt` to the GitHub Release. A tag
+   push therefore publishes without a further confirmation step. Builds stay unsigned
+   (no certificate); the checksums are the integrity control.
+
+3. **The alert list still records entries while snoozed.** Only the unread badge
    is hidden. This is inherited master behavior, deliberate in #25, and a product
    decision rather than a defect. Change it only if the list is meant to go quiet
    too.
 
-2. **Snooze reconciliation is last-client-wins, not strictly renderer-wins.**
+4. **Snooze reconciliation is last-client-wins, not strictly renderer-wins.**
    A second client with its own `localStorage` (a genuinely separate browser
    profile hitting the bridge URL) will POST `snoozed: false` and silently clear a
    snooze set elsewhere. Same-origin tabs share the key and are unaffected.
 
-3. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
+5. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
    leaves the bridge out of sync until the next `hydrate()` / reconnect. Accepted
    for now; the reconcile on load covers the common case.
 
 ## Verified as non-issues
+
+- **`scripts/checksums.js` is deterministic.** Ran it twice over the same two files in
+  a temp directory: `SHA256SUMS.txt` was byte-identical both times, entries sorted
+  ascending, and it exited 1 on both a missing directory and a directory with no
+  files. Deterministic output is load-bearing: a manifest that reorders between runs
+  would make release verification meaningless.
 
 - **`package.json` had no install-script approval mechanism.** The `allowScripts`
   key is not an npm field and nothing in the tree consumed it, so it enforced

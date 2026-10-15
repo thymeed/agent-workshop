@@ -130,17 +130,31 @@
             >
               Panels
             </button>
-            <button
-              type="button"
-              class="sound-btn"
-              id="soundBtn"
-              aria-pressed="false"
-              title="Sound off (click to unmute)"
-              data-tip="Workshop sound"
-              data-tip-detail="Soft blips when crates fly · muted by default"
-            >
-              🔇
-            </button>
+            <div class="sound-wrap">
+              <button
+                type="button"
+                class="sound-btn"
+                id="soundBtn"
+                aria-pressed="false"
+                title="Sound off (click to unmute)"
+                data-tip="Workshop sound"
+                data-tip-detail="Soft blips when crates fly · muted by default"
+              >
+                🔇
+              </button>
+              <input
+                type="range"
+                class="sound-volume"
+                id="soundVolume"
+                min="0"
+                max="1"
+                step="0.05"
+                value="0.7"
+                aria-label="Workshop sound volume"
+                data-tip="Volume"
+                data-tip-detail="Blip volume · muted by default"
+              />
+            </div>
             <div class="alert-bell-wrap">
               <button
                 type="button"
@@ -1007,6 +1021,7 @@
     <script src="dashboard/alerts.js"></script>
     <script src="dashboard/insights.js"></script>
     <script src="dashboard/replay-stage.js"></script>
+    <script src="dashboard/sound.js"></script>
     <script src="dashboard/app.js"></script>
   </body>
 </html>

@@ -188,6 +188,12 @@
   var liveSeenByProject = {};
   var es = null;
   var livePoll = null;
+  /** Bounded SSE auto-reconnect: backoff doubles, stops after RECONNECT_MAX_ATTEMPTS. */
+  var reconnectTimer = null;
+  var reconnectAttempts = 0;
+  var RECONNECT_MAX_ATTEMPTS = 6;
+  var RECONNECT_BASE_MS = 1000;
+  var RECONNECT_MAX_MS = 30000;
   /** True while SSE is draining the bridge's initial backlog (connect / reload / reconnect). */
   var liveSseBacklogReplay = false;
   var liveSseBacklogEndTimer = null;
@@ -233,141 +239,18 @@
     activity: []
   };
 
-  /**
-   * Alert snooze (shared with alerts.js via localStorage) also silences workshop audio.
-   * Snooze is indefinite: the sentinel never expires until the user un-snoozes, so the
-   * suppression lasts as long as the user asked for. Legacy numeric timestamps still work.
-   */
+  /** Shared with alerts.js and dashboard/sound.js through localStorage; sound.js reads it. */
   var SNOOZE_KEY = "ca.alerts.snoozeUntil";
-  var SNOOZE_INDEFINITE = "indefinite";
 
-  function snoozeUntilMs() {
-    try {
-      var raw = localStorage.getItem(SNOOZE_KEY);
-      if (raw === SNOOZE_INDEFINITE) return Infinity;
-      var n = Number(raw || 0);
-      return isFinite(n) ? n : 0;
-    } catch (_) {
-      return 0;
-    }
-  }
-
-  function isSnoozed() {
-    return Date.now() < snoozeUntilMs();
-  }
-
-  /* Web Audio blips (default muted) */
-  var sound = (function () {
-    var muted = true;
-    var ctx = null;
-    try {
-      muted = localStorage.getItem("workshopSound") !== "on";
-    } catch (_) {}
-
-    /* Audio is silent when the user muted it or while alerts are snoozed. */
-    function shouldMute() {
-      return muted || isSnoozed();
-    }
-
-    function ensure() {
-      if (!ctx) {
-        var AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return null;
-        ctx = new AC();
-      }
-      if (ctx.state === "suspended") ctx.resume();
-      return ctx;
-    }
-
-    function tone(freq, dur, type, gain, slideTo) {
-      if (shouldMute()) return;
-      var c = ensure();
-      if (!c) return;
-      var t0 = c.currentTime;
-      var osc = c.createOscillator();
-      var g = c.createGain();
-      osc.type = type || "sine";
-      osc.frequency.setValueAtTime(freq, t0);
-      if (slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t0 + dur);
-      var vol = gain == null ? 0.045 : gain;
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      osc.connect(g);
-      g.connect(c.destination);
-      osc.start(t0);
-      osc.stop(t0 + dur + 0.02);
-    }
-
-    function play(name) {
-      if (shouldMute()) return;
-      switch (name) {
-        case "pop":
-          tone(520, 0.09, "triangle", 0.04, 180);
-          break;
-        case "chime":
-          tone(660, 0.12, "sine", 0.035);
-          setTimeout(function () {
-            tone(990, 0.14, "sine", 0.028);
-          }, 70);
-          break;
-        case "tick":
-          tone(1400, 0.04, "square", 0.018);
-          break;
-        case "edit":
-          tone(280, 0.11, "sine", 0.04, 420);
-          break;
-        case "whoosh":
-          tone(220, 0.18, "sawtooth", 0.02, 90);
-          break;
-        case "spark":
-          tone(880, 0.06, "sine", 0.025, 1320);
-          break;
-        case "click":
-          tone(700, 0.03, "triangle", 0.02);
-          break;
-        default:
-          tone(440, 0.06, "sine", 0.03);
-      }
-    }
-
-    function setMuted(m) {
-      muted = !!m;
-      try {
-        localStorage.setItem("workshopSound", muted ? "off" : "on");
-      } catch (_) {}
-      syncBtn();
-    }
-
-    function toggle() {
-      setMuted(!muted);
-      if (!muted) {
-        ensure();
-        play("click");
-      }
-    }
-
-    function syncBtn() {
-      if (!soundBtn) return;
-      var silent = shouldMute();
-      soundBtn.textContent = silent ? "🔇" : "🔊";
-      soundBtn.classList.toggle("on", !silent);
-      soundBtn.setAttribute("aria-pressed", silent ? "false" : "true");
-      if (muted) soundBtn.title = "Sound off (click to unmute)";
-      else if (isSnoozed()) soundBtn.title = "Snoozed · sound resumes when you un-snooze alerts";
-      else soundBtn.title = "Sound on (click to mute)";
-    }
-
-    syncBtn();
-    return {
-      play: play,
-      toggle: toggle,
-      isMuted: function () {
-        return shouldMute();
-      },
-      syncBtn: syncBtn
-    };
-  })();
+  /* Audio cues live in dashboard/sound.js: role-tinted, limiter-protected, shared. */
+  var sound = window.WorkshopSound || {
+    play: function () {},
+    toggle: function () {},
+    isMuted: function () {
+      return true;
+    },
+    syncBtn: function () {}
+  };
 
   /* Stage director: characters, crates, portal */
   var CHAR_HOME = {
@@ -957,7 +840,13 @@
    * Single source of truth for Live hint + stage banner + empty log copy.
    */
   function setLivePresence(state, detail) {
+    var previous = livePresence;
     livePresence = state || null;
+    if (mode === "live") {
+      if (state === "bridge-down" && previous !== "bridge-down") sound.play("bridgeDown");
+      else if (previous === "bridge-down" && state && state !== "bridge-down")
+        sound.play("bridgeUp");
+    }
     if (appEl) {
       if (mode === "live" && livePresence) appEl.setAttribute("data-live-presence", livePresence);
       else appEl.removeAttribute("data-live-presence");
@@ -2022,6 +1911,8 @@
     var msg = ev.message || "";
     var statusCls = ev.replayError ? "err" : "live";
     setStatus(cardRole, '<span class="' + statusCls + '">' + escapeHtml(msg) + "</span>");
+    if (ev.replayError && !isReplay && !liveSseBacklogReplay)
+      sound.play("error", { role: cardRole });
     if (!isReplay && (role === "advisor" || ev.kind === "asks")) {
       setCalls(state.calls + 1);
       advisorLastEl.textContent = "Last advice: " + msg;
@@ -2151,6 +2042,7 @@
     if (!isFinite(index)) return;
     var source = payload.source || "scrub";
 
+    if (source === "scrub") sound.play("scrub");
     if (playing) stopDemo();
     /* Live + session load (project pick / focusLatestSession): paint History frame but keep Live SSE. */
     var liveSessionBrowse = mode === "live" && source === "session";
@@ -2254,6 +2146,7 @@
   }
 
   function stopLive() {
+    clearReconnectTimer();
     if (es) {
       try {
         es.close();
@@ -2272,6 +2165,53 @@
       window.AlertCenter.attachEventSource(null);
     }
     refreshSyncAgeChip();
+  }
+
+  function clearReconnectTimer() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  /** Backoff for reconnect attempt N (0-based): 1s, 2s, 4s, 8s, 16s, then capped. */
+  function reconnectDelayMs(attempt) {
+    return Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * Math.pow(2, attempt));
+  }
+
+  /**
+   * Retry the Live stream after a drop. Bounded, jittered exponential backoff; the manual
+   * Reconnect button and any mode change cancel it. Never retries from file:// (the bridge
+   * rejects Origin "null" by design).
+   */
+  function scheduleLiveReconnect() {
+    if (mode !== "live" || location.protocol === "file:") return;
+    if (reconnectAttempts >= RECONNECT_MAX_ATTEMPTS) {
+      setLivePresence(
+        "bridge-down",
+        "Bridge offline after " +
+          RECONNECT_MAX_ATTEMPTS +
+          " retries. Start it, then click Reconnect."
+      );
+      return;
+    }
+    var delay = reconnectDelayMs(reconnectAttempts) + Math.floor(Math.random() * 250);
+    reconnectAttempts += 1;
+    setLivePresence(
+      "bridge-down",
+      "Bridge offline · retry " +
+        reconnectAttempts +
+        "/" +
+        RECONNECT_MAX_ATTEMPTS +
+        " in " +
+        Math.max(1, Math.round(delay / 1000)) +
+        "s"
+    );
+    clearReconnectTimer();
+    reconnectTimer = setTimeout(function () {
+      reconnectTimer = null;
+      startLive();
+    }, delay);
   }
 
   function startLive() {
@@ -2296,6 +2236,7 @@
     startSyncAgePoll();
 
     function onOk(meta) {
+      reconnectAttempts = 0;
       if (meta && meta.projectLabel) {
         currentProjectLabel = meta.projectLabel;
         currentProjectId = meta.projectId || currentProjectId;
@@ -2392,6 +2333,7 @@
     es.onerror = function () {
       onErr("Bridge offline. Use npm start or node live-bridge.js");
       stopLive();
+      scheduleLiveReconnect();
     };
   }
 
@@ -2731,6 +2673,7 @@
     if (mode === "demo") {
       resetUI();
     } else {
+      reconnectAttempts = 0;
       startLive();
     }
     layoutFlow();
@@ -2770,12 +2713,15 @@
 
   demoBtn.addEventListener("click", function () {
     if (mode === "live") {
+      reconnectAttempts = 0;
       startLive();
       return;
     }
     if (playing) stopDemo();
     else playDemo();
   });
+
+  sound.init();
 
   if (soundBtn) {
     soundBtn.addEventListener("click", function () {
@@ -2974,6 +2920,15 @@
     isLiveBacklogReplay: function () {
       return liveSseBacklogReplay;
     },
+    reconnectState: function () {
+      return {
+        attempts: reconnectAttempts,
+        max: RECONNECT_MAX_ATTEMPTS,
+        pending: !!reconnectTimer
+      };
+    },
+    reconnectDelayMs: reconnectDelayMs,
+    scheduleLiveReconnect: scheduleLiveReconnect,
     /* Snooze-aware audio: true when muted by preference or while alerts are snoozed. */
     isSoundSuppressed: function () {
       return sound.isMuted();

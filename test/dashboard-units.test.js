@@ -86,6 +86,10 @@ async function main() {
           disclaimer: typeof T.estimatesDisclaimer === "string" && T.estimatesDisclaimer.length > 0,
           snoozeKey: typeof T.snoozeKey === "string" && T.snoozeKey.length > 0,
           mapHistoryEvent: typeof RS.mapHistoryEvent === "function"
+        },
+        reconnect: {
+          delays: [0, 1, 2, 3, 4, 5, 6, 10].map((n) => T.reconnectDelayMs(n)),
+          state: T.reconnectState()
         }
       };
     });
@@ -126,6 +130,23 @@ async function main() {
     assert.ok(data.invariants.disclaimer, "estimates disclaimer must be present");
     assert.ok(data.invariants.snoozeKey, "snooze storage key must be present");
     assert.ok(data.invariants.mapHistoryEvent, "ReplayStage.mapHistoryEvent must be exported");
+
+    /* SSE auto-reconnect policy: doubling backoff, hard cap, bounded attempts. */
+    assert.deepStrictEqual(
+      data.reconnect.delays.slice(0, 6),
+      [1000, 2000, 4000, 8000, 16000, 30000],
+      "reconnect backoff must double from 1s and cap at 30s"
+    );
+    assert.strictEqual(
+      data.reconnect.delays[6],
+      30000,
+      "backoff must stay capped past the max, not keep growing"
+    );
+    assert.ok(
+      data.reconnect.state.max > 0 && data.reconnect.state.max <= 10,
+      "reconnect must be bounded by a small max attempt count"
+    );
+    assert.strictEqual(data.reconnect.state.attempts, 0, "no reconnect attempts before a drop");
 
     console.log("dashboard units OK · formatters, avatar invariants, role mapping");
   } finally {
