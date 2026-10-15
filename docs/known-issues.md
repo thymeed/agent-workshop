@@ -1,10 +1,10 @@
 # Known issues
 
-Audit findings for the alert-snooze work and the surrounding notification paths.
-Each item says whether it is fixed, open, or verified as a non-issue, so nobody
-re-litigates a settled question or assumes an open one is closed.
+Audit findings for the dashboard, the alert-snooze work, CI, and the dependency
+tree. Each item says whether it is fixed, open, or verified as a non-issue, so
+nobody re-litigates a settled question or assumes an open one is closed.
 
-Last reviewed: 2026-10-12.
+Last reviewed: 2026-10-15.
 
 ## Fixed
 
@@ -26,41 +26,59 @@ Last reviewed: 2026-10-12.
 - **Session Bill `Out` column rendered Sonnet cost instead of output tokens.**
   Fixed; `formatTokens` restored.
 
+- **`POST /api/snooze` with an empty body defaulted to `snoozed: true`.**
+  An absent field used to be an affirmative signal: `snoozed` defaulted to `true`
+  before the body was read. The route now requires an explicit
+  `{ "snoozed": boolean }` and answers 400 otherwise, so intent is always stated.
+  Covered by `testSnoozeRouteGuards` in `test/transcript-history.test.js`:
+  empty body → 400, non-boolean → 400, invalid JSON → 400, explicit boolean → 200
+  with `GET /api/status` agreeing.
+
+- **CI re-downloaded Chromium on every run.**
+  `.github/workflows/ci.yml` ran `npx playwright install --with-deps chromium` on
+  both jobs with no browser cache, fetching roughly 320 MB per run. Both jobs now
+  cache `~/.cache/ms-playwright` (Windows `%USERPROFILE%\AppData\Local\ms-playwright`)
+  via `actions/cache`, keyed per runner OS on `package-lock.json`.
+
+- **`package-lock.json` disagreed with `package.json` about the root license.**
+  The lock recorded `UNLICENSED` while `package.json` declares `MIT`. Regenerated
+  with `npm install --package-lock-only`, which also recorded `engines`.
+
+- **`CLAUDE.md` cited rule files that do not exist.**
+  It pointed at `.cursor/rules/refresh-desktop-exe.mdc`,
+  `.cursor/rules/advisor-before-commit-push.mdc`, and `.cursor/agents/advisor.md`;
+  there is no `.cursor/` directory in the tree. The guidance those files were meant
+  to carry is now stated inline in `CLAUDE.md`.
+
 ## Open
 
-1. **`POST /api/snooze` with an empty body defaults to `snoozed: true`.**
-   (`live-bridge.js`, the `/api/snooze` route.) The dashboard client always sends
-   an explicit boolean, so this is harmless today, but it is asymmetric with
-   intent. Either require the field (400 when absent) or document the default.
-   Low priority.
-
-2. **The alert list still records entries while snoozed.** Only the unread badge
+1. **The alert list still records entries while snoozed.** Only the unread badge
    is hidden. This is inherited master behavior, deliberate in #25, and a product
    decision rather than a defect. Change it only if the list is meant to go quiet
    too.
 
-3. **Snooze reconciliation is last-client-wins, not strictly renderer-wins.**
+2. **Snooze reconciliation is last-client-wins, not strictly renderer-wins.**
    A second client with its own `localStorage` (a genuinely separate browser
    profile hitting the bridge URL) will POST `snoozed: false` and silently clear a
    snooze set elsewhere. Same-origin tabs share the key and are unaffected.
 
-4. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
+3. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
    leaves the bridge out of sync until the next `hydrate()` / reconnect. Accepted
    for now; the reconcile on load covers the common case.
 
-5. **Unused public surface.** `AlertCenter.snooze()`, `unSnooze()` and
-   `toggleSnooze()` are exported but no in-app caller uses them (the popover
-   button and tests do). `sound.isMuted()` is now snooze-aware and has no internal
-   caller. Harmless; candidates for removal if the API should stay minimal.
-
-6. **CI re-downloads Chromium every run.** `.github/workflows/ci.yml` runs
-   `npx playwright install --with-deps chromium` on both jobs with no browser
-   cache, fetching roughly 320 MB per run (Chrome for Testing ~198 MB, Headless
-   Shell ~118 MB, plus FFmpeg). Not a correctness problem, since both jobs finish
-   well inside the 20-minute timeout. If it ever matters, cache
-   `~/.cache/ms-playwright` (Windows: `%USERPROFILE%\AppData\Local\ms-playwright`)
-   keyed on the Playwright version, or use the `mcr.microsoft.com/playwright`
-   image on Linux.
+4. **Dependency advisories in the toolchain — including the packaged runtime.**
+   `npm audit` on 2026-10-15 reports 18 vulnerabilities (4 moderate, 13 high,
+   1 critical). Most are build-time packages, but `electron` is the runtime of the
+   packaged desktop app, so its advisories are not purely build-time. Reported:
+   `electron` ≤ 41.10.5 (ASAR integrity bypass, sandbox and `contextBridge`
+   escapes, protocol-handler cross-origin reads, and more), `electron-builder` /
+   `app-builder-lib` ≤ 26.14.0, `builder-util-runtime` < 9.7.0, `extract-zip`,
+   `sprintf-js` (via `@electron/get`), and `tar` ≤ 7.5.20 — the critical one,
+   reached through `electron-builder`. `npm audit fix --force` clears them by
+   installing `electron@44.7.2` and `electron-builder@26.15.3`, both breaking major
+   jumps from the current `electron@^33`. This is its own piece of work: upgrade,
+   then re-verify the in-process bridge, the single-instance lock, desktop
+   notifications, and a real `npm run pack`.
 
 ## Verified as non-issues
 
@@ -72,9 +90,25 @@ Last reviewed: 2026-10-12.
   module, and no `sound.play()` call site fires on a stall. `cards.js` "Stalled"
   is a visual avatar expression only.
 
+- **The `AlertCenter` snooze exports are intentional public surface.**
+  `snooze()`, `unSnooze()`, and `toggleSnooze()` have no in-app caller because the
+  popover button in `dashboard/alerts.js` calls the module-internal functions
+  directly, but they are the console and test entry points —
+  `test/cards-smoke.test.js` drives `toggleSnooze()`. Kept deliberately. An earlier
+  note here claimed `sound.isMuted()` had no internal caller; that was wrong.
+  `dashboard/app.js` calls it from the exported `App.isSoundSuppressed()`, which
+  the smoke tests read.
+
+- **`.cursorignore` is tracked while `.gitignore` also lists it.** The ignore rule
+  was inert, since ignore patterns never apply to a tracked file. Resolved by
+  dropping the `.gitignore` entry: the file is a deliberate shared Cursor config.
+
 ## Housekeeping
 
-- The merged branch `fix/snooze-sound-suppression` (local and remote) can be
-  deleted.
+- The merged branch `fix/snooze-sound-suppression` is gone locally and on the
+  remote; there is nothing to delete.
 - Repo-root `AgentWorkshop.exe` is rebuilt via `npm run pack` after user-facing
   changes; it is gitignored and never committed.
+- The top-level `state/` directory is empty and is referenced nowhere in the tree.
+  Git cannot track an empty directory, so it has no effect on the repo. Left in
+  place rather than deleted, since its origin is unknown.

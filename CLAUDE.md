@@ -109,11 +109,13 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 
 - Brand as **Cursor Agents** (pixel-cast block agents).
 - Desktop exe: **no CMD popups.** Keep the live bridge in-process inside Electron; root portable exe is the primary packaged launch path.
-- After user-facing UI/desktop changes, refresh repo-root **`AgentWorkshop.exe`** via `npm run pack` (portable) or `npm run build` (`scripts/copy-exe.js`, portable only, never naked win-unpacked). `*.exe` is gitignored; still copy locally for the user (see `.cursor/rules/refresh-desktop-exe.mdc`).
+- After user-facing UI/desktop changes, refresh repo-root **`AgentWorkshop.exe`** via `npm run pack` (portable) or `npm run build` (`scripts/copy-exe.js`, portable only, never naked win-unpacked). `*.exe` is gitignored; still copy locally for the user.
 - Keep `live-bridge.js` **reusable** from CLI and from Electron (same module/API surface).
 - Prefer **minimal dependencies** (bridge today is Node stdlib only).
 - **Do not commit secrets** (`.env*`, tokens, credentials). Ignore `dist/`, `*.exe`, and `node_modules` via `.gitignore`. Local `dist\` / stale exes are safe to delete and rebuild from git + npm.
-- Before **commit + push** of product changes, run a **quick Advisor** go/fix gate (`.cursor/rules/advisor-before-commit-push.mdc`). Advisor instructions + CI foresight (lint, `format:check`, smoke, packaging) live in **`.cursor/agents/advisor.md`** (workflow: `.github/workflows/ci.yml`).
+- Before **commit + push** of product changes, run the full local gate: `npm run ci` (ESLint, `format:check`, smoke tests, packaging check). That is the pre-push gate; `.github/workflows/ci.yml` re-runs the same sequence on Ubuntu and Windows.
+- **Node 24** (active LTS) is the supported runtime, declared as `engines.node` in `package.json`. CI runs it on both platforms.
+- The repo is named **`agent-workshop`** while the product keeps the **Cursor Agents · Model Routing** name (`model-routing-dashboard.html`, appId `com.cursor.agents.model-routing`, the window/product name, and the `cursor-agents-model-routing` app-data folder). That split is deliberate; do not "fix" it into one name.
 
 ## Limits (don't "fix" these away casually)
 
