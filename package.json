@@ -1,10 +1,13 @@
 {
   "name": "agent-workshop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Cursor Agents · Model Routing. Electron desktop dashboard with in-process live bridge",
   "main": "electron/main.js",
   "author": "Thymeed",
   "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/thymeed/agent-workshop.git"
