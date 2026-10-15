@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
   unknown role, a tool edit, terminal signals, and a malformed line. 66 tests, run by
   `npm test` via `npm run test:unit`.
+- `dashboard/bill.js`: the Session Bill, split out of `app.js` (~230 lines). Owns the
+  usage counters' presentation, the savings comparison, the HUD totals, and the demo
+  daily baseline. The shared session state object is passed in by reference, so every
+  other reader of `state.usage` / `state.calls` / `state.subs` (including the test hook)
+  is unchanged. 18 unit tests run the real `bill-math.js` behind it and cover
+  accumulation, the explorer/researcher and roleless-haiku attribution rules, snapshot
+  replacement, the Haiku max rule, live-vs-demo token routing, and the daily baseline.
 - `dashboard/presence.js`: the Live presence state machine (header hint, stage banner,
   coach sheet, empty-log copy) plus the bridge sync-age chip and its poll, split out of
   `app.js` (~230 lines). It owns the presence value, the quiet-healthy timer, the

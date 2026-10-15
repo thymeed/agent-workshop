@@ -133,6 +133,7 @@ Keep `node_modules\` unless you are ready for a full `npm ci` / `npm install` (l
 | `dashboard/projects.js`        | Live project picker: list projects, switch the bridge scope, hand it to Insights + History                                              |
 | `dashboard/presence.js`        | Live presence (hint, banner, coach, empty-log copy), the bridge sync-age chip, and its poll                                             |
 | `dashboard/bill-math.js`       | Pure bill/usage math: rates, token and money formatting, model normalization, summary CSV · no DOM                                      |
+| `dashboard/bill.js`            | Session Bill: usage counters and their DOM, savings comparison, HUD totals; owns the demo daily baseline                                |
 | `dashboard/safe-html.js`       | The single HTML escaper (`window.SafeHtml`); every other dashboard module aliases it · loads first                                      |
 | `dashboard/sound.js`           | Workshop audio cues (Web Audio, synthesized, no assets): master gain + limiter, volume, role-tinted timbres · muted by default          |
 | `dashboard/insights.js`        | Insights forecast, cost-ranked suggestions, History/Replay UI                                                                           |

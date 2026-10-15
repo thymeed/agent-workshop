@@ -14,6 +14,13 @@
   var togglePanels = view.togglePanels;
   var updateHistoryHint = view.updateHistoryHint;
   var projects = window.WorkshopProjects;
+  var bill = window.WorkshopBill;
+  var renderBill = bill.render;
+  var addUsage = bill.addUsage;
+  var setUsageSnapshot = bill.setUsageSnapshot;
+  var setCalls = bill.setCalls;
+  var setSubs = bill.setSubs;
+  var setEffort = bill.setEffort;
   var presence = window.WorkshopPresence;
   var setLivePresence = presence.setLivePresence;
   var scheduleQuietHealthy = presence.scheduleQuietHealthy;
@@ -24,10 +31,7 @@
   var applyBridgeSyncMeta = presence.applyBridgeSyncMeta;
   var emptyUsage = billMath.emptyUsage;
   var usageGrandTotal = billMath.usageGrandTotal;
-  var formatTokens = billMath.formatTokens;
   var formatMoney = billMath.formatMoney;
-  var normalizeModel = billMath.normalizeModel;
-  var modelCost = billMath.modelCost;
   var summaryToCsv = billMath.summaryToCsv;
   var BRIDGE = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(location.origin)
     ? location.origin
@@ -194,7 +198,6 @@
     } catch (_insightsErr) {}
   }
   /* Replay → stage wiring is registered after onReplayIndexChange is defined (below). */
-  var lastDemoUsageTotal = 0;
   var playing = false;
   var timers = [];
   /** Live event ids already applied to UI + daily stats, keyed by project scope. */
@@ -933,162 +936,6 @@
     el.innerHTML = html;
   }
 
-  function syncDailyStatsFromUsage() {
-    if (!AgentCards) return;
-    if (mode === "live") {
-      if (typeof AgentCards.syncLiveSubs === "function") AgentCards.syncLiveSubs(state.subs);
-      return;
-    }
-    var total = usageGrandTotal(state.usage);
-    var delta = total - lastDemoUsageTotal;
-    if (delta > 0 && typeof AgentCards.addTokens === "function") AgentCards.addTokens(delta);
-    lastDemoUsageTotal = total;
-  }
-
-  function renderBill() {
-    var u = state.usage;
-    var costs = {
-      opus: modelCost("opus", u.opus.in, u.opus.out),
-      fable: modelCost("fable", u.fable.in, u.fable.out),
-      sonnet: modelCost("sonnet", u.sonnet.in, u.sonnet.out),
-      haiku: modelCost("haiku", u.haiku.in, u.haiku.out),
-      explorer: modelCost("haiku", u.explorer.in, u.explorer.out),
-      researcher: modelCost("haiku", u.researcher.in, u.researcher.out)
-    };
-    billEls.opusIn.textContent = formatTokens(u.opus.in);
-    billEls.opusOut.textContent = formatTokens(u.opus.out);
-    billEls.opusCost.textContent = formatMoney(costs.opus);
-    billEls.fableIn.textContent = formatTokens(u.fable.in);
-    billEls.fableOut.textContent = formatTokens(u.fable.out);
-    billEls.fableCost.textContent = formatMoney(costs.fable);
-    billEls.sonnetIn.textContent = formatTokens(u.sonnet.in);
-    billEls.sonnetOut.textContent = formatTokens(u.sonnet.out);
-    billEls.sonnetCost.textContent = formatMoney(costs.sonnet);
-    billEls.haikuIn.textContent = formatTokens(u.haiku.in);
-    billEls.haikuOut.textContent = formatTokens(u.haiku.out);
-    billEls.haikuCost.textContent = formatMoney(costs.haiku);
-    billEls.explorerIn.textContent = formatTokens(u.explorer.in);
-    billEls.explorerOut.textContent = formatTokens(u.explorer.out);
-    billEls.explorerCost.textContent = formatMoney(costs.explorer);
-    billEls.researcherIn.textContent = formatTokens(u.researcher.in);
-    billEls.researcherOut.textContent = formatTokens(u.researcher.out);
-    billEls.researcherCost.textContent = formatMoney(costs.researcher);
-
-    var sessionTotal = costs.opus + costs.fable + costs.sonnet + costs.haiku;
-    var totalIn = u.opus.in + u.fable.in + u.sonnet.in + u.haiku.in;
-    var totalOut = u.opus.out + u.fable.out + u.sonnet.out + u.haiku.out;
-    var allOpus = modelCost("opus", totalIn, totalOut);
-
-    billEls.sessionTotal.textContent = formatMoney(sessionTotal);
-    billEls.allOpus.textContent = formatMoney(allOpus);
-    if (hudSessionCost) hudSessionCost.textContent = formatMoney(sessionTotal);
-    if (hudTokens) hudTokens.textContent = formatTokens(u.haiku.in + u.haiku.out);
-
-    if (sessionTotal > 0 && allOpus > sessionTotal) {
-      var mult = allOpus / Math.max(sessionTotal, 0.0001);
-      billEls.multiplier.textContent =
-        "~" + (mult >= 10 ? Math.round(mult) : mult.toFixed(1)) + "×";
-      billEls.savingsNote.textContent =
-        formatMoney(allOpus) + " → " + formatMoney(sessionTotal) + " · vs all-Opus";
-    } else if (sessionTotal > 0) {
-      billEls.multiplier.textContent = "~1×";
-      billEls.savingsNote.textContent = "routed cost near all-Opus";
-    } else {
-      billEls.multiplier.textContent = "n/a";
-      billEls.savingsNote.textContent = "savings vs all-Opus";
-    }
-
-    var shareTotal = sessionTotal || 0;
-    function setShare(el, cost) {
-      var pct = shareTotal > 0 ? (cost / shareTotal) * 100 : 0;
-      el.style.width = pct + "%";
-    }
-    setShare(billEls.shareOpus, costs.opus);
-    setShare(billEls.shareFable, costs.fable);
-    setShare(billEls.shareSonnet, costs.sonnet);
-    setShare(billEls.shareHaiku, costs.haiku);
-  }
-
-  function addUsage(usage, opts) {
-    opts = opts || {};
-    if (!usage) return;
-    var role = String(usage.role || "").toLowerCase();
-    var model = normalizeModel(usage.model, role);
-    var inn = Math.max(0, Number(usage.in) || 0);
-    var out = Math.max(0, Number(usage.out) || 0);
-    if (!inn && !out) return;
-    state.usage[model].in += inn;
-    state.usage[model].out += out;
-    if (role === "explorer" || role === "researcher") {
-      state.usage[role].in += inn;
-      state.usage[role].out += out;
-    } else if (model === "haiku") {
-      /* Live may send model=haiku without role. Attribute to explorer by default */
-      state.usage.explorer.in += inn;
-      state.usage.explorer.out += out;
-    }
-    renderBill();
-    var sparkRole =
-      role === "advisor" || role === "fable"
-        ? "advisor"
-        : role === "worker" || role === "sonnet"
-          ? "worker"
-          : role === "explorer"
-            ? "explorer"
-            : role === "researcher"
-              ? "researcher"
-              : model === "fable"
-                ? "advisor"
-                : model === "sonnet"
-                  ? "worker"
-                  : model === "haiku"
-                    ? "explorer"
-                    : "opus";
-    stageDirector.tipSpark(sparkRole);
-    if (opts.skipDaily) return;
-    if (mode === "live" && AgentCards && typeof AgentCards.addTokens === "function") {
-      AgentCards.addTokens(inn + out, sparkRole);
-    } else {
-      syncDailyStatsFromUsage();
-    }
-  }
-
-  function setUsageSnapshot(snap, sparkRole) {
-    state.usage = emptyUsage();
-    if (!snap) {
-      renderBill();
-      return;
-    }
-    ["opus", "fable", "sonnet", "haiku", "explorer", "researcher"].forEach(function (key) {
-      if (!snap[key]) return;
-      state.usage[key].in = Math.max(0, Number(snap[key].in) || 0);
-      state.usage[key].out = Math.max(0, Number(snap[key].out) || 0);
-    });
-    /* Keep Haiku total as max of sum of sublines vs explicit haiku */
-    var subIn = state.usage.explorer.in + state.usage.researcher.in;
-    var subOut = state.usage.explorer.out + state.usage.researcher.out;
-    if (subIn > state.usage.haiku.in) state.usage.haiku.in = subIn;
-    if (subOut > state.usage.haiku.out) state.usage.haiku.out = subOut;
-    renderBill();
-    if (sparkRole) stageDirector.tipSpark(sparkRole);
-    syncDailyStatsFromUsage();
-  }
-
-  function setCalls(n) {
-    state.calls = n;
-    advisorCallsEl.textContent = String(n);
-  }
-
-  function setSubs(n) {
-    state.subs = n;
-    if (hudSubs) hudSubs.textContent = String(n);
-    syncDailyStatsFromUsage();
-  }
-
-  function setEffort(label) {
-    if (hudEffort) hudEffort.textContent = label || "mixed";
-  }
-
   function layoutFlow() {
     /* Workshop paths are fixed in SVG viewBox. No card-geometry layout. */
   }
@@ -1184,9 +1031,7 @@
     setSubs(0);
     advisorLastEl.textContent = "Last advice: none";
     setEffort(mode === "live" ? "live" : "mixed");
-    state.usage = emptyUsage();
-    lastDemoUsageTotal = 0;
-    renderBill();
+    bill.resetUsage();
     activity.clear();
     if (AgentCards && typeof AgentCards.reset === "function") {
       AgentCards.reset({ keepDaily: mode === "live", mode: mode });
@@ -1355,9 +1200,8 @@
     setCalls(0);
     setSubs(0);
     advisorLastEl.textContent = "Last advice: none";
-    state.usage = emptyUsage();
     state.liveSubs = {};
-    renderBill();
+    bill.resetUsage();
     activity.clear();
     activity.resetLogEmpty("Replay session…");
   }
@@ -1937,7 +1781,7 @@
     modeDemo.classList.toggle("on", mode === "demo");
     modeLive.classList.toggle("on", mode === "live");
     modeLive.classList.toggle("live-on", mode === "live");
-    lastDemoUsageTotal = 0;
+    bill.resetDemoTotal();
     if (next === "demo") clearLiveSeenEvents();
     if (AgentCards && typeof AgentCards.onModeChange === "function") {
       AgentCards.onModeChange(next);
@@ -1999,6 +1843,28 @@
   });
 
   sound.init();
+
+  bill.init({
+    state: state,
+    billEls: billEls,
+    hud: {
+      sessionCost: hudSessionCost,
+      tokens: hudTokens,
+      subs: hudSubs,
+      effort: hudEffort
+    },
+    advisorCallsEl: advisorCallsEl,
+    billMath: billMath,
+    getMode: function () {
+      return mode;
+    },
+    cards: function () {
+      return AgentCards;
+    },
+    tipSpark: function (role) {
+      stageDirector.tipSpark(role);
+    }
+  });
 
   presence.init({
     appEl: appEl,
@@ -2329,9 +2195,7 @@
     },
     setDemoUsageAndSyncDaily: function (usage) {
       if (mode !== "demo") return;
-      state.usage = usage || emptyUsage();
-      lastDemoUsageTotal = 0;
-      syncDailyStatsFromUsage();
+      bill.replaceUsage(usage);
     },
     getDailyStats: function () {
       return AgentCards && typeof AgentCards.getDailyStats === "function"
