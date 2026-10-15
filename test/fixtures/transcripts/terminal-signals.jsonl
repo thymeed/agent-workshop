@@ -1,0 +1,3 @@
+{"type":"assistant","role":"assistant","timestamp":"2026-10-09T14:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"<final>Unit tests pass on the first run.</final>"}]}}
+{"type":"assistant","role":"assistant","timestamp":"2026-10-09T14:01:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"<error>assertion failed in transcript-tail</error>"}]}}
+{"type":"assistant","role":"assistant","timestamp":"2026-10-09T14:01:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Prose only: there was an error, and then the run was done."}]}}

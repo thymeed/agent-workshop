@@ -1,0 +1,2 @@
+{"type":"user","role":"user","timestamp":"2026-10-09T14:10:00.000Z","message":{"role":"user","content":[{"type":"text","text":"You are operating as the \"Advisor\" custom subagent.\n\n<user_query>Advisor: which test harness fits this repo?</user_query>"}]}}
+{"type":"assistant","role":"assistant","timestamp":"2026-10-09T14:10:30.000Z","message":{"role":"assistant","usage":{"input_tokens":900,"output_tokens":300},"content":[{"type":"text","text":"Use node:test with assert/strict, CommonJS, no bridge."}]}}

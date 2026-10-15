@@ -20,7 +20,7 @@ The main viewport is an agent workshop: five pixel-cast block agents at fixed st
 - **HUD.** Session cost, active role, subagents, effort, and Haiku token chips.
 - Demo scripted Play and Live SSE both drive the stage. History replay (play / pause / scrub / speed) uses the same workshop engine. Leaving History stops transport and leaves the last replay frame until Demo or Live runs again.
 - Token and session figures are illustrative, not official Cursor billing.
-- Optional Web Audio cues are muted by default. Use the header sound toggle (stored in `localStorage`). Alert **snooze** also silences workshop audio and desktop toasts until you un-snooze, and stays in effect across an app restart.
+- Optional Web Audio cues are muted by default. Use the header sound toggle (stored in `localStorage`); the slider beside it sets volume. Cues are synthesized, not sampled, and mixed through a master gain and a limiter so overlapping cues cannot clip. They are role-tinted, so an Opus crate and a Haiku crate do not sound identical. Alert **snooze** also silences workshop audio and desktop toasts until you un-snooze, and stays in effect across an app restart.
 
 ### Primary launch
 
@@ -119,25 +119,26 @@ Keep `node_modules\` unless you are ready for a full `npm ci` / `npm install` (l
 
 ## Project layout
 
-| Path                           | Role                                                                 |
-| ------------------------------ | -------------------------------------------------------------------- |
-| `model-routing-dashboard.html` | Markup shell (Demo + Live UI)                                        |
-| `dashboard/styles.css`         | Dashboard styles                                                     |
-| `dashboard/cards.css`          | Station card / avatar / ship-celebration styles                      |
-| `dashboard/insights.css`       | Insights / History drawer styles                                     |
-| `dashboard/tips.css`           | TipLayer floating tooltip styles                                     |
-| `dashboard/alerts.css`         | Alert center bell / popover styles                                   |
-| `dashboard/app.js`             | Demo playbook, Live SSE client, workshop stage, Live presence        |
-| `dashboard/insights.js`        | Insights forecast, cost-ranked suggestions, History/Replay UI        |
-| `dashboard/replay-stage.js`    | Replay transport to workshop stage                                   |
-| `dashboard/cards.js`           | Station cards, avatars, daily stats, privacy meter, ship celebration |
-| `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                    |
-| `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`)                |
-| `live-bridge.js`               | Headless/Electron bridge (HTML + `/dashboard/*` + APIs)              |
-| `electron/main.js`             | Desktop window; starts bridge in-process                             |
-| `test/demo-smoke.test.js`      | Demo-mode Playwright smoke test                                      |
-| `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                          |
-| `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                         |
+| Path                           | Role                                                                                                                                    |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `model-routing-dashboard.html` | Markup shell (Demo + Live UI)                                                                                                           |
+| `dashboard/styles.css`         | Dashboard styles                                                                                                                        |
+| `dashboard/cards.css`          | Station card / avatar / ship-celebration styles                                                                                         |
+| `dashboard/insights.css`       | Insights / History drawer styles                                                                                                        |
+| `dashboard/tips.css`           | TipLayer floating tooltip styles                                                                                                        |
+| `dashboard/alerts.css`         | Alert center bell / popover styles                                                                                                      |
+| `dashboard/app.js`             | Orchestrator: Demo playbook, Live SSE client, mode switching, project picker, jump-to-agent, ship celebration, `__cursorAgentsDashTest` |
+| `dashboard/sound.js`           | Workshop audio cues (Web Audio, synthesized, no assets): master gain + limiter, volume, role-tinted timbres · muted by default          |
+| `dashboard/insights.js`        | Insights forecast, cost-ranked suggestions, History/Replay UI                                                                           |
+| `dashboard/replay-stage.js`    | Replay transport to workshop stage                                                                                                      |
+| `dashboard/cards.js`           | Station cards, avatars, daily stats, privacy meter, ship celebration                                                                    |
+| `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                                       |
+| `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`)                                                                                   |
+| `live-bridge.js`               | Headless/Electron bridge (HTML + `/dashboard/*` + APIs)                                                                                 |
+| `electron/main.js`             | Desktop window; starts bridge in-process                                                                                                |
+| `test/demo-smoke.test.js`      | Demo-mode Playwright smoke test                                                                                                         |
+| `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                                                             |
+| `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                                                                                            |
 
 ## Demo mode (static HTML fallback)
 
@@ -276,6 +277,20 @@ The in-app alert center (header bell) lists the same alerts: mark read, snooze, 
 - Only sees chats that write into the selected project's transcripts folder.
 - History API responses omit events whose `sessionId` is not present under the current transcripts tree.
 - Hooks, statusline, and Cursor SDK are separate integration paths. This dashboard reads transcripts on disk.
+
+### Format compatibility
+
+The bridge reads Cursor's on-disk transcripts. These are the assumptions it makes, and the version they were last checked against.
+
+- **Path layout.** `~/.cursor/projects/<project-id>/agent-transcripts/*.jsonl`, with subagent transcripts under a `subagents/` directory. Override the root with `CURSOR_PROJECTS_ROOT`.
+- **Line shape.** One JSON object per line. The timestamp is read from `timestamp`, `ts`, `createdAt`, `created_at`, or `message.timestamp` — the first that parses wins. A line with none of those is stamped with the current time.
+- **Roles.** `Task` / `CallDynamicTool` `subagent_type` values map to advisor, worker, explorer, or researcher. Anything unrecognized falls back to parent/generic.
+- **Terminal signals.** Detected from structured tags, never from prose words like "error" or "done". A transcript that ends without one simply stays un-terminated; the agent never shows as finished.
+- **Usage.** Real `usage` fields win when present. Otherwise tokens are estimated from character counts at roughly four characters per token. Estimates are illustrative, not official billing.
+
+Last verified against Cursor's transcript layout as of 2026-10. Cursor controls this format and can change it; there is no version negotiation. If the dashboard stops seeing sessions, check this list first.
+
+**Unknown roles are visible.** A `subagent_type` the bridge does not recognize is marked `unrecognized role` on its delegation line in the Session Log and Activity drawer. The type renders as a worker card either way, so the marker is the signal that Cursor introduced a role this build does not know. Telemetry is local only; nothing is sent anywhere.
 
 ## Contributing and security
 

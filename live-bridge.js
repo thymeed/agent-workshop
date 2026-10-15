@@ -44,6 +44,7 @@ const {
   filesFromActivity,
   snippet,
   mapSubagentType,
+  isKnownSubagentType,
   roleToCard,
   roleToModel,
   estimateUsage,
@@ -630,6 +631,9 @@ function handleParentLine(obj, filePath) {
     if (isTask) {
       const subType = args.subagent_type || input.subagent_type || "";
       const role = mapSubagentType(subType);
+      /* Local, log-only marker: Cursor can add a subagent type we do not know yet,
+         and silently showing it as a worker hides a format drift. */
+      const unknownRole = !!subType && !isKnownSubagentType(subType);
       const desc = snippet(args.description || args.prompt || subType || "subagent", 72);
       const card = roleToCard(role);
       const delegate = card !== "opus";
@@ -637,7 +641,12 @@ function handleParentLine(obj, filePath) {
       pushEvent({
         role: delegate ? role : "parent",
         kind: "delegates",
-        message: "delegates · " + (subType || role) + " · " + desc,
+        message:
+          "delegates · " +
+          (subType || role) +
+          (unknownRole ? " · unrecognized role" : "") +
+          " · " +
+          desc,
         active: delegate ? [card] : ["opus"],
         route: "delegates",
         routeTo: card,

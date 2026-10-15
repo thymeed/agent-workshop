@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  create-release:
+    name: Create release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # creates the release that the build jobs attach assets to
+
+    steps:
+      - name: Ensure release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            exit 0
+          fi
+          gh release create "$TAG" -R "$REPO" --title "$TAG" --generate-notes --verify-tag
+
+  publish:
+    name: Build and publish (${{ matrix.os }})
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: write # attaches this platform's build assets to the release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            pack: pack:linux
+            sums: SHA256SUMS-linux.txt
+          - os: windows-latest
+            pack: pack:win
+            sums: SHA256SUMS-windows.txt
+          - os: macos-latest
+            pack: pack:mac
+            sums: SHA256SUMS-macos.txt
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache Electron binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/electron
+            ~/AppData/Local/electron/Cache
+            ~/Library/Caches/electron
+          key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fakeroot
+
+      - name: Build distributables
+        run: npm run ${{ matrix.pack }}
+
+      - name: Drop shared builder metadata
+        shell: bash
+        run: rm -f dist/builder-debug.yml dist/builder-effective-config.yaml
+
+      - name: Checksums
+        run: node scripts/checksums.js dist
+
+      - name: Publish assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          SUMS: ${{ matrix.sums }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            gh release upload "$TAG" "dist/${line:66}" --clobber -R "$REPO"
+          done < dist/SHA256SUMS.txt
+          mv dist/SHA256SUMS.txt "$SUMS"
+          gh release upload "$TAG" "$SUMS" --clobber -R "$REPO"
+
+  combined-checksums:
+    name: Publish combined SHA256SUMS.txt
+    needs: publish
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # replaces the per-platform manifests with one combined SHA256SUMS.txt
+
+    steps:
+      - name: Merge per-platform manifests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p sums
+          gh release download "$TAG" -R "$REPO" --pattern "SHA256SUMS-*.txt" --dir sums
+          test -n "$(ls sums/SHA256SUMS-*.txt 2>/dev/null)" || {
+            echo "no per-platform manifests were published"
+            exit 1
+          }
+          LC_ALL=C sort -k2,2 sums/SHA256SUMS-*.txt > SHA256SUMS.txt
+          gh release upload "$TAG" SHA256SUMS.txt --clobber -R "$REPO"

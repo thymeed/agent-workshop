@@ -1,0 +1,2 @@
+{"type":"user","role":"user","timestamp":"2026-10-09T14:14:00.000Z","message":{"role":"user","content":[{"type":"text","text":"You are operating as the \"mystery-agent\" custom subagent.\n\n<user_query>Look at the dashboard cards.</user_query>"}]}}
+{"type":"assistant","role":"assistant","timestamp":"2026-10-09T14:14:15.000Z","message":{"role":"assistant","usage":{"input_tokens":400,"output_tokens":120},"content":[{"type":"text","text":"Cards render from the events feed."}]}}
