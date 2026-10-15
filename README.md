@@ -130,6 +130,7 @@ Keep `node_modules\` unless you are ready for a full `npm ci` / `npm install` (l
 | `dashboard/app.js`             | Orchestrator: Demo playbook, Live SSE client, mode switching, project picker, jump-to-agent, ship celebration, `__cursorAgentsDashTest` |
 | `dashboard/activity.js`        | Activity drawer, Session Log, and their empty states; owns its row list, log clock, and role filter                                     |
 | `dashboard/view-mode.js`       | Header view switching (Stage/Insights/History), the Panels toggle, and the drawer-sheet focus policy                                    |
+| `dashboard/projects.js`        | Live project picker: list projects, switch the bridge scope, hand it to Insights + History                                              |
 | `dashboard/bill-math.js`       | Pure bill/usage math: rates, token and money formatting, model normalization, summary CSV · no DOM                                      |
 | `dashboard/safe-html.js`       | The single HTML escaper (`window.SafeHtml`); every other dashboard module aliases it · loads first                                      |
 | `dashboard/sound.js`           | Workshop audio cues (Web Audio, synthesized, no assets): master gain + limiter, volume, role-tinted timbres · muted by default          |

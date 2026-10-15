@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built-in `node:test` runner, with JSONL fixtures covering every subagent role, an
   unknown role, a tool edit, terminal signals, and a malformed line. 66 tests, run by
   `npm test` via `npm run test:unit`.
+- `dashboard/projects.js`: the Live project picker, split out of `app.js` (~170 lines).
+  Renders the project list, switches the bridge's transcript scope over `/api/select`,
+  and hands the new scope to Insights and History. The selected id/label stay owned by
+  `app.js` and are reached through getters/setters, so no other reader changed. 12 unit
+  tests cover rendering, the empty and recovery presence transitions, picking up
+  `streaming` vs `quiet-healthy` from recent traffic, the `/api/select` POST shape
+  (including the required `X-Cursor-Bridge` header), a failed switch, and the
+  re-entrancy guard.
 - `dashboard/view-mode.js`: header view switching (Stage/Insights/History), the Panels
   toggle, and the drawer-sheet focus policy, split out of `app.js` (~160 lines). The
   module owns the current view mode and restores it from `sessionStorage` on init. 9

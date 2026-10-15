@@ -33,6 +33,7 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 | `dashboard/bill-math.js`       | Pure bill/usage math (rates, formatting, model normalization, summary CSV); no DOM, unit tested in `test/unit/bill-math.test.js` |
 | `dashboard/activity.js`        | Activity drawer + Session Log + empty states; owns rows/log clock/role filter, unit tested in `test/unit/activity.test.js`       |
 | `dashboard/view-mode.js`       | View switching + Panels toggle + focus policy; owns the current view, unit tested in `test/unit/view-mode.test.js`               |
+| `dashboard/projects.js`        | Live project picker + /api/select; owns the in-flight guard, unit tested in `test/unit/projects.test.js`                         |
 | `dashboard/safe-html.js`       | The single HTML escaper `window.SafeHtml`; loads before every other dashboard script, which all alias it                         |
 | `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                                |
 | `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`; indefinite snooze with un-snooze; mini faces via `AgentCards.faceMarkup`)  |

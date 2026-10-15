@@ -13,6 +13,7 @@
   var remountHistoryReplayIfNeeded = view.remountHistoryReplayIfNeeded;
   var togglePanels = view.togglePanels;
   var updateHistoryHint = view.updateHistoryHint;
+  var projects = window.WorkshopProjects;
   var emptyUsage = billMath.emptyUsage;
   var usageGrandTotal = billMath.usageGrandTotal;
   var formatTokens = billMath.formatTokens;
@@ -43,7 +44,6 @@
   var activityEdit = document.getElementById("activityEdit");
   var currentProjectLabel = null;
   var currentProjectId = null;
-  var selectingProject = false;
   var advisorCallsEl = document.getElementById("advisorCalls");
   var advisorLastEl = document.getElementById("advisorLast");
   var billEls = {
@@ -1322,144 +1322,6 @@
     }
   }
 
-  function updateFooterProject() {
-    if (!footerProject) return;
-    if (mode === "live" && currentProjectLabel) {
-      footerProject.textContent = currentProjectLabel;
-    } else {
-      footerProject.textContent = "cursor --model opus --advisor fable";
-    }
-  }
-
-  function setProjectPickerVisible(visible) {
-    if (!projectPicker) return;
-    projectPicker.hidden = !visible;
-  }
-
-  function fillProjectPicker(data) {
-    if (!projectPicker || !data) return;
-    var projects = data.projects || [];
-    var selected = data.selectedId || currentProjectId;
-    currentProjectId = data.selectedId || currentProjectId;
-    currentProjectLabel = data.selectedLabel || currentProjectLabel;
-    projectPicker.innerHTML = "";
-    if (!projects.length) {
-      var opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = "No Cursor projects found";
-      projectPicker.appendChild(opt);
-      projectPicker.disabled = true;
-      updateFooterProject();
-      if (
-        mode === "live" &&
-        demoBtn.classList.contains("live-connected") &&
-        livePresence !== "bridge-down" &&
-        livePresence !== "file-origin"
-      ) {
-        setLivePresence("no-projects");
-      }
-      return;
-    }
-    projectPicker.disabled = false;
-    if (mode === "live" && livePresence === "no-projects") {
-      setLivePresence(
-        Date.now() - lastLiveEventAt < QUIET_AFTER_MS && lastLiveEventAt > 0
-          ? "streaming"
-          : "quiet-healthy"
-      );
-    }
-    projects.forEach(function (p) {
-      var opt = document.createElement("option");
-      opt.value = p.id;
-      opt.textContent = p.label || p.id;
-      if (p.id === selected) opt.selected = true;
-      projectPicker.appendChild(opt);
-    });
-    if (selected && projectPicker.value !== selected) {
-      projectPicker.value = selected;
-    }
-    updateFooterProject();
-  }
-
-  function loadProjects() {
-    if (!projectPicker) return Promise.resolve(null);
-    return fetch(BRIDGE + "/api/projects", { cache: "no-store" })
-      .then(function (r) {
-        if (!r.ok) throw new Error("projects " + r.status);
-        return r.json();
-      })
-      .then(function (data) {
-        if (mode === "live") setProjectPickerVisible(true);
-        fillProjectPicker(data);
-        return data;
-      })
-      .catch(function () {
-        setProjectPickerVisible(false);
-        return null;
-      });
-  }
-
-  function focusInsightsLatestSession(meta) {
-    if (!insightsPanel || typeof insightsPanel.focusLatestSession !== "function") return;
-    var hint = meta && meta.latestSessionId ? meta.latestSessionId : "";
-    insightsPanel.focusLatestSession(hint).then(function () {
-      remountHistoryReplayIfNeeded();
-    });
-  }
-
-  function onLiveProjectScopeChange(meta, opts) {
-    opts = opts || {};
-    focusInsightsLatestSession(meta);
-    if (opts.navigateHistory && typeof setViewMode === "function") {
-      setViewMode("history");
-    }
-  }
-
-  function selectProject(id) {
-    if (!id || selectingProject) return Promise.resolve(null);
-    selectingProject = true;
-    return fetch(BRIDGE + "/api/select", {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Cursor-Bridge": "1"
-      },
-      body: JSON.stringify({ id: id })
-    })
-      .then(function (r) {
-        return r
-          .json()
-          .catch(function () {
-            return {};
-          })
-          .then(function (body) {
-            if (!r.ok) {
-              return {
-                ok: false,
-                error: (body && body.error) || "Select failed (" + r.status + ")"
-              };
-            }
-            return body;
-          });
-      })
-      .then(function (data) {
-        if (data && data.ok) {
-          currentProjectId = data.projectId;
-          currentProjectLabel = data.projectLabel;
-          updateFooterProject();
-        }
-        return data;
-      })
-      .catch(function () {
-        return { ok: false, error: "Could not switch project" };
-      })
-      .then(function (data) {
-        selectingProject = false;
-        return data;
-      });
-  }
-
   function resetUI(opts) {
     opts = opts || {};
     clearTimers();
@@ -1475,13 +1337,13 @@
       demoBtn.textContent = "Play";
       demoBtn.hidden = false;
       liveHint.hidden = true;
-      setProjectPickerVisible(false);
-      updateFooterProject();
+      projects.setProjectPickerVisible(false);
+      projects.updateFooterProject();
       setLivePresence(null);
     } else {
       demoBtn.textContent = "Reconnect";
       demoBtn.hidden = false;
-      setProjectPickerVisible(true);
+      projects.setProjectPickerVisible(true);
     }
     if (!opts.keepActive) setActive([]);
     setStatus("opus", '<span class="live">Idle · waiting for task</span>');
@@ -1872,15 +1734,15 @@
     if (location.protocol === "file:") {
       demoBtn.classList.remove("live-connected");
       demoBtn.textContent = "Reconnect";
-      setProjectPickerVisible(false);
+      projects.setProjectPickerVisible(false);
       setLivePresence("file-origin");
       refreshSyncAgeChip();
       return;
     }
 
     setLivePresence("connecting");
-    setProjectPickerVisible(true);
-    loadProjects();
+    projects.setProjectPickerVisible(true);
+    projects.loadProjects();
     startSyncAgePoll();
 
     function onOk(meta) {
@@ -1888,7 +1750,7 @@
       if (meta && meta.projectLabel) {
         currentProjectLabel = meta.projectLabel;
         currentProjectId = meta.projectId || currentProjectId;
-        updateFooterProject();
+        projects.updateFooterProject();
         if (projectPicker && currentProjectId) {
           projectPicker.value = currentProjectId;
         }
@@ -1930,9 +1792,9 @@
       resetUI({ keepActive: false });
       demoBtn.classList.add("live-connected");
       demoBtn.textContent = "Connected";
-      updateFooterProject();
+      projects.updateFooterProject();
       setLivePresence("quiet-healthy");
-      loadProjects();
+      projects.loadProjects();
       if (window.AlertCenter && typeof window.AlertCenter.hydrate === "function") {
         window.AlertCenter.hydrate(BRIDGE);
       }
@@ -2345,7 +2207,7 @@
       var id = projectPicker.value;
       var previousId = currentProjectId;
       if (!id || id === previousId) return;
-      selectProject(id).then(function (data) {
+      projects.selectProject(id).then(function (data) {
         if (!data || !data.ok) {
           if (previousId) projectPicker.value = previousId;
           else projectPicker.selectedIndex = 0;
@@ -2356,11 +2218,11 @@
         }
         currentProjectId = data.projectId || id;
         currentProjectLabel = data.projectLabel || currentProjectLabel;
-        updateFooterProject();
+        projects.updateFooterProject();
         // Restart Live stream; SSE "reset" may be missed if the old EventSource closes first
         startLive();
         setViewMode("history");
-        onLiveProjectScopeChange(data, { navigateHistory: false });
+        projects.onScopeChange(data, { navigateHistory: false });
       });
     });
   }
@@ -2376,6 +2238,47 @@
   });
 
   sound.init();
+
+  projects.init({
+    projectPicker: projectPicker,
+    footerProject: footerProject,
+    bridgeUrl: BRIDGE,
+    quietAfterMs: QUIET_AFTER_MS,
+    getMode: function () {
+      return mode;
+    },
+    getLivePresence: function () {
+      return livePresence;
+    },
+    setLivePresence: function (state, detail) {
+      setLivePresence(state, detail);
+    },
+    isBridgeConnected: function () {
+      return !!demoBtn.classList.contains("live-connected");
+    },
+    getLastLiveEventAt: function () {
+      return lastLiveEventAt;
+    },
+    getProjectId: function () {
+      return currentProjectId;
+    },
+    getProjectLabel: function () {
+      return currentProjectLabel;
+    },
+    setProject: function (id, label) {
+      if (id != null) currentProjectId = id;
+      if (label != null) currentProjectLabel = label;
+    },
+    getInsightsPanel: function () {
+      return insightsPanel;
+    },
+    remountHistoryReplayIfNeeded: function () {
+      remountHistoryReplayIfNeeded();
+    },
+    setViewMode: function (m) {
+      setViewMode(m);
+    }
+  });
 
   view.init({
     appEl: appEl,
@@ -2550,7 +2453,7 @@
   }
   refreshSyncAgeChip();
   activity.clear();
-  updateFooterProject();
+  projects.updateFooterProject();
   sound.syncBtn();
   requestAnimationFrame(function () {
     layoutFlow();
