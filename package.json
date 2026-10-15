@@ -15,11 +15,14 @@
   "scripts": {
     "start": "electron .",
     "bridge": "node live-bridge.js",
-    "build": "electron-builder --win && node scripts/copy-exe.js",
+    "build": "electron-builder && node scripts/copy-exe.js",
     "build:check": "node scripts/check-packaging.js",
     "copy-exe": "node scripts/copy-exe.js",
     "pack": "electron-builder --win portable && node scripts/copy-exe.js",
-    "pack:dir": "electron-builder --win --dir",
+    "pack:win": "electron-builder --win && node scripts/copy-exe.js",
+    "pack:mac": "electron-builder --mac && node scripts/copy-exe.js",
+    "pack:linux": "electron-builder --linux && node scripts/copy-exe.js",
+    "pack:dir": "electron-builder --dir",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -66,6 +69,20 @@
         }
       ],
       "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development"
     },
     "nsis": {
       "oneClick": true,

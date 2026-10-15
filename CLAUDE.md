@@ -18,31 +18,31 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 
 ## Key files
 
-| File                           | Role                                                                                                                            |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `model-routing-dashboard.html` | Dashboard markup shell (Demo + Live; Stage/Insights/History chrome)                                                             |
-| `dashboard/styles.css`         | Dashboard styles                                                                                                                |
-| `dashboard/cards.css`          | Station card / avatar / ship-celebration styles                                                                                 |
-| `dashboard/insights.css`       | Insights / History drawer styles                                                                                                |
-| `dashboard/tips.css`           | TipLayer floating tooltip styles                                                                                                |
-| `dashboard/alerts.css`         | Alert center bell / popover styles                                                                                              |
-| `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage + Live presence + inbound route tokens                                         |
-| `dashboard/insights.js`        | Insights forecast + cost-ranked suggestions + History/Replay UI                                                                 |
-| `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                                                           |
-| `dashboard/cards.js`           | Station cards, pixel-cast `faceMarkup` / `blockAgentSvgInner`, daily stats, privacy meter, ship celebration                     |
-| `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                               |
-| `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`; indefinite snooze with un-snooze; mini faces via `AgentCards.faceMarkup`) |
-| `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts`, `/api/snooze`              |
-| `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                                                                 |
-| `package.json`                 | Electron/desktop scripts + lint/test/ci                                                                                         |
-| `scripts/copy-exe.js`          | After `build`/`pack`: copy **portable** `dist/AgentWorkshop.exe` → repo-root (never win-unpacked)                               |
-| `electron/main.js`             | Desktop window; start bridge in-process                                                                                         |
-| `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                                                    |
-| `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                                                     |
-| `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                                                                                    |
-| `.github/workflows/ci.yml`     | Lint, format check, smoke test, packaging check                                                                                 |
-| `README.md`                    | User-facing run instructions and Live-mode limits                                                                               |
-| `docs/known-issues.md`         | Audit findings: fixed / open / verified non-issues (alert snooze, notifications, CI)                                            |
+| File                           | Role                                                                                                                             |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `model-routing-dashboard.html` | Dashboard markup shell (Demo + Live; Stage/Insights/History chrome)                                                              |
+| `dashboard/styles.css`         | Dashboard styles                                                                                                                 |
+| `dashboard/cards.css`          | Station card / avatar / ship-celebration styles                                                                                  |
+| `dashboard/insights.css`       | Insights / History drawer styles                                                                                                 |
+| `dashboard/tips.css`           | TipLayer floating tooltip styles                                                                                                 |
+| `dashboard/alerts.css`         | Alert center bell / popover styles                                                                                               |
+| `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage + Live presence + inbound route tokens                                          |
+| `dashboard/insights.js`        | Insights forecast + cost-ranked suggestions + History/Replay UI                                                                  |
+| `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                                                            |
+| `dashboard/cards.js`           | Station cards, pixel-cast `faceMarkup` / `blockAgentSvgInner`, daily stats, privacy meter, ship celebration                      |
+| `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                                |
+| `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`; indefinite snooze with un-snooze; mini faces via `AgentCards.faceMarkup`)  |
+| `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts`, `/api/snooze`               |
+| `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                                                                  |
+| `package.json`                 | Electron/desktop scripts + lint/test/ci                                                                                          |
+| `scripts/copy-exe.js`          | After `build`/`pack`: copy **portable** `dist/AgentWorkshop.exe` → repo-root (never win-unpacked); Windows-only, no-op elsewhere |
+| `electron/main.js`             | Desktop window; start bridge in-process                                                                                          |
+| `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                                                     |
+| `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                                                      |
+| `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                                                                                     |
+| `.github/workflows/ci.yml`     | Lint, format check, smoke test, packaging check, unpacked package build (Ubuntu / Windows / macOS)                               |
+| `README.md`                    | User-facing run instructions and Live-mode limits                                                                                |
+| `docs/known-issues.md`         | Audit findings: fixed / open / verified non-issues (alert snooze, notifications, CI)                                             |
 
 ## How to run
 
@@ -113,8 +113,9 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 - Keep `live-bridge.js` **reusable** from CLI and from Electron (same module/API surface).
 - Prefer **minimal dependencies** (bridge today is Node stdlib only).
 - **Do not commit secrets** (`.env*`, tokens, credentials). Ignore `dist/`, `*.exe`, and `node_modules` via `.gitignore`. Local `dist\` / stale exes are safe to delete and rebuild from git + npm.
-- Before **commit + push** of product changes, run the full local gate: `npm run ci` (ESLint, `format:check`, smoke tests, packaging check). That is the pre-push gate; `.github/workflows/ci.yml` re-runs the same sequence on Ubuntu and Windows.
-- **Node 24** (active LTS) is the supported runtime, declared as `engines.node` in `package.json`. CI runs it on both platforms.
+- Before **commit + push** of product changes, run the full local gate: `npm run ci` (ESLint, `format:check`, smoke tests, packaging check). That is the pre-push gate; `.github/workflows/ci.yml` re-runs the same sequence on Ubuntu, Windows, and macOS, plus an unpacked packaging build per platform.
+- **Cross-platform builds.** `npm run build` targets the current platform; `npm run pack:win` / `pack:mac` / `pack:linux` target one explicitly, and `npm run pack` is the Windows portable shortcut. macOS and Linux artifacts are produced but unsigned.
+- **Node 24** (active LTS) is the supported runtime, declared as `engines.node` in `package.json`. CI runs it on all three platforms.
 - The repo is named **`agent-workshop`** while the product keeps the **Cursor Agents · Model Routing** name (`model-routing-dashboard.html`, appId `com.cursor.agents.model-routing`, the window/product name, and the `cursor-agents-model-routing` app-data folder). That split is deliberate; do not "fix" it into one name.
 
 ## Limits (don't "fix" these away casually)
