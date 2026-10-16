@@ -293,6 +293,35 @@ function testContractShape() {
   if (errors.length) throw new Error("contract failed:\n- " + errors.join("\n- "));
 }
 
+function testReplacePreservesLogOnWriteFailure() {
+  const dir = tmpDir("atomic-fail");
+  const log = createEventLog({ logDir: dir });
+  log.append(sampleEvent({ agentId: "keep-me" }));
+  const p = log.getLogPath();
+  const before = fs.readFileSync(p, "utf8");
+  assert(before.includes("keep-me"), "seed event present");
+
+  const origWrite = fs.writeFileSync;
+  fs.writeFileSync = function (file, ...args) {
+    if (String(file).includes(".tmp")) {
+      throw new Error("simulated atomic write failure");
+    }
+    return origWrite.call(fs, file, ...args);
+  };
+  try {
+    let threw = false;
+    try {
+      log.clear();
+    } catch (_e) {
+      threw = true;
+    }
+    assert(threw, "clear must fail when the temp write fails");
+    assert(fs.readFileSync(p, "utf8") === before, "original log must survive a failed replace");
+  } finally {
+    fs.writeFileSync = origWrite;
+  }
+}
+
 function testRetentionAndClear() {
   const dir = tmpDir("retain");
   const log = createEventLog({ logDir: dir, retentionMs: 1000 });
@@ -474,6 +503,7 @@ async function main() {
   testRedactionSignedUrls();
   testPemFullBlockRedaction();
   testContractShape();
+  testReplacePreservesLogOnWriteFailure();
   testRetentionAndClear();
   testExistingLogDirChmodOnStart();
   testFilePermissions();

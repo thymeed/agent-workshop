@@ -132,6 +132,8 @@ let currentIngestFile = "";
 let currentIngestLine = 0;
 
 let PORT = 3847;
+/** Identity token for /api/status; Electron refuses foreign listeners on the bridge port. */
+const BRIDGE_ID = "cursor-agents-model-routing-v1";
 /** @type {string} */
 let TRANSCRIPTS = emptyTranscripts();
 /** @type {string|null} */
@@ -597,6 +599,7 @@ function selectProject(id) {
 function statusPayload() {
   return {
     ok: true,
+    bridgeId: BRIDGE_ID,
     port: PORT,
     transcripts: TRANSCRIPTS,
     projectId: currentProjectId,
@@ -1554,7 +1557,7 @@ function probeExistingBridge(port) {
         res.on("end", () => {
           try {
             const j = JSON.parse(body);
-            resolve(j && j.ok === true ? j : null);
+            resolve(j && j.ok === true && j.bridgeId === BRIDGE_ID ? j : null);
           } catch (_) {
             resolve(null);
           }
@@ -1781,6 +1784,7 @@ function clearHistory() {
 }
 
 module.exports = {
+  BRIDGE_ID,
   startBridge,
   stopBridge,
   discoverProjects,

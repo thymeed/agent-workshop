@@ -156,6 +156,19 @@ async function testStaticAndCors(port) {
   const home = await request(port, { path: "/" });
   assert.strictEqual(home.status, 200, `GET /: expected 200, got ${home.status}`);
   assert.ok(/text\/html/.test(home.headers["content-type"]), "GET / must be text/html");
+  const csp = home.headers["content-security-policy"] || "";
+  assert.ok(
+    csp.includes("script-src 'self'"),
+    "GET / must send a strict CSP with script-src 'self'"
+  );
+  assert.ok(
+    csp.includes("style-src 'self' 'unsafe-inline'"),
+    "GET / CSP must allow inline styles for the dashboard"
+  );
+
+  const status = await request(port, { path: "/api/status" });
+  const statusJson = JSON.parse(status.body);
+  assert.ok(statusJson.bridgeId, "status must include bridgeId for port identity checks");
 
   const css = await request(port, { path: "/dashboard/styles.css" });
   assert.strictEqual(css.status, 200, `GET stylesheet: expected 200, got ${css.status}`);

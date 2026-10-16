@@ -203,7 +203,7 @@ test("summaryToCsv round-trips a built summary", () => {
   const lines = M.summaryToCsv(s).trim().split("\n");
   assert.equal(lines[0], "model,inputTokens,outputTokens,estimatedCostUsd");
   assert.equal(lines[1], "opus,0,0,0");
-  const total = lines.find((l) => l.startsWith("TOTAL,"));
+  const total = lines.find((l) => l.startsWith("TOTAL (excl. explorer/researcher; in Haiku),"));
   assert.ok(total, "TOTAL row present");
   assert.equal(total.split(",")[1], "250000");
   assert.ok(
@@ -235,7 +235,7 @@ test("summaryToCsv emits a stable header, one row per model, a TOTAL, and the no
   assert.equal(lines[0], "model,inputTokens,outputTokens,estimatedCostUsd");
   assert.equal(lines[1], "opus,10,20,0.00044");
   assert.equal(lines[2], "haiku,1,2,0.0000011");
-  assert.equal(lines[3], "TOTAL,11,22,0.0004411");
+  assert.equal(lines[3], "TOTAL (excl. explorer/researcher; in Haiku),11,22,0.0004411");
   assert.ok(
     lines.some((l) => l.startsWith("note,")),
     "note row must be present"

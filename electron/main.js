@@ -6,9 +6,12 @@
  */
 "use strict";
 
-const { app, BrowserWindow, Notification } = require("electron");
+const http = require("http");
+const { app, BrowserWindow, Notification, dialog } = require("electron");
 const path = require("path");
-const { startBridge, stopBridge } = require(path.join(__dirname, "..", "live-bridge.js"));
+const { startBridge, stopBridge, BRIDGE_ID } = require(
+  path.join(__dirname, "..", "live-bridge.js")
+);
 
 const PORT = Number(process.env.CURSOR_BRIDGE_PORT || 3847);
 const WINDOW_TITLE = "Cursor Agents · Model Routing";
@@ -50,6 +53,51 @@ function showAgentAlert(alert) {
   }
 }
 
+function isAllowedNavigationUrl(urlString, port) {
+  try {
+    const u = new URL(urlString);
+    if (u.protocol !== "http:") return false;
+    const host = u.hostname.replace(/^\[|\]$/g, "");
+    if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") return false;
+    const urlPort = u.port || "80";
+    return urlPort === String(port);
+  } catch (_e) {
+    return false;
+  }
+}
+
+function probeBridgeIdentity(port) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/api/status",
+        timeout: 2000
+      },
+      (res) => {
+        let body = "";
+        res.on("data", (c) => {
+          body += c;
+        });
+        res.on("end", () => {
+          try {
+            const j = JSON.parse(body);
+            resolve(j && j.ok === true && j.bridgeId === BRIDGE_ID ? j : null);
+          } catch (_e) {
+            resolve(null);
+          }
+        });
+      }
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+    req.on("error", () => resolve(null));
+  });
+}
+
 async function bootBridge() {
   // Start the bridge in-process: quiet, no console chatter, no spawned cmd/node.
   const result = await startBridge({
@@ -64,6 +112,18 @@ async function bootBridge() {
 
 async function createWindow() {
   const bridge = await bootBridge();
+  const identity = await probeBridgeIdentity(bridge.port);
+  if (!identity) {
+    dialog.showErrorBox(
+      WINDOW_TITLE,
+      `Could not verify the model-routing bridge on port ${bridge.port}. ` +
+        "Another app may be using that port, or the bridge failed to start. " +
+        "Close other listeners on this port and restart the app."
+    );
+    await shutdown();
+    app.quit();
+    return;
+  }
 
   mainWindow = new BrowserWindow({
     width: 1180,
@@ -82,6 +142,14 @@ async function createWindow() {
   });
 
   mainWindow.setMenuBarVisibility(false);
+
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!isAllowedNavigationUrl(url, bridge.port)) {
+      event.preventDefault();
+    }
+  });
+
   mainWindow.on("page-title-updated", (e) => {
     e.preventDefault();
     mainWindow.setTitle(WINDOW_TITLE);
