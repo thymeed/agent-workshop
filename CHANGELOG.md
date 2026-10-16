@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-16
+
 Correctness pass on the Live path. The bridge was reading a transcript shape Cursor does not
 write, so several features could never fire. Everything below was checked against real
 transcripts on disk, and the fixtures and the README's format list were corrected to match.
@@ -32,7 +34,13 @@ usage limit reached` is now visible in the event feed. It stays out of the alert
   this build does not know, was dropped without a trace, so a drifted transcript made the
   dashboard look quiet rather than wrong. Both are now counted, reported once per session in
   the event feed, and exposed on `GET /api/status` as
-  `drift: { unparsed, unknownShape, lastAt, lastSample }`.
+  `drift: { unparsed, unknownShape, unknownStatus, lastAt, lastSample }`.
+- **An unfamiliar terminal status is reported, not guessed.** A `turn_ended` status this
+  build does not recognize (a real corpus holds `status:"aborted"`) was filed as an
+  ordinary mid-turn row, so the agent never showed as finished and nothing said why. It now
+  raises the drift counter and says so, and the turn is still recorded rather than being
+  guessed as done or error. Repeat passes over a file's warm-up tail no longer re-count
+  drift, so a project switch cannot look like a fresh format change.
 - **The README's format list described a format that does not exist.** It documented a
   top-level `timestamp`, a `usage` block, `{"type":"user"}` conversation lines, and
   `agent-transcripts/*.jsonl` at the root. None of those appear on disk. The list now
@@ -254,7 +262,8 @@ audio fix; see Fixed.
 
 - Token and session cost figures are illustrative estimates, not official Cursor billing.
 
-[Unreleased]: https://github.com/thymeed/agent-workshop/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/thymeed/agent-workshop/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/thymeed/agent-workshop/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/thymeed/agent-workshop/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/thymeed/agent-workshop/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/thymeed/agent-workshop/compare/v1.1.0...v1.2.0

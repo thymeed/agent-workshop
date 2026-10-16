@@ -168,7 +168,7 @@ let lastScanAt = null;
  * notice, and a reshaped line used to be dropped in silence: the dashboard simply looked
  * quiet. Counting unreadable and unrecognized lines turns that into a visible signal.
  */
-const drift = { unparsed: 0, unknownShape: 0, lastAt: null, lastSample: "" };
+const drift = { unparsed: 0, unknownShape: 0, unknownStatus: 0, lastAt: null, lastSample: "" };
 /** Report the first drift of a bridge session once, not once per line. */
 let driftReported = false;
 
@@ -546,6 +546,7 @@ function resetWatchState() {
   seenHistoryKeys.clear();
   drift.unparsed = 0;
   drift.unknownShape = 0;
+  drift.unknownStatus = 0;
   drift.lastAt = null;
   drift.lastSample = "";
   driftReported = false;
@@ -609,6 +610,7 @@ function statusPayload() {
     drift: {
       unparsed: drift.unparsed,
       unknownShape: drift.unknownShape,
+      unknownStatus: drift.unknownStatus,
       lastAt: drift.lastAt,
       lastSample: drift.lastSample
     },
@@ -629,19 +631,27 @@ function statusPayload() {
  * @param {string} sample
  */
 function noteDrift(kind, sample) {
+  /* Warm-up and project-switch rescans re-read a file's tail. Those bytes were already
+     observed, so counting them again would inflate the totals and make a switch look like
+     fresh drift. Only lines arriving now are new evidence about the format. */
+  if (!historyIngestRecording) return;
   if (kind === "unparsed") drift.unparsed += 1;
+  else if (kind === "status") drift.unknownStatus += 1;
   else drift.unknownShape += 1;
   drift.lastAt = nowIso();
   drift.lastSample = snippet(sample, 120);
   if (driftReported) return;
   driftReported = true;
+  const what =
+    kind === "unparsed"
+      ? "unparsed line"
+      : kind === "status"
+        ? "unrecognized terminal status"
+        : "unrecognized line shape";
   pushEvent({
     role: "parent",
     kind: "status",
-    message:
-      "transcript drift · " +
-      (kind === "unparsed" ? "unparsed line" : "unrecognized line shape") +
-      " · this build may be behind Cursor's format",
+    message: "transcript drift · " + what + " · this build may be behind Cursor's format",
     active: [],
     source: "bridge"
   });
@@ -671,6 +681,10 @@ function isCancellation(reason) {
 function handleTerminalLine(obj, filePath, isSub) {
   const terminal = turnEndedFromLine(obj);
   if (!terminal) return;
+  /* A turn_ended status this build does not recognize is vocabulary drift, not an unknown
+     shape: Cursor added a terminal state. Report it rather than quietly filing the line as
+     a mid-turn row, which is what hid `status:"aborted"` in a real corpus audit. */
+  if (!terminal.known) noteDrift("status", JSON.stringify(obj));
   const role = isSub ? roleForFile(filePath) || "worker" : "parent";
   const name = roleDisplayName(role);
   const type = /** @type {"done"|"error"|"turn"} */ (terminal.type || "turn");
