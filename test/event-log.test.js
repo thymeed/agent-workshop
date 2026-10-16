@@ -264,6 +264,7 @@ function testContractShape() {
     "parentId",
     "name",
     "model",
+    "modelRaw",
     "type",
     "inputTokens",
     "outputTokens",
