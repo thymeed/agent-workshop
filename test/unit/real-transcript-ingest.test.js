@@ -221,6 +221,72 @@ test("an error terminal persists an error row and its reason reaches the log", a
   }
 });
 
+test("an unrecognized terminal status is counted as drift, not filed as a quiet turn", async () => {
+  const info = await startBridgeForSmoke();
+  try {
+    /* The alert ring is process-wide and survives a bridge restart, so compare against a
+       baseline instead of assuming an empty ring. */
+    const before = await get(info.port, "/api/alerts");
+    const baselineId = (before.alerts || []).reduce((max, a) => Math.max(max, a.id || 0), 0);
+
+    const sessionDir = path.join(info.transcriptsDir, SESSION);
+    fs.mkdirSync(path.join(sessionDir, "subagents"), { recursive: true });
+    /* `aborted` is a real status seen in an audited corpus. A new terminal state is
+       vocabulary drift: the shape is known, the value is not. */
+    fs.writeFileSync(
+      path.join(sessionDir, "subagents", WORKER_UUID + ".jsonl"),
+      [
+        '{"role":"user","message":{"content":[{"type":"text","text":"<user_query>do the thing</user_query>"}]}}',
+        '{"type":"turn_ended","status":"aborted"}'
+      ].join("\n") + "\n"
+    );
+
+    const status = await waitFor(async () => {
+      const body = await get(info.port, "/api/status");
+      const d = body.drift;
+      return d && d.unknownStatus > 0 ? body : null;
+    });
+    assert.ok(status, "an unknown terminal status must raise the drift counter");
+    assert.equal(status.drift.unknownStatus, 1);
+    assert.equal(status.drift.unparsed, 0, "the line parsed fine");
+    assert.equal(status.drift.unknownShape, 0, "the shape is known; the value is not");
+    assert.ok(status.drift.lastAt);
+
+    const feed = await waitFor(async () => {
+      const body = await get(info.port, "/api/events");
+      const list = body.events || [];
+      return list.some((ev) => /unrecognized terminal status/.test(ev.message || "")) ? list : null;
+    });
+    assert.ok(feed, "vocabulary drift should be said out loud, not implied");
+
+    /* The turn still records, so ingest does not stall on a status it cannot classify. */
+    const events = await waitFor(async () => {
+      const body = await get(info.port, "/api/history");
+      const rows = body.events || [];
+      return rows.length ? rows : null;
+    });
+    assert.ok(events, "the turn should still be recorded");
+    assert.equal(
+      events.some((row) => row.type === "done" || row.type === "error"),
+      false,
+      "an unknown status must not be guessed as done or error"
+    );
+    /* The claim that matters: this run's unknown status must never report the agent
+       finished. Only alerts newer than the baseline belong to this run. */
+    const alerts = await get(info.port, "/api/alerts");
+    assert.equal(
+      (alerts.alerts || []).some(
+        (alert) =>
+          alert.id > baselineId && alert.agentId === WORKER_UUID && alert.status === "finished"
+      ),
+      false,
+      "an unknown status must not claim the agent finished"
+    );
+  } finally {
+    await stopBridgeForSmoke();
+  }
+});
+
 test("an unreadable line is counted and reported as drift, not dropped", async () => {
   const info = await startBridgeForSmoke();
   try {
@@ -244,6 +310,11 @@ test("an unreadable line is counted and reported as drift, not dropped", async (
     assert.ok(status, "drift counters should record both kinds of drift");
     assert.equal(status.drift.unknownShape, 1, "the summary line is an unknown shape");
     assert.equal(status.drift.unparsed, 1, "the truncated line does not parse");
+    assert.equal(
+      status.drift.unknownStatus,
+      0,
+      "a known status must not be counted as vocabulary drift"
+    );
     assert.ok(status.drift.lastAt, "drift records when it happened");
 
     const feed = await waitFor(async () => {
