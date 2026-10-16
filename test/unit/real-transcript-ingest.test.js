@@ -113,6 +113,30 @@ test("real terminal lines become done rows and finish alerts", async () => {
     /* The delegation line names the model; the station can show what actually ran. */
     const spawnRows = events.filter((row) => row.modelRaw);
     assert.ok(spawnRows.length >= 1, "a delegation should carry the pinned model slug");
+    const pinned = spawnRows.find((row) => row.modelRaw === "claude-sonnet-5-5-high");
+    assert.ok(pinned, "the worker delegation pins claude-sonnet-5-5-high");
+
+    /* The label has to reach the rendered text, not just the payload: app.js puts the
+       event message on the station card, so the card reads "worker - Sonnet - …". */
+    const feed = await waitFor(async () => {
+      const body = await get(info.port, "/api/events");
+      const list = body.events || [];
+      return list.some((ev) => ev.kind === "delegates" && /\bSonnet\b/.test(ev.message || ""))
+        ? list
+        : null;
+    });
+    assert.ok(feed, "the station card text should name the model the delegation pinned");
+    const composerEvent = feed.find(
+      (ev) => ev.kind === "delegates" && /\bComposer\b/.test(ev.message || "")
+    );
+    assert.ok(composerEvent, "the explore delegation pins composer-2.5-fast and says so");
+    assert.equal(composerEvent.modelLabel, "Composer");
+    /* A route word must never be rendered as if it were a model. */
+    assert.equal(
+      feed.some((ev) => /\binherit\b/i.test(ev.message || "")),
+      false,
+      "a delegation that inherits must not print 'inherit' as a model"
+    );
 
     const alerts = await waitFor(async () => {
       const body = await get(info.port, "/api/alerts");

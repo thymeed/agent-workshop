@@ -149,7 +149,8 @@ locks them, and `test/fixtures/transcripts/real/` holds the shape.
 - A real delegation carries **no child agent id**, so the parent-side `spawn` row cannot be
   keyed to a child. The subagent's own transcript supplies its spawn row.
 - The model slug lives at `input.arguments.model` on a `Task` call and **nowhere else**. A
-  subagent transcript never records its own model.
+  subagent transcript never records its own model, and only about a third of delegations
+  name one at all (99 of 149 `Task` calls in a corpus audit carried no `model` key).
 
 - Near-real file polling, not hook-level realtime.
 - Token deltas are illustrative estimates from transcript activity.
