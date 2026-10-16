@@ -21,6 +21,9 @@
  * @property {string|null} parentId Parent agent id, null for the parent itself.
  * @property {string} name Human-readable agent name.
  * @property {string} model Model key (opus | fable | sonnet | haiku, or raw).
+ * @property {string} modelRaw Raw Cursor model slug from the delegation's `args.model`
+ *   (for example `claude-haiku-5-5-thinking-high`), or "" when the child inherited the
+ *   parent's route. Display-only: `model` remains the billable bucket.
  * @property {HistoryEventType} type
  * @property {number} inputTokens
  * @property {number} outputTokens
@@ -42,6 +45,8 @@
  * @property {string|null} routeTo Destination station for the route token.
  * @property {number} tokensDelta
  * @property {TokenUsage|null} usage Real transcript usage when present.
+ * @property {string} [modelRaw] Raw Cursor model slug for a delegation line.
+ * @property {string} [modelLabel] Display label for that slug (Haiku, Grok, Composer…).
  * @property {ActivityItem|null} activity Crate to spawn on the stage, when any.
  * @property {string} source "transcript" unless the bridge synthesizes it.
  * @property {boolean} [replayError] Set on a replayed error row.

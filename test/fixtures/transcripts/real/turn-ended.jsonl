@@ -1,0 +1,5 @@
+{"type":"turn_ended","status":"success"}
+{"type":"turn_ended","status":"error","error":"Other Models usage limit reached Switched to grok-4.6 after reaching Other Models usage limit."}
+{"type":"turn_ended","status":"error","error":"user_stopped_generation"}
+{"type":"turn_ended","status":"aborted"}
+{"type":"summary","note":"A shape this build does not recognize, which must be reported as drift."}

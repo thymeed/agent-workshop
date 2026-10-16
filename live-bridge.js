@@ -36,6 +36,8 @@ const {
   nowIso,
   transcriptTimestamp,
   extractToolResults,
+  lineShape,
+  turnEndedFromLine,
   terminalTypeFromTranscript,
   resolveTaskChildAgentId,
   agentIdFromFile,
@@ -47,6 +49,7 @@ const {
   isKnownSubagentType,
   roleToCard,
   roleToModel,
+  extractDelegationModel,
   estimateUsage,
   toolArgs,
   resolveToolName,
@@ -159,6 +162,15 @@ let alertSeq = 0;
 let lastScanError = null;
 /** ISO time of the most recent scan() pass (near-real poll, not hook-level). */
 let lastScanAt = null;
+
+/**
+ * Transcript drift counters. Cursor owns the on-disk format and changes it without
+ * notice, and a reshaped line used to be dropped in silence: the dashboard simply looked
+ * quiet. Counting unreadable and unrecognized lines turns that into a visible signal.
+ */
+const drift = { unparsed: 0, unknownShape: 0, lastAt: null, lastSample: "" };
+/** Report the first drift of a bridge session once, not once per line. */
+let driftReported = false;
 
 /** @type {http.Server|null} */
 let server = null;
@@ -325,6 +337,10 @@ function pushEvent(partial) {
     routeTo: partial.routeTo || null,
     tokensDelta: partial.tokensDelta || 0,
     usage: partial.usage != null ? partial.usage : null,
+    /* Raw model slug a delegation pinned, when the transcript names one. Display only:
+       billed usage still follows the role's rate bucket. */
+    modelRaw: partial.modelRaw || null,
+    modelLabel: partial.modelLabel || null,
     activity: partial.activity != null ? partial.activity : null,
     source: partial.source || "transcript"
   };
@@ -393,14 +409,23 @@ function touchAgentWatch(agentId, name, terminalStatus, opts) {
   prev.name = name || prev.name || id;
 
   if (terminalStatus) {
-    if (prev.terminal) {
+    const already = !!prev.terminal;
+    /* Repeat terminals are deduped so a long session cannot stream one alert per turn.
+       An error still surfaces after a success, but a repeated error does not repeat. */
+    if (already && terminalStatus !== "error") {
+      agentWatch.set(id, prev);
+      return;
+    }
+    if (already && prev.terminal === "error") {
       agentWatch.set(id, prev);
       return;
     }
     prev.terminal = terminalStatus;
     prev.stallAlerted = true;
     agentWatch.set(id, prev);
-    emitAgentAlert(prev.name, terminalStatus, id);
+    /* The caller decides whether this terminal is worth a toast. A parent `success` is
+       the end of every user turn, so alerting it would be noise and a false "finished". */
+    if (opts.alertTerminal !== false) emitAgentAlert(prev.name, terminalStatus, id);
     return;
   }
 
@@ -484,9 +509,14 @@ function recordHistoryEvent(partial, meta) {
   const ev = eventLog.append(partial);
   if (!ev) return null;
   const stallTrack = meta.stallTrack != null ? meta.stallTrack : isStallTrackedAgent(ev.agentId);
-  if (ev.type === "done") touchAgentWatch(ev.agentId, ev.name, "finished", { stallTrack });
-  else if (ev.type === "error") touchAgentWatch(ev.agentId, ev.name, "error", { stallTrack });
-  else touchAgentWatch(ev.agentId, ev.name, null, { stallTrack });
+  const alertTerminal = meta.alertTerminal !== false;
+  if (ev.type === "done") {
+    touchAgentWatch(ev.agentId, ev.name, "finished", { stallTrack, alertTerminal });
+  } else if (ev.type === "error") {
+    touchAgentWatch(ev.agentId, ev.name, "error", { stallTrack, alertTerminal });
+  } else {
+    touchAgentWatch(ev.agentId, ev.name, null, { stallTrack });
+  }
   return ev;
 }
 
@@ -514,6 +544,11 @@ function resetWatchState() {
   fileState.clear();
   subagentRoles.clear();
   seenHistoryKeys.clear();
+  drift.unparsed = 0;
+  drift.unknownShape = 0;
+  drift.lastAt = null;
+  drift.lastSample = "";
+  driftReported = false;
   // Keep eventSeq monotonic so client after= / seenLiveIds stay valid across project switches
   lastScanError = null;
   snapshotTranscriptInventory();
@@ -570,6 +605,13 @@ function statusPayload() {
     sseClients: sseClients.size,
     watching: fileState.size,
     lastScanError,
+    /** Transcript lines this build could not read. Non-zero means the on-disk format moved. */
+    drift: {
+      unparsed: drift.unparsed,
+      unknownShape: drift.unknownShape,
+      lastAt: drift.lastAt,
+      lastSample: drift.lastSample
+    },
     /** Alert snooze state (gates Electron desktop toasts; ring/SSE still flow). */
     snoozed: snoozeIndefinite,
     /** Last transcript poll time. Near-real file polling (~pollMs), not hook-level realtime. */
@@ -577,6 +619,94 @@ function statusPayload() {
     pollMs: POLL_MS,
     time: nowIso()
   };
+}
+
+/**
+ * Record one unreadable or unrecognized transcript line and report the first one.
+ * A silent drop is the failure mode that hid a real format drift: the dashboard looks
+ * quiet rather than wrong, so the user has to notice an absence. This makes it loud.
+ * @param {"unparsed"|"unknown"} kind
+ * @param {string} sample
+ */
+function noteDrift(kind, sample) {
+  if (kind === "unparsed") drift.unparsed += 1;
+  else drift.unknownShape += 1;
+  drift.lastAt = nowIso();
+  drift.lastSample = snippet(sample, 120);
+  if (driftReported) return;
+  driftReported = true;
+  pushEvent({
+    role: "parent",
+    kind: "status",
+    message:
+      "transcript drift · " +
+      (kind === "unparsed" ? "unparsed line" : "unrecognized line shape") +
+      " · this build may be behind Cursor's format",
+    active: [],
+    source: "bridge"
+  });
+}
+
+/**
+ * Terminal reasons that mean the user stopped the turn, not that anything broke.
+ * These still record as an error row (that is what the transcript says) but do not toast.
+ * @param {string} reason
+ */
+function isCancellation(reason) {
+  const r = String(reason || "")
+    .toLowerCase()
+    .trim();
+  return r === "user_stopped_generation" || r === "composer_abort_controller_aborted";
+}
+
+/**
+ * Real transcripts end a turn with {"type":"turn_ended","status":...}. Those lines carry
+ * no `role`, so the conversation handlers skip them and the legacy assistant tag path
+ * never fires on disk. Recording them here is what makes `done` / `error` rows exist and
+ * lets a subagent's completion reach the alert center.
+ * @param {object} obj
+ * @param {string} filePath
+ * @param {boolean} isSub
+ */
+function handleTerminalLine(obj, filePath, isSub) {
+  const terminal = turnEndedFromLine(obj);
+  if (!terminal) return;
+  const role = isSub ? roleForFile(filePath) || "worker" : "parent";
+  const name = roleDisplayName(role);
+  const type = /** @type {"done"|"error"|"turn"} */ (terminal.type || "turn");
+  const src = path.basename(filePath);
+
+  /* The reason rides the event stream (local UI), never the alert payload, which the
+     project keeps to name + status so it cannot leak a path or a prompt. */
+  if (terminal.reason) {
+    pushEvent({
+      role,
+      kind: "status",
+      message: "turn ended · " + (terminal.status || "?") + " · " + terminal.reason,
+      active: [roleToCard(role)],
+      source: src
+    });
+  }
+
+  recordHistoryFromTranscript(
+    {
+      ts: transcriptTimestamp(obj),
+      sessionId: sessionIdFromFile(filePath),
+      agentId: agentIdFromFile(filePath, role),
+      parentId: isSub ? "parent:parent" : null,
+      name,
+      model: roleToModel(role),
+      type,
+      inputTokens: 0,
+      outputTokens: 0,
+      files: []
+    },
+    {
+      /* A subagent is short-lived, so its terminal is the real finish and worth a toast.
+         The parent ends a turn on every user message, so only its errors do. */
+      alertTerminal: isSub || (type === "error" && !isCancellation(terminal.reason))
+    }
+  );
 }
 
 function handleParentLine(obj, filePath) {
@@ -637,6 +767,9 @@ function handleParentLine(obj, filePath) {
          and silently showing it as a worker hides a format drift. */
       const unknownRole = !!subType && !isKnownSubagentType(subType);
       const desc = snippet(args.description || args.prompt || subType || "subagent", 72);
+      /* The model the delegation pinned, read from the same args the role comes from.
+         Empty label when the child inherits, so a station never shows "inherit". */
+      const model = extractDelegationModel(tool);
       const card = roleToCard(role);
       const delegate = card !== "opus";
       const usage = takeUsage();
@@ -647,6 +780,7 @@ function handleParentLine(obj, filePath) {
           "delegates · " +
           (subType || role) +
           (unknownRole ? " · unrecognized role" : "") +
+          (model.label ? " · " + model.label : "") +
           " · " +
           desc,
         active: delegate ? [card] : ["opus"],
@@ -654,6 +788,8 @@ function handleParentLine(obj, filePath) {
         routeTo: card,
         tokensDelta: role === "explorer" || role === "researcher" ? 24000 : 0,
         usage,
+        modelRaw: model.slug || null,
+        modelLabel: model.label || null,
         source: src
       });
       const childId = resolveTaskChildAgentId(args, input);
@@ -665,9 +801,28 @@ function handleParentLine(obj, filePath) {
           parentId: agentIdFromFile(filePath, "parent"),
           name: roleDisplayName(role),
           model: roleToModel(role),
+          modelRaw: model.slug || "",
           type: "spawn",
           inputTokens: usage ? usage.in : 0,
           outputTokens: usage ? usage.out : 0,
+          files: []
+        });
+      } else {
+        /* Real delegations carry no child id, so the spawn row cannot be keyed to the
+           child and the model would be lost with it. The subagent's own file already
+           attributes the role; what only this line knows is the model it routed to.
+           Record that on the parent so History replay can name it too. */
+        recordHistoryFromTranscript({
+          ts: transcriptTimestamp(obj),
+          sessionId: sessionIdFromFile(filePath),
+          agentId: agentIdFromFile(filePath, "parent"),
+          parentId: null,
+          name: roleDisplayName("parent"),
+          model: roleToModel(role),
+          modelRaw: model.slug || "",
+          type: "turn",
+          inputTokens: 0,
+          outputTokens: 0,
           files: []
         });
       }
@@ -1090,6 +1245,17 @@ function ingestNewBytes(filePath) {
     try {
       obj = JSON.parse(trimmed);
     } catch (_) {
+      /* A line we cannot parse is drift, not noise. Report it instead of dropping it. */
+      noteDrift("unparsed", trimmed);
+      return;
+    }
+    const shape = lineShape(obj);
+    if (shape === "terminal") {
+      handleTerminalLine(obj, filePath, sub);
+      return;
+    }
+    if (shape !== "conversation") {
+      noteDrift("unknown", trimmed);
       return;
     }
     if (sub) handleSubagentLine(obj, filePath, roleForFile(filePath));

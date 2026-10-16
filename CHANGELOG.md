@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Correctness pass on the Live path. The bridge was reading a transcript shape Cursor does not
+write, so several features could never fire. Everything below was checked against real
+transcripts on disk, and the fixtures and the README's format list were corrected to match.
+
+### Fixed
+
+- **Terminal turns are actually read.** Cursor ends a turn with
+  `{"type":"turn_ended","status":"success"|"error"}`. The bridge looked for `</final>` /
+  `</error>` tags, which do not appear on disk, and the real `turn_ended` line carries no
+  `role`, so the conversation handlers skipped it. No `done` or `error` history row and no
+  finished/error alert could ever come from a real transcript. That line is now the
+  terminal source.
+- **The parent no longer claims to finish every turn.** A parent ends a turn on every user
+  message (about 0.9 `turn_ended` lines per user line in the audited corpus). Alerting each
+  one would stream a toast per turn, and each would say the session had finished when it
+  had not. Subagent terminals alert; a parent success stays quiet, a parent error still
+  alerts, and a user cancellation (`user_stopped_generation`,
+  `composer_abort_controller_aborted`) does not.
+- **A terminal error's own text reaches the log.** A quota notice such as `Other Models
+usage limit reached` is now visible in the event feed. It stays out of the alert payload,
+  which the project keeps to name + status so it cannot leak a path or a prompt.
+- **Format drift is no longer silent.** A line that failed to parse, or parsed to a shape
+  this build does not know, was dropped without a trace, so a drifted transcript made the
+  dashboard look quiet rather than wrong. Both are now counted, reported once per session in
+  the event feed, and exposed on `GET /api/status` as
+  `drift: { unparsed, unknownShape, lastAt, lastSample }`.
+- **The README's format list described a format that does not exist.** It documented a
+  top-level `timestamp`, a `usage` block, `{"type":"user"}` conversation lines, and
+  `agent-transcripts/*.jsonl` at the root. None of those appear on disk. The list now
+  describes the two real line shapes and the real path layout, and states plainly that
+  timestamps are ingest-time and tokens are estimated.
+
+### Added
+
+- **Stations name the model a delegation pinned.** `input.arguments.model` is read off the
+  `Task` call and mapped to a label (`claude-haiku-5-5-thinking-high` -> Haiku). Route words
+  (`inherit`, `fast`, `auto`, `default`) render as no label rather than as a model, and an
+  unknown slug is shown verbatim and priced at nothing rather than at a guessed rate.
+- `modelRaw` on the history contract, carrying that slug. `model` stays the billable bucket.
+- `test/fixtures/transcripts/real/`: fixtures in the shape Cursor actually writes, kept
+  beside the older hand-written ones, which still exercise the tolerant parser paths.
+- `test/unit/real-transcript-format.test.js` pins that shape and the parsers that read it.
+- `test/unit/real-transcript-ingest.test.js` drives real-shaped files through the real
+  bridge and asserts the done and error rows, the finish alerts, that the parent stays
+  quiet, and that drift is counted.
+
+### Changed
+
+- `touchAgentWatch` takes an `alertTerminal` hint. An error still surfaces after a success,
+  while a repeated error does not repeat.
+- A delegation with no resolvable child id is recorded as a parent `turn` row carrying the
+  model, instead of being dropped.
+
 ## [1.3.1] - 2026-10-15
 
 Refactors and test depth on top of 1.3.0. No user-visible behaviour change beyond one

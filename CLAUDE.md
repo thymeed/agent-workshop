@@ -18,42 +18,44 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 
 ## Key files
 
-| File                           | Role                                                                                                                             |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `model-routing-dashboard.html` | Dashboard markup shell (Demo + Live; Stage/Insights/History chrome)                                                              |
-| `dashboard/styles.css`         | Dashboard styles                                                                                                                 |
-| `dashboard/cards.css`          | Station card / avatar / ship-celebration styles                                                                                  |
-| `dashboard/insights.css`       | Insights / History drawer styles                                                                                                 |
-| `dashboard/tips.css`           | TipLayer floating tooltip styles                                                                                                 |
-| `dashboard/alerts.css`         | Alert center bell / popover styles                                                                                               |
-| `dashboard/app.js`             | Demo playbook + Live SSE client + workshop stage + Live presence + inbound route tokens                                          |
-| `dashboard/insights.js`        | Insights forecast + cost-ranked suggestions + History/Replay UI                                                                  |
-| `dashboard/replay-stage.js`    | Replay transport → workshop stage (crates/characters)                                                                            |
-| `dashboard/cards.js`           | Station cards, pixel-cast `faceMarkup` / `blockAgentSvgInner`, daily stats, privacy meter, ship celebration                      |
-| `dashboard/bill-math.js`       | Pure bill/usage math (rates, formatting, model normalization, summary CSV); no DOM, unit tested in `test/unit/bill-math.test.js` |
-| `dashboard/bill.js`            | Session Bill state + DOM; owns the demo daily baseline, unit tested in `test/unit/bill.test.js`                                  |
-| `dashboard/demo-playbook.js`   | Scripted demo beats; step bodies lifted verbatim, unit tested in `test/unit/demo-playbook.test.js`                               |
-| `dashboard/activity.js`        | Activity drawer + Session Log + empty states; owns rows/log clock/role filter, unit tested in `test/unit/activity.test.js`       |
-| `dashboard/view-mode.js`       | View switching + Panels toggle + focus policy; owns the current view, unit tested in `test/unit/view-mode.test.js`               |
-| `dashboard/projects.js`        | Live project picker + /api/select; owns the in-flight guard, unit tested in `test/unit/projects.test.js`                         |
-| `dashboard/presence.js`        | Presence state + coach + sync-age poll; owns presence/timers/scan meta, unit tested in `test/unit/presence.test.js`              |
-| `dashboard/safe-html.js`       | The single HTML escaper `window.SafeHtml`; loads before every other dashboard script, which all alias it                         |
-| `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                                |
-| `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`; indefinite snooze with un-snooze; mini faces via `AgentCards.faceMarkup`)  |
-| `live-bridge.js`               | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts`, `/api/snooze`               |
-| `start-live.cmd`               | Windows CLI fallback to start the bridge with a visible console                                                                  |
-| `package.json`                 | Electron/desktop scripts + lint/test/ci                                                                                          |
-| `scripts/copy-exe.js`          | After `build`/`pack`: copy **portable** `dist/AgentWorkshop.exe` → repo-root (never win-unpacked); Windows-only, no-op elsewhere |
-| `electron/main.js`             | Desktop window; start bridge in-process                                                                                          |
-| `test/demo-smoke.test.js`      | Demo-mode smoke (Playwright)                                                                                                     |
-| `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                                                      |
-| `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                                                                                     |
-| `test/bridge-guards.test.js`   | Route x guard matrix: loopback, method, CSRF, body, static, CORS                                                                 |
-| `test/dashboard-units.test.js` | Dashboard formatters + pixel-cast avatar/brand invariants                                                                        |
-| `test/electron-smoke.test.js`  | Launches Electron; asserts the in-process bridge and served dashboard (skipped on Linux without xvfb)                            |
-| `.github/workflows/ci.yml`     | Lint, format check, smoke test, packaging check, unpacked package build (Ubuntu / Windows / macOS)                               |
-| `README.md`                    | User-facing run instructions and Live-mode limits                                                                                |
-| `docs/known-issues.md`         | Audit findings: fixed / open / verified non-issues (alert snooze, notifications, CI)                                             |
+| File                                       | Role                                                                                                                             |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `model-routing-dashboard.html`             | Dashboard markup shell (Demo + Live; Stage/Insights/History chrome)                                                              |
+| `dashboard/styles.css`                     | Dashboard styles                                                                                                                 |
+| `dashboard/cards.css`                      | Station card / avatar / ship-celebration styles                                                                                  |
+| `dashboard/insights.css`                   | Insights / History drawer styles                                                                                                 |
+| `dashboard/tips.css`                       | TipLayer floating tooltip styles                                                                                                 |
+| `dashboard/alerts.css`                     | Alert center bell / popover styles                                                                                               |
+| `dashboard/app.js`                         | Demo playbook + Live SSE client + workshop stage + Live presence + inbound route tokens                                          |
+| `dashboard/insights.js`                    | Insights forecast + cost-ranked suggestions + History/Replay UI                                                                  |
+| `dashboard/replay-stage.js`                | Replay transport → workshop stage (crates/characters)                                                                            |
+| `dashboard/cards.js`                       | Station cards, pixel-cast `faceMarkup` / `blockAgentSvgInner`, daily stats, privacy meter, ship celebration                      |
+| `dashboard/bill-math.js`                   | Pure bill/usage math (rates, formatting, model normalization, summary CSV); no DOM, unit tested in `test/unit/bill-math.test.js` |
+| `dashboard/bill.js`                        | Session Bill state + DOM; owns the demo daily baseline, unit tested in `test/unit/bill.test.js`                                  |
+| `dashboard/demo-playbook.js`               | Scripted demo beats; step bodies lifted verbatim, unit tested in `test/unit/demo-playbook.test.js`                               |
+| `dashboard/activity.js`                    | Activity drawer + Session Log + empty states; owns rows/log clock/role filter, unit tested in `test/unit/activity.test.js`       |
+| `dashboard/view-mode.js`                   | View switching + Panels toggle + focus policy; owns the current view, unit tested in `test/unit/view-mode.test.js`               |
+| `dashboard/projects.js`                    | Live project picker + /api/select; owns the in-flight guard, unit tested in `test/unit/projects.test.js`                         |
+| `dashboard/presence.js`                    | Presence state + coach + sync-age poll; owns presence/timers/scan meta, unit tested in `test/unit/presence.test.js`              |
+| `dashboard/safe-html.js`                   | The single HTML escaper `window.SafeHtml`; loads before every other dashboard script, which all alias it                         |
+| `dashboard/tips.js`                        | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                                |
+| `dashboard/alerts.js`                      | In-app alert center (SSE `alert` + `GET /api/alerts`; indefinite snooze with un-snooze; mini faces via `AgentCards.faceMarkup`)  |
+| `live-bridge.js`                           | Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts`, `/api/snooze`               |
+| `start-live.cmd`                           | Windows CLI fallback to start the bridge with a visible console                                                                  |
+| `package.json`                             | Electron/desktop scripts + lint/test/ci                                                                                          |
+| `scripts/copy-exe.js`                      | After `build`/`pack`: copy **portable** `dist/AgentWorkshop.exe` → repo-root (never win-unpacked); Windows-only, no-op elsewhere |
+| `electron/main.js`                         | Desktop window; start bridge in-process                                                                                          |
+| `test/demo-smoke.test.js`                  | Demo-mode smoke (Playwright)                                                                                                     |
+| `test/cards-smoke.test.js`                 | Station cards / avatars / Live timing smoke                                                                                      |
+| `test/insights-smoke.test.js`              | Insights / suggestions / jump-to-agent smoke                                                                                     |
+| `test/bridge-guards.test.js`               | Route x guard matrix: loopback, method, CSRF, body, static, CORS                                                                 |
+| `test/dashboard-units.test.js`             | Dashboard formatters + pixel-cast avatar/brand invariants                                                                        |
+| `test/unit/real-transcript-format.test.js` | Pins the on-disk Cursor line shapes and the parsers that read them                                                               |
+| `test/unit/real-transcript-ingest.test.js` | Drives real-shaped transcripts through the real bridge: done/error rows, finish alerts, drift counters                           |
+| `test/electron-smoke.test.js`              | Launches Electron; asserts the in-process bridge and served dashboard (skipped on Linux without xvfb)                            |
+| `.github/workflows/ci.yml`                 | Lint, format check, smoke test, packaging check, unpacked package build (Ubuntu / Windows / macOS)                               |
+| `README.md`                                | User-facing run instructions and Live-mode limits                                                                                |
+| `docs/known-issues.md`                     | Audit findings: fixed / open / verified non-issues (alert snooze, notifications, CI)                                             |
 
 ## How to run
 
@@ -130,6 +132,24 @@ Dismissible first-Live coach sheet uses `localStorage` `ca.liveOnboard.v1` (neve
 - The repo is named **`agent-workshop`** while the product keeps the **Cursor Agents · Model Routing** name (`model-routing-dashboard.html`, appId `com.cursor.agents.model-routing`, the window/product name, and the `cursor-agents-model-routing` app-data folder). That split is deliberate; do not "fix" it into one name.
 
 ## Limits (don't "fix" these away casually)
+
+**Format facts, checked against real transcripts on disk (2026-10-16).** These are not
+assumptions; they are what the files contain. `test/unit/real-transcript-format.test.js`
+locks them, and `test/fixtures/transcripts/real/` holds the shape.
+
+- There are exactly **two line shapes**: `{role, message}` conversation lines and
+  `{type:"turn_ended", status, error?}` terminals. Nothing else.
+- There is **no timestamp field** and **no `usage` block**. Time is prose inside the user
+  text; tokens are estimated from character counts. Any code claiming a real usage count
+  is wrong.
+- The **old hand-written fixtures under `test/fixtures/transcripts/` describe a shape that
+  does not exist** (`"timestamp"`, `"type":"user"`, `"usage"`, `"input_tokens"`). They are
+  kept because they exercise the tolerant parser paths, not because they are real. Do not
+  treat them as the format.
+- A real delegation carries **no child agent id**, so the parent-side `spawn` row cannot be
+  keyed to a child. The subagent's own transcript supplies its spawn row.
+- The model slug lives at `input.arguments.model` on a `Task` call and **nowhere else**. A
+  subagent transcript never records its own model.
 
 - Near-real file polling, not hook-level realtime.
 - Token deltas are illustrative estimates from transcript activity.

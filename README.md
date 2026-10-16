@@ -208,7 +208,7 @@ node live-bridge.js --dir "C:\Users\<you>\.cursor\projects\<project>\agent-trans
 | `GET /api/history?since=&session=`                  | Persisted history events (JSONL-backed; localhost Host/Origin guards)       |
 | `POST /api/history/clear` + `X-Cursor-Bridge: 1`    | Wipe local history (`{"ok":true}`)                                          |
 
-Roles are inferred from `Task` / `CallDynamicTool` `subagent_type` and subagent prompt text (`advisor`, `worker`, `explore` maps to explorer, `researcher`). Unknown types map to parent/generic.
+Roles are inferred from `Task` / `CallDynamicTool` `subagent_type` and subagent prompt text (`advisor`, `worker`, `explore` maps to explorer, `researcher`). Unknown types map to parent/generic. A delegation's `arguments.model` is read too, so a station can name the model the work actually routed to.
 
 ### Live presence
 
@@ -261,6 +261,7 @@ History event contract (stable):
   "parentId": null,
   "name": "string",
   "model": "string",
+  "modelRaw": "string",
   "type": "spawn",
   "inputTokens": 0,
   "outputTokens": 0,
@@ -268,35 +269,46 @@ History event contract (stable):
 }
 ```
 
-`type` is one of `spawn` | `turn` | `done` | `error`.
+`type` is one of `spawn` | `turn` | `done` | `error`. `model` is the billable rate bucket; `modelRaw` is the Cursor slug a delegation pinned (empty when the child inherited the parent's route), and is display-only.
 
-When an agent finishes, errors, or stalls (no activity for about 2 minutes), the bridge:
+Terminal rows come from the transcript's `turn_ended` line, which is the only signal Cursor writes. When an agent finishes, errors, or stalls (no activity for about 2 minutes), the bridge:
 
 1. Broadcasts SSE `event: alert` with `{ id, ts, name, status, agentId? }` and keeps the last ~50 for `GET /api/alerts`.
 2. In Electron, also fires a desktop Notification (name + status only).
+
+**Which terminals alert.** A subagent is short-lived, so its finish or error always alerts. The parent ends a turn on every user message, so a parent _success_ stays quiet — otherwise a long session would stream one toast per turn and each would claim the session had finished. A parent _error_ still alerts, except when the transcript says the user stopped the turn (`user_stopped_generation`, `composer_abort_controller_aborted`). Repeat terminals for one agent are deduplicated. The error's own text — including a quota notice like `Other Models usage limit reached` — rides the event feed, never the alert payload, which is kept to name and status so it cannot leak a path or a prompt.
 
 The in-app alert center (header bell) lists the same alerts: mark read, snooze, clear, click to jump when a role/agent is mappable. Mappable roles show a small block-agent avatar beside the status (same cast as Stations, never letter initials). Alerts show only agent name and status, never prompt text or file paths. Backlog/SSE replay quiet gates skip spam the same way card timing does.
 
 ### Limits
 
 - Near-real, not hook-level realtime (no Cursor hooks required for this slice).
-- SESSION BILL is transcript-estimated tokens times published rates per 1M input/output: Opus $4/$20, Sonnet $2/$10, Haiku $0.10/$0.50, Fable $10/$50. Estimates are illustrative, not official Cursor invoices.
+- SESSION BILL is transcript-estimated tokens times published rates per 1M input/output: Opus $4/$20, Sonnet $2/$10, Haiku $0.10/$0.50, Fable $10/$50. Real transcripts carry no `usage` block, so every figure is estimated from character counts — treat it as an estimate of magnitude, not a count. Estimates are illustrative, not official Cursor invoices.
+- A delegation that names a model outside the four published families (Composer, Grok, GPT, Gemini, DeepSeek) is labelled by name but still priced at the delegated role's rate, because the bill table only covers four families.
+- Timestamps are ingest-time. Real transcripts have no timestamp field, so History replay reflects when the bridge read a line, not when the session produced it.
 - ACTIVITY preview lists reads and edits from the transcript (path + short detail). It does not include full file contents.
 - Only sees chats that write into the selected project's transcripts folder.
+- A real delegation carries no child agent id, so the parent-side `spawn` row cannot be keyed to the child. The subagent's own transcript supplies its spawn row, and the parent's delegation is recorded as a `turn` row carrying the model.
 - History API responses omit events whose `sessionId` is not present under the current transcripts tree.
+- History records only bytes the bridge saw arrive. A transcript that already existed when the bridge started is warmed from the tail, not back-filled.
 - Hooks, statusline, and Cursor SDK are separate integration paths. This dashboard reads transcripts on disk.
 
 ### Format compatibility
 
-The bridge reads Cursor's on-disk transcripts. These are the assumptions it makes, and the version they were last checked against.
+The bridge reads Cursor's on-disk transcripts. This list is what the code actually reads, checked against real transcripts on disk rather than assumed. It was rewritten after an audit found the previous list described a shape Cursor does not write.
 
-- **Path layout.** `~/.cursor/projects/<project-id>/agent-transcripts/*.jsonl`, with subagent transcripts under a `subagents/` directory. Override the root with `CURSOR_PROJECTS_ROOT`.
-- **Line shape.** One JSON object per line. The timestamp is read from `timestamp`, `ts`, `createdAt`, `created_at`, or `message.timestamp` — the first that parses wins. A line with none of those is stamped with the current time.
-- **Roles.** `Task` / `CallDynamicTool` `subagent_type` values map to advisor, worker, explorer, or researcher. Anything unrecognized falls back to parent/generic.
-- **Terminal signals.** Detected from structured tags, never from prose words like "error" or "done". A transcript that ends without one simply stays un-terminated; the agent never shows as finished.
-- **Usage.** Real `usage` fields win when present. Otherwise tokens are estimated from character counts at roughly four characters per token. Estimates are illustrative, not official billing.
+- **Path layout.** `~/.cursor/projects/<project-id>/agent-transcripts/<session-uuid>/<session-uuid>.jsonl`, with subagent transcripts at `<session-uuid>/subagents/<subagent-uuid>.jsonl`. Override the root with `CURSOR_PROJECTS_ROOT`.
+- **Two line shapes.** One JSON object per line, of exactly two kinds:
+  - **Conversation:** `{"role":"user"|"assistant","message":{"content":[…]}}`. Content parts are `text`, `tool_use`, or `tool_result`.
+  - **Terminal:** `{"type":"turn_ended","status":"success"|"error","error"?:string}`. Cursor ends every turn with one, in parent and subagent files alike.
+- **Timestamps.** There is no timestamp field. Time is prose inside the user text (`<timestamp>Thursday, Oct 15, 2026, 9:12 AM (UTC-4)</timestamp>`) and is not read. Every event is stamped when the bridge ingests it, so **History replay shows ingest order and ingest time, not the session's real clock.**
+- **Roles.** `CallDynamicTool` with `input.toolName === "Task"` carries `input.arguments.subagent_type`, which maps to advisor, worker, explorer, or researcher. A subagent transcript infers its role from prompt text. Anything unrecognized renders on the worker card with an `unrecognized role` marker.
+- **Model.** `input.arguments.model` on a delegation names the model, and the station shows it (`claude-haiku-5-5-thinking-high` → Haiku). `inherit`, `fast`, `auto`, and `default` are route words, not models, and render as no label. A model family with no published rate in this build (Composer, Grok, GPT, Gemini, DeepSeek) is named but still estimated at the delegated role's rate, because the bill only prices four families.
+- **Terminal signals.** Read from the `turn_ended` line, never from prose words or assistant tags. A transcript that ends without one stays un-terminated.
+- **Usage.** There is no `usage` block in any real transcript. Every token figure is estimated from character counts at roughly four characters per token, so Session Bill estimates magnitude rather than restating a real count.
+- **Drift.** A line that does not parse, or parses to a shape this build does not know, is counted and surfaced instead of dropped. `GET /api/status` exposes `drift: { unparsed, unknownShape, lastAt, lastSample }`, and the first one of a session also lands in the event feed. Non-zero means the on-disk format moved.
 
-Last verified against Cursor's transcript layout as of 2026-10. Cursor controls this format and can change it; there is no version negotiation. If the dashboard stops seeing sessions, check this list first.
+Last verified against real transcripts on 2026-10-16. Cursor controls this format and can change it; there is no version negotiation. If the dashboard stops seeing sessions, check this list first, then `drift` in `/api/status`.
 
 **Unknown roles are visible.** A `subagent_type` the bridge does not recognize is marked `unrecognized role` on its delegation line in the Session Log and Activity drawer. The type renders as a worker card either way, so the marker is the signal that Cursor introduced a role this build does not know. Telemetry is local only; nothing is sent anywhere.
 

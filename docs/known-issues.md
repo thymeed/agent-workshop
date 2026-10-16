@@ -4,7 +4,7 @@ Audit findings for the dashboard, the alert-snooze work, CI, and the dependency
 tree. Each item says whether it is fixed, open, or verified as a non-issue, so
 nobody re-litigates a settled question or assumes an open one is closed.
 
-Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
+Last reviewed: 2026-10-16 (post-audit of the Live transcript path).
 
 ## Fixed
 
@@ -151,6 +151,25 @@ Last reviewed: 2026-10-15 (post-review of the 1.2.0 work).
 7. **`notifyBridge()` is fire-and-forget with no read-back.** A dropped POST
    leaves the bridge out of sync until the next `hydrate()` / reconnect. Accepted
    for now; the reconcile on load covers the common case.
+
+8. **Renaming a CI job will hang every pull request.** The `Branch Master`
+   ruleset requires three status checks by their exact context names —
+   `Lint, test, build check (ubuntu-latest)`, `(windows-latest)`, `(macos-latest)` —
+   which embed the job name from `.github/workflows/ci.yml`. Rename that job and the
+   required contexts no longer match anything, so every PR waits on "Expected — waiting
+   for status to be reported" with no failing check to explain it. Update
+   `.github/rulesets/branch-master.json` in the same commit as any job rename. Related:
+   never add a `paths:` filter to `ci.yml`, which would leave docs-only PRs permanently
+   unreported and therefore unmergeable.
+
+9. **The `code_quality` rule may be inert.** The ruleset requires code quality results at
+   `errors` severity, but no workflow produces a code quality analysis. GitHub's own
+   description of the rule says an analysis "must be done on the pull request before the
+   changes can be merged", so if it is enforced literally a PR could wait on an analysis
+   that never runs. It has not bitten yet: with the rule active and CI green, PR #4
+   reached a `CLEAN` merge state, so it is not blocking merges today. If a pull request
+   ever sits on "code quality" with no evident cause, drop that rule from
+   `.github/rulesets/branch-master.json` first.
 
 ## Verified as non-issues
 
