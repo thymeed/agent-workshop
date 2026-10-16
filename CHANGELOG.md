@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-16
+
+Hardening-only patch. No new features or dependency changes.
+
+### Security
+
+- **Strict CSP on bridge HTML.** Dashboard shell responses send `Content-Security-Policy` with
+  `script-src 'self'` and `style-src 'self' 'unsafe-inline'` so inline styles from JS/SVG still work.
+- **Electron navigation lockdown.** `setWindowOpenHandler` denies popups; `will-navigate` allows only
+  the app’s loopback bridge URL.
+- **Port 3847 identity.** `/api/status` exposes `bridgeId`; Electron verifies it before loading when
+  reusing an existing listener, and the bridge refuses foreign `ok` responses without the id.
+- **Atomic event-log replace.** Prune and clear write a temp file in the log directory and rename over
+  the JSONL instead of truncating in place.
+- **Status class escaping.** `formatStatusHtml` escapes wrapper class names via `SafeHtml`.
+
+### Changed
+
+- **CSV TOTAL label.** The TOTAL row notes that explorer and researcher lines are excluded because their
+  tokens are already counted in Haiku (numbers unchanged).
+
 ## [1.4.0] - 2026-10-16
 
 Correctness pass on the Live path. The bridge was reading a transcript shape Cursor does not
@@ -262,7 +283,8 @@ audio fix; see Fixed.
 
 - Token and session cost figures are illustrative estimates, not official Cursor billing.
 
-[Unreleased]: https://github.com/thymeed/agent-workshop/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/thymeed/agent-workshop/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/thymeed/agent-workshop/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/thymeed/agent-workshop/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/thymeed/agent-workshop/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/thymeed/agent-workshop/compare/v1.2.0...v1.3.0

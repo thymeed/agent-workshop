@@ -143,7 +143,7 @@
     });
     lines.push(
       [
-        "TOTAL",
+        "TOTAL (excl. explorer/researcher; in Haiku)",
         summary.totals.inputTokens,
         summary.totals.outputTokens,
         summary.totals.estimatedCostUsd

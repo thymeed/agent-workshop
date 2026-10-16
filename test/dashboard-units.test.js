@@ -258,7 +258,7 @@ async function main() {
       "CSV header must be stable"
     );
     assert.ok(
-      csvLines.some((l) => l.startsWith("TOTAL,")),
+      csvLines.some((l) => l.startsWith("TOTAL (excl. explorer/researcher; in Haiku),")),
       "CSV must carry a TOTAL row"
     );
     assert.strictEqual(csvLines[1].split(",").length, 4, "CSV data rows keep four columns");

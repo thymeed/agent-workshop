@@ -305,7 +305,7 @@
     }
     var plain = prettyStatusText(inner.replace(/<[^>]+>/g, " "));
     var safe = escapeHtmlText(plain);
-    if (cls) return '<span class="' + cls + '">' + safe + "</span>";
+    if (cls) return '<span class="' + escapeHtmlText(cls) + '">' + safe + "</span>";
     return safe;
   }
 
