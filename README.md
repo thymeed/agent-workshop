@@ -1,4 +1,6 @@
-# Cursor Agents · Model Routing
+# agent-workshop
+
+**Cursor Agents · Model Routing**
 
 [![CI](https://github.com/thymeed/agent-workshop/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/thymeed/agent-workshop/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
