@@ -48,3 +48,10 @@ coverage/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Personal notes and scratch (never commit)
+CLAUDE.local.md
+.scratch/
+
+# Owner words for the fixture privacy test
+.privacy-words
