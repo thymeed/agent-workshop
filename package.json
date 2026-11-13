@@ -109,5 +109,16 @@
       "artifactName": "AgentWorkshop.exe"
     },
     "afterAllArtifactBuild": "./scripts/copy-exe.js"
+  },
+  "overrides": {
+    "app-builder-lib": {
+      "minimatch": "11.0.1",
+      "@electron/universal": {
+        "minimatch": "11.0.1",
+        "dir-compare": {
+          "minimatch": "3.1.5"
+        }
+      }
+    }
   }
 }
