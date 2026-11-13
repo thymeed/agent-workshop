@@ -5,3 +5,5 @@ package-lock.json
 *.min.js
 *.min.css
 .gitattributes
+# Sanitized fixtures stay byte-faithful to what the sanitizer writes
+test/fixtures/claude-code/
