@@ -841,6 +841,18 @@ test("SYNTHETIC: ordinary paths still show as paths", () => {
   }
 });
 
+test("SYNTHETIC: a ?query or #fragment on a colon-free path is cut off", () => {
+  for (const [raw, shown] of [
+    ["/a/b.js?token=SECRET", "/a/b.js"],
+    ["a/b.js#SECRET", "a/b.js"],
+    ["a/b?x=1#SECRET", "a/b"]
+  ]) {
+    const rows = toolRows("Read", { file_path: raw });
+    assert.equal(rows[0].activity.path, shown, raw);
+    hidden(rows);
+  }
+});
+
 test("SYNTHETIC: the path check runs on the text the display shows, not the raw value", () => {
   // Tags and edge whitespace are dropped by the display. If the check saw the raw value
   // instead, these would be hidden (":42<b></b>" is no line suffix) and the first two would
