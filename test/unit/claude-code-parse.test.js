@@ -1012,6 +1012,17 @@ test("SYNTHETIC: a ?query or #fragment on a colon-free path is cut off", () => {
   }
 });
 
+test("SYNTHETIC: a # in a file name cuts the shown path there (deliberate, see cleanPathValue)", () => {
+  // The cut cannot tell a fragment from a name like C#-notes.md; hiding more is the safe side.
+  for (const [raw, shown] of [
+    ["docs/C#-notes.md", "docs/C"],
+    ["src/F#/lib.fs", "src/F"]
+  ]) {
+    const rows = toolRows("Read", { file_path: raw });
+    assert.equal(rows[0].activity.path, shown, raw);
+  }
+});
+
 test("SYNTHETIC: the path check runs on the text the display shows, not the raw value", () => {
   // Tags and edge whitespace are dropped by the display. If the check saw the raw value
   // instead, these would be hidden (":42<b></b>" is no line suffix) and the first two would
