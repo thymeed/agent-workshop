@@ -377,6 +377,19 @@ test("SYNTHETIC: full usage, a partial line, then the full line again counts eve
   assert.equal(sum("cacheWrite"), 25);
 });
 
+test("SYNTHETIC: usage on a line with no message.id is not counted (a repeat would double count)", () => {
+  const state = P.createState();
+  for (let i = 0; i < 2; i++) {
+    const rows = P.parseLine(asst(undefined, "claude-opus-5-5", u(2, 50, 1, 1), text), state);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].usage, null);
+  }
+  assert.deepEqual(P.usageTotals(state), {});
+  // a line with an id is still counted
+  P.parseLine(asst("m1", "claude-opus-5-5", u(2, 50), text), state);
+  assert.equal(P.usageTotals(state).opus.out, 50);
+});
+
 test("SYNTHETIC: notificationType maps all six failure words to error, completed to done, the rest unknown", () => {
   for (const s of ["failed", "error", "killed", "stopped", "cancelled", "canceled"]) {
     assert.deepEqual(P.notificationType(s), { type: "error", known: true }, s);
