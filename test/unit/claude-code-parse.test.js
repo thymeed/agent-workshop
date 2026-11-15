@@ -574,7 +574,8 @@ test("SYNTHETIC: a 5 MB notice is parsed in linear time", () => {
     const t0 = process.hrtime.bigint();
     nt(inner);
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-    assert.ok(ms < 200, `${name} took ${ms}ms`);
+    // a quadratic walk over 5 MB takes minutes; the slack covers slow CI runners
+    assert.ok(ms < 2000, `${name} took ${ms}ms`);
   }
   assert.equal(nt(shapes.manyResults).toolUseId, "t");
 });
