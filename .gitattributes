@@ -1,6 +1,9 @@
 # Default to LF so Prettier/CI match on Windows checkouts
 * text=auto eol=lf
 
+# Shell scripts must never get CRLF (bash fails on it)
+*.sh text eol=lf
+
 # Windows launchers keep CRLF
 *.cmd text eol=crlf
 *.bat text eol=crlf
