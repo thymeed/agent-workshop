@@ -429,6 +429,83 @@ test("SYNTHETIC: an unknown model name is capped at 40 characters and loses tag-
   assert.equal(call("claude-opus-5-5").modelLabel, "Opus");
 });
 
+test("SYNTHETIC: meta.toolUseId wins over the parent result's agent link; the link is the fallback", () => {
+  const state = P.createState();
+  P.parseLine(agentCall("tParent", { subagent_type: "planner" }), state);
+  P.parseLine(agentCall("tMeta", { subagent_type: "reviewer" }), state);
+  P.parseLine(agentResult("tParent", "agL"), state);
+  // meta names tMeta although the parent result linked agL to tParent
+  const withMeta = P.parseLine(childUser("agL"), state, {
+    meta: { agentType: "reviewer", toolUseId: "tMeta" }
+  });
+  assert.equal(withMeta[0].toolUseId, "tMeta");
+  assert.equal(withMeta[0].role, "reviewer");
+  // no meta: the parent result's link is used
+  const s2 = P.createState();
+  P.parseLine(agentCall("tParent", { subagent_type: "planner" }), s2);
+  P.parseLine(agentResult("tParent", "agL"), s2);
+  const noMeta = P.parseLine(childUser("agL"), s2);
+  assert.equal(noMeta[0].toolUseId, "tParent");
+  assert.equal(noMeta[0].role, "planner");
+});
+
+test("SYNTHETIC: a child user line with a parentUuid is not a spawn", () => {
+  const line = (parentUuid) => ({ ...childUser("agP"), parentUuid });
+  const state = P.createState();
+  assert.deepEqual(P.parseLine(line("some-uuid"), state, { meta: { toolUseId: "tP" } }), []);
+  // it did not use up the spawn: the real first line still emits one
+  const first = P.parseLine(line(null), state, { meta: { toolUseId: "tP" } });
+  assert.equal(first.length, 1);
+  assert.equal(first[0].type, "spawn");
+});
+
+test("SYNTHETIC: only a trailing :line, :line:col or :line-line suffix may carry a colon in a path", () => {
+  for (const ok of ["src/a.ts:1", "src/a.ts:1:2", "src/a.ts:10-20", "src/a.ts:1:2-9"]) {
+    assert.equal(toolRows("Read", { file_path: ok })[0].activity.path, ok, ok);
+  }
+  // one colon group too many, or a non-digit suffix, is hidden
+  for (const bad of ["src/a.ts:1:2:3", "src/a.ts:1:2-9:4", "src/a.ts:1x", "src/a.ts:-5"]) {
+    assert.equal(toolRows("Read", { file_path: bad })[0].message, "read · Read", bad);
+  }
+});
+
+test("SYNTHETIC: token counts are floored to whole numbers; negative, NaN and text count 0", () => {
+  const state = P.createState();
+  const rows = P.parseLine(
+    asst(
+      "mr",
+      "claude-opus-5-5",
+      {
+        input_tokens: 1.9,
+        output_tokens: 2.7,
+        cache_read_input_tokens: -4,
+        cache_creation_input_tokens: "7"
+      },
+      text
+    ),
+    state
+  );
+  assert.deepEqual(rows[0].usage, {
+    model: "opus",
+    role: "parent",
+    in: 1,
+    out: 2,
+    cacheRead: 0,
+    cacheWrite: 0
+  });
+  // 0.9 floors to 0: nothing to count
+  assert.equal(
+    P.parseLine(asst("mz", "claude-opus-5-5", { output_tokens: 0.9 }, text), state)[0].usage,
+    null
+  );
+  const n = nt(
+    "<tool-use-id>t</tool-use-id><status>completed</status><usage><subagent_tokens>12.9</subagent_tokens><tool_uses>-3</tool_uses><duration_ms>abc</duration_ms></usage>"
+  );
+  assert.equal(n.subagentTokens, 12);
+  assert.equal(n.toolUses, 0);
+  assert.equal(n.durationMs, 0);
+});
+
 test("SYNTHETIC: notificationType maps all six failure words to error, completed to done, the rest unknown", () => {
   for (const s of ["failed", "error", "killed", "stopped", "cancelled", "canceled"]) {
     assert.deepEqual(P.notificationType(s), { type: "error", known: true }, s);
