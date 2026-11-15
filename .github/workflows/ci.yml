@@ -66,8 +66,23 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: Mask privacy words
+        shell: bash
+        env:
+          PRIVACY_WORDS: ${{ secrets.PRIVACY_WORDS }}
+        run: |
+          IFS=',' read -ra words <<< "$PRIVACY_WORDS"
+          for word in "${words[@]}"; do
+            word="${word#"${word%%[![:space:]]*}"}"
+            word="${word%"${word##*[![:space:]]}"}"
+            [ -n "$word" ] && printf '::add-mask::%s\n' "$word"
+          done
+          exit 0
+
       - name: Smoke tests
         run: npm test
+        env:
+          PRIVACY_WORDS: ${{ secrets.PRIVACY_WORDS }}
 
       - name: Packaging check
         run: npm run build:check
