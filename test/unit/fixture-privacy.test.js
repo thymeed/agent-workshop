@@ -225,6 +225,9 @@ test("a failure message names file and line but never the matched word", () => {
       }
       return dir;
     };
+    const { KNOWN_KEYS } = require("../../scripts/sanitize-claude-transcript.js");
+    const keys = (d, r) => checkKeys(d, r, KNOWN_KEYS);
+    const both = `{"type":1}\n{"${word}":1,"timestamp":1794106525129}\n`;
     const cases = [
       // [label, check, files, message must contain]
       [
@@ -246,6 +249,32 @@ test("a failure message names file and line but never the matched word", () => {
         { "b.jsonl": `{"ok":1}\n{"ok":2}\n{"cwd":"/x/${uEscape(word)}/y"}\n` },
         "b.jsonl:3"
       ],
+      [
+        "unknown key",
+        keys,
+        { "k.jsonl": `{"type":1}\n{"${word}":1}\n` },
+        "unknown keys (1)",
+        "k.jsonl:2: [redacted]"
+      ],
+      [
+        "unknown key, word in file name",
+        keys,
+        { [`sub/${word}-a.jsonl`]: both },
+        "[redacted]-a.jsonl:2: [redacted]"
+      ],
+      [
+        "epoch-ms, word in content",
+        checkEpoch,
+        { "e.jsonl": `{"type":1}\n{"timestamp":1794106525129,"note":"${word}"}\n` },
+        "epoch-ms number",
+        "e.jsonl:2"
+      ],
+      [
+        "epoch-ms, word in file name",
+        checkEpoch,
+        { [`sub/${word}-a.jsonl`]: both },
+        "[redacted]-a.jsonl:2"
+      ],
       ["plain text", checkContents, { "c.txt": `one\ntwo\nthree ${word}\n` }, "c.txt:3"],
       [
         "file name and content",
@@ -264,9 +293,11 @@ test("a failure message names file and line but never the matched word", () => {
       assert.ok(!all.includes(uEscape(word)), `${label}: escaped planted word leaked`);
     }
     // A clean tree does not throw.
-    const clean = mk("clean", { "ok.jsonl": `{"ok":1}\n` });
+    const clean = mk("clean", { "ok.jsonl": `{"type":1}\n` });
     checkNames(clean, re);
     checkContents(clean, re);
+    keys(clean, re);
+    checkEpoch(clean, re);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -304,42 +335,69 @@ function allKeys(v, out = new Set()) {
   return out;
 }
 
-test("every fixture object key is a KNOWN_KEYS key, a hashed k_<12 hex>, or a hashed id", () => {
-  const { KNOWN_KEYS } = require("../../scripts/sanitize-claude-transcript.js");
-  const files = walk(ROOT).filter((e) => !e.dir && /\.jsonl?$/.test(e.name));
-  assert.ok(files.length >= 5);
+/**
+ * The real key check: throws if any object key is not a KNOWN_KEYS key, a hashed k_<12 hex>
+ * or a hashed id. Every path and key goes through safePath, and the asserted value is the
+ * count (not the raw list), so assert's diff cannot print an unmasked key or path.
+ */
+function checkKeys(root, re, knownKeys) {
+  const files = walk(root).filter((e) => !e.dir && /.jsonl?$/.test(e.name));
   const bad = [];
   for (const e of files) {
     const text = fs.readFileSync(e.full, "utf8");
-    for (const chunk of e.name.endsWith(".jsonl") ? text.split("\n") : [text]) {
-      if (!chunk) continue;
+    const isLines = e.name.endsWith(".jsonl");
+    const chunks = isLines ? text.split("\n") : [text];
+    for (let i = 0; i < chunks.length; i++) {
+      if (!chunks[i]) continue;
       let parsed;
       try {
-        parsed = JSON.parse(chunk);
+        parsed = JSON.parse(chunks[i]);
       } catch {
         continue; // the deliberately cut-off tail
       }
       for (const k of allKeys(parsed)) {
-        if (KNOWN_KEYS.has(k) || /^k_[0-9a-f]{12}$/.test(k) || /^(toolu|msg)_[0-9a-f]+$/.test(k)) {
+        if (knownKeys.has(k) || /^k_[0-9a-f]{12}$/.test(k) || /^(toolu|msg)_[0-9a-f]+$/.test(k)) {
           continue;
         }
-        bad.push(`${path.relative(ROOT, e.full)}: ${k}`);
+        const where = safePath(path.relative(root, e.full), re) + (isLines ? ":" + (i + 1) : "");
+        bad.push(where + ": " + safePath(k, re));
       }
     }
   }
-  assert.deepEqual(bad, []);
+  assert.equal(bad.length, 0, "unknown keys (" + bad.length + "): " + bad.join("; "));
+}
+
+test("every fixture object key is a KNOWN_KEYS key, a hashed k_<12 hex>, or a hashed id", () => {
+  const { KNOWN_KEYS } = require("../../scripts/sanitize-claude-transcript.js");
+  assert.ok(walk(ROOT).filter((e) => !e.dir && /.jsonl?$/.test(e.name)).length >= 5);
+  checkKeys(ROOT, FORBIDDEN, KNOWN_KEYS);
 });
 
 // A cut-off last line does not parse, so the JSON checks skip it; scan every line raw for
 // epoch-millisecond numbers, which would undo the shifted timestamps.
-const EPOCH_MS = /[:,[]\s*-?1[0-9]{12}(?![0-9.])/;
+const EPOCH_MS = /[:,[]s*-?1[0-9]{12}(?![0-9.])/;
+
+/** The real epoch-ms check: names the masked file and line; the number itself is digits only. */
+function checkEpoch(root, re) {
+  for (const e of walk(root).filter((x) => !x.dir)) {
+    const text = fs.readFileSync(e.full, "utf8");
+    const m = EPOCH_MS.exec(text);
+    const line = m ? text.slice(0, m.index).split("\n").length : 0;
+    assert.ok(
+      !m,
+      "epoch-ms number " +
+        (m && m[0]) +
+        " in " +
+        safePath(path.relative(root, e.full), re) +
+        ":" +
+        line
+    );
+  }
+}
 
 test("no fixture line holds an epoch-millisecond number, even a cut-off one", () => {
   assert.ok(EPOCH_MS.test('{"k_1":1794106525129,'), "matcher flags a bare epoch-ms value");
   assert.ok(EPOCH_MS.test('{"a":[1,1794106525129]}'), "matcher flags one inside an array");
   assert.ok(!EPOCH_MS.test('{"a":"k_1794106525129ab","b":1234}'), "ids and small numbers pass");
-  for (const e of walk(ROOT).filter((x) => !x.dir)) {
-    const m = EPOCH_MS.exec(fs.readFileSync(e.full, "utf8"));
-    assert.ok(!m, `epoch-ms number "${m && m[0]}" in ${path.relative(ROOT, e.full)}`);
-  }
+  checkEpoch(ROOT, FORBIDDEN);
 });
