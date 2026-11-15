@@ -157,6 +157,7 @@ locks them, and `test/fixtures/transcripts/real/` holds the shape.
   subagent transcript never records its own model, and only about a third of delegations
   name one at all (99 of 149 `Task` calls in a corpus audit carried no `model` key).
 
+- Claude Code usage (`lib/claude-code-parse.js`): per `message.id` the parser keeps a running maximum, not the last line's value. Intentional: usage only grows across the repeated lines of one id, and a drop comes from a partial line, so the maximum is the final count.
 - Near-real file polling, not hook-level realtime.
 - Token deltas are illustrative estimates from transcript activity.
 - Only sees chats that write into the configured transcripts folder (Live project picker / `--dir`).
