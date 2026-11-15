@@ -1,0 +1,900 @@
+/**
+ * Source discovery (lib/claude-code-sources.js): Windows + running WSL distros, notes,
+ * labels and privacy. Everything runs against a recording fake fs and a fake wsl runner;
+ * no WSL, no network, no real home folder.
+ */
+"use strict";
+
+const assert = require("node:assert/strict");
+const crypto = require("crypto");
+const { test } = require("node:test");
+const S = require("../../lib/claude-code-sources.js");
+const { buildForbidden } = require("../helpers/privacy-patterns");
+
+const BS = String.fromCharCode(92);
+const NL = String.fromCharCode(10);
+const CR = String.fromCharCode(13);
+const PLANTED = "zqplanted";
+const PRIVATE = buildForbidden([PLANTED]);
+const NOW = 2e12;
+const T1 = 1700000000000;
+const T2 = 1700000100000;
+const norm = (p) => p.split(BS).join("/");
+const hash6 = (p) =>
+  crypto
+    .createHash("sha256")
+    .update(p + "cc-label-v1")
+    .digest("hex")
+    .slice(0, 6);
+
+/** In-memory fs that records every path it is asked about and every read size. */
+function makeFs(entries = {}) {
+  const nodes = new Map();
+  const calls = [];
+  const reads = [];
+  const fds = new Map();
+  const put = (p, node) => {
+    const n = norm(p);
+    const parts = n.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      const anc = parts.slice(0, i).join("/");
+      if (anc && !nodes.has(anc)) nodes.set(anc, { dir: true });
+    }
+    nodes.set(n, node);
+  };
+  const enoent = (p) => Object.assign(new Error("ENOENT " + p), { code: "ENOENT" });
+  const fs = {
+    calls,
+    reads,
+    put,
+    dir: (p) => put(p, { dir: true }),
+    file: (p, text = "{}", mtimeMs = T1) => put(p, { file: true, text, mtimeMs }),
+    link: (p) => put(p, { link: true }),
+    readdirSync(p) {
+      calls.push(["readdir", p]);
+      const n = norm(p);
+      const node = nodes.get(n);
+      if (!node || !node.dir) throw enoent(p);
+      if (node.denied) throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      const out = new Set();
+      for (const k of nodes.keys()) {
+        if (k.startsWith(n + "/")) out.add(k.slice(n.length + 1).split("/")[0]);
+      }
+      return [...out];
+    },
+    lstatSync(p) {
+      calls.push(["lstat", p]);
+      const node = nodes.get(norm(p));
+      if (!node) throw enoent(p);
+      if (node.deniedStat) throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      return {
+        isDirectory: () => !!node.dir,
+        isFile: () => !!node.file,
+        isSymbolicLink: () => !!node.link,
+        mtimeMs: node.mtimeMs || 0
+      };
+    },
+    openSync(p) {
+      calls.push(["open", p]);
+      const node = nodes.get(norm(p));
+      if (!node || !node.file) throw enoent(p);
+      fds.set(fds.size + 10, node);
+      return fds.size + 9;
+    },
+    readSync(fd, buf, off, len) {
+      reads.push(len);
+      const b = Buffer.from(fds.get(fd).text, "utf8");
+      return b.copy(buf, off, 0, Math.min(len, b.length));
+    },
+    closeSync() {},
+    readFileSync() {
+      throw new Error("whole-file read is not allowed");
+    }
+  };
+  for (const [p, n] of Object.entries(entries)) put(p, n);
+  return fs;
+}
+
+/** A project folder holding one transcript whose first line carries `cwd`. */
+function addProject(fs, projectsRoot, name, cwd, mtimeMs = T1, sep = BS) {
+  const line = JSON.stringify(cwd === null ? { type: "x" } : { type: "x", cwd });
+  fs.file(projectsRoot + sep + name + sep + "s1.jsonl", line + NL, mtimeMs);
+}
+
+/** Rarer home-folder spellings that would put the username into a label (item: hardening). */
+const RARE_HOMES = (u) => [
+  BS + BS + "?" + BS + "C:" + BS + "Users" + BS + u,
+  "//?/C:/Users/" + u,
+  BS + BS + "?" + BS + "UNC" + BS + "wsl$" + BS + "Ubuntu" + BS + "home" + BS + u,
+  BS + BS + "wsl$" + BS + "Ubuntu" + BS + "mnt" + BS + "c" + BS + "Users" + BS + u,
+  "//wsl.localhost/Ubuntu/mnt/c/Users/" + u,
+  "C:" + BS + "Documents and Settings" + BS + u,
+  "c:/documents and settings/" + u,
+  "/mnt/c/Documents and Settings/" + u,
+  "/var/home/" + u,
+  "/var/home/" + u + "/"
+];
+
+const WIN_HOME = "C:" + BS + "Users" + BS + "user";
+const WIN_ROOT = WIN_HOME + BS + ".claude" + BS + "projects";
+const wslRoot = (d, flavour = "wsl.localhost") => BS + BS + flavour + BS + d + BS + "home";
+
+const utf16 = (text, bom = true) =>
+  Buffer.concat([bom ? Buffer.from([0xff, 0xfe]) : Buffer.alloc(0), Buffer.from(text, "utf16le")]);
+
+/** Fake runner: replies by argument list, records every call. */
+function makeRunner(replies) {
+  const calls = [];
+  const run = async (args) => {
+    calls.push([...args]);
+    const key = args.join(" ");
+    const r = replies[key];
+    if (r instanceof Error) throw r;
+    if (!r) throw new Error("unexpected wsl call: " + key);
+    return r;
+  };
+  run.calls = calls;
+  return run;
+}
+const LIST = "-l -q";
+const RUNNING = "-l --running -q";
+const ok = (text) => ({ status: 0, stdout: utf16(text.split(NL).join(CR + NL)) });
+
+const discover = (over) =>
+  S.discoverClaudeProjects({ platform: "win32", homedir: WIN_HOME, now: () => NOW, ...over });
+
+test("Windows projects: label is the last cwd folder, mtime is the newest transcript", async () => {
+  const fs = makeFs();
+  const cwd = "C:" + BS + "work" + BS + "proj-demo";
+  addProject(fs, WIN_ROOT, "C--work-proj-demo", "C:" + BS + "old" + BS + "stale-demo", T1);
+  fs.file(
+    WIN_ROOT + BS + "C--work-proj-demo" + BS + "newer.jsonl",
+    JSON.stringify({ cwd }) + NL,
+    T2
+  );
+  fs.file(WIN_ROOT + BS + "C--work-proj-demo" + BS + "note.txt", "x", T2 + 5000);
+  fs.dir(WIN_ROOT + BS + "empty-one");
+  fs.file(WIN_ROOT + BS + "only-text" + BS + "a.txt", "x");
+  fs.dir(WIN_ROOT + BS + "nested" + BS + "deep");
+  fs.file(WIN_ROOT + BS + "nested" + BS + "deep" + BS + "a.jsonl", "{}");
+  fs.link(WIN_ROOT + BS + "linked");
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  assert.equal(r.projects.length, 1);
+  const p = r.projects[0];
+  assert.equal(p.label, "proj-demo");
+  assert.equal(p.sourceTag, "windows");
+  assert.equal(p.mtime, T2);
+  assert.match(p.id, /^cc-[0-9a-f]{12}$/);
+  assert.equal(p.path, WIN_ROOT + BS + "C--work-proj-demo");
+  assert.equal("path" in S.publicView(r).projects[0], false);
+  assert.ok(!JSON.stringify(S.publicView(r)).includes("work"), "the full cwd is not exposed");
+});
+
+test("(a) a stopped distro is skipped with a note and no fs or wsl call reaches it", async () => {
+  const fs = makeFs();
+  addProject(
+    fs,
+    wslRoot("Debian") + BS + "user" + BS + ".claude" + BS + "projects",
+    "p1",
+    "/home/user/app"
+  );
+  fs.dir(wslRoot("Ubuntu") + BS + "user"); // exists, but must never be touched
+  const runWsl = makeRunner({ [LIST]: ok("Ubuntu" + NL + "Debian"), [RUNNING]: ok("Debian") });
+  const r = await discover({ fs, runWsl });
+  assert.deepEqual(runWsl.calls, [
+    ["-l", "-q"],
+    ["-l", "--running", "-q"]
+  ]);
+  assert.ok(
+    r.notes.some((n) => n.text === "Ubuntu skipped: not running" && n.code === "not-running")
+  );
+  assert.ok(!r.notes.some((n) => /Debian skipped/.test(n.text)));
+  assert.equal(fs.calls.filter(([, p]) => /ubuntu/i.test(p)).length, 0, "no fs path names Ubuntu");
+  for (const [, p] of fs.calls) {
+    assert.ok(/^(\\\\wsl\.localhost\\Debian\\|C:\\)/.test(p), "unexpected root: " + p);
+  }
+  assert.ok(
+    !fs.calls.some(([, p]) => p === BS + BS + "wsl$" || p === BS + BS + "wsl.localhost"),
+    "never lists the wsl root"
+  );
+  assert.deepEqual(
+    r.projects.map((p) => p.sourceTag),
+    ["wsl:Debian"]
+  );
+});
+
+test("a 'none running' non-zero exit is not read as WSL missing", async () => {
+  const fs = makeFs();
+  const runWsl = makeRunner({
+    [LIST]: ok("Ubuntu"),
+    [RUNNING]: { status: 1, stdout: Buffer.from("There are no running distributions.") }
+  });
+  const r = await discover({ fs, runWsl });
+  assert.deepEqual(
+    r.notes.filter((n) => n.distro).map((n) => n.text),
+    ["Ubuntu skipped: not running"]
+  );
+  assert.ok(!r.notes.some((n) => /not installed|unavailable|not responding/.test(n.text)));
+  assert.equal(fs.calls.filter(([, p]) => /ubuntu/i.test(p)).length, 0);
+});
+
+test("a non-zero --running reply is never trusted, even if it names a distro", async () => {
+  const fs = makeFs();
+  fs.dir(wslRoot("Ubuntu") + BS + "u1");
+  const runWsl = makeRunner({
+    [LIST]: ok("Ubuntu"),
+    [RUNNING]: { status: 1, stdout: utf16("Ubuntu") }
+  });
+  const r = await discover({ fs, runWsl });
+  assert.ok(
+    r.notes.some((n) => n.text === "Ubuntu skipped: not running" && n.code === "not-running")
+  );
+  assert.equal(fs.calls.filter(([, p]) => /ubuntu/i.test(p)).length, 0);
+});
+
+test("(b) WSL missing or failing: right note, Windows projects still listed, no throw", async () => {
+  const timeout = Object.assign(new Error("t"), { code: "ETIMEDOUT" });
+  const killed = Object.assign(new Error("k"), { killed: true });
+  const cases = [
+    ["ENOENT", { [LIST]: Object.assign(new Error("x"), { code: "ENOENT" }) }, "WSL not installed"],
+    ["non-zero", { [LIST]: { status: 1, stdout: Buffer.from("") } }, "WSL unavailable"],
+    ["timeout code", { [LIST]: timeout }, "WSL not responding"],
+    ["killed", { [LIST]: killed }, "WSL not responding"],
+    [
+      "garbage",
+      { [LIST]: { status: 0, stdout: Buffer.from([1, 2, 3, 250, 251, 10, 0, 9]) } },
+      "WSL unavailable"
+    ],
+    ["other error", { [LIST]: new Error("boom") }, "WSL unavailable"],
+    ["undefined reply", { [LIST]: { status: 0, stdout: undefined } }, null],
+    ["running call times out", { [LIST]: ok("Ubuntu"), [RUNNING]: timeout }, "WSL not responding"],
+    [
+      "running call missing",
+      { [LIST]: ok("Ubuntu"), [RUNNING]: Object.assign(new Error("x"), { code: "ENOENT" }) },
+      "WSL not installed"
+    ]
+  ];
+  for (const [label, replies, text] of cases) {
+    const fs = makeFs();
+    addProject(fs, WIN_ROOT, "p1", "C:" + BS + "work" + BS + "proj-demo");
+    const runWsl = makeRunner(replies);
+    const r = await discover({ fs, runWsl });
+    assert.equal(r.projects.length, 1, label + ": Windows project kept");
+    if (text)
+      assert.ok(
+        r.notes.some((n) => n.text === text),
+        label + ": " + JSON.stringify(r.notes)
+      );
+    assert.ok(runWsl.calls.length <= 2, label + ": at most two calls");
+    assert.equal(fs.calls.filter(([, p]) => /wsl/i.test(p)).length, 0, label + ": no wsl fs call");
+  }
+  // a runner that throws something that is not even an Error
+  const r = await discover({
+    fs: makeFs(),
+    runWsl: async () => {
+      throw null;
+    }
+  });
+  assert.ok(r.notes.some((n) => n.text === "WSL unavailable"));
+});
+
+test("a non-Windows platform skips WSL without a note or a call", async () => {
+  const fs = makeFs();
+  const root = "/home/user/.claude/projects";
+  addProject(fs, root, "p1", "/home/user/app", T1, "/");
+  const runWsl = makeRunner({});
+  const r = await S.discoverClaudeProjects({
+    platform: "linux",
+    homedir: "/home/user",
+    fs,
+    runWsl,
+    now: () => NOW
+  });
+  assert.equal(runWsl.calls.length, 0);
+  assert.equal(r.projects.length, 1);
+  assert.equal(r.projects[0].label, "app");
+  assert.ok(!r.notes.some((n) => /WSL/.test(n.text)));
+});
+
+test("(c) raw paths: no path, username or planted word reaches any public field or note", async () => {
+  const cwds = [
+    "C:" + BS + "Users" + BS + PLANTED + BS + "proj-demo",
+    "/c/Users/" + PLANTED + "/proj-demo",
+    "/home/" + PLANTED + "/proj-demo",
+    "/Users/" + PLANTED + "/proj-demo",
+    BS + BS + "wsl.localhost" + BS + "Ubuntu" + BS + "home" + BS + PLANTED + BS + "proj-demo",
+    BS + BS + "wsl$" + BS + "Ubuntu" + BS + "home" + BS + PLANTED + BS + "proj-demo",
+    "//wsl$/Ubuntu/home/" + PLANTED + "/proj-demo",
+    "C:" + BS + "Users" + BS + PLANTED,
+    "/home/" + PLANTED,
+    "/Users/" + PLANTED + "/",
+    "c:/users/" + PLANTED,
+    BS + BS + "wsl$" + BS + "Ubuntu" + BS + "home" + BS + PLANTED,
+    "//wsl.localhost/Ubuntu/home/" + PLANTED,
+    BS + BS + "wsl.localhost" + BS + "Ubuntu" + BS + "root",
+    ...RARE_HOMES(PLANTED),
+    ...RARE_HOMES(PLANTED).map((h) => h + "/proj-demo")
+  ];
+  const folders = [
+    "-home-" + PLANTED + "-proj-demo",
+    "C--Users-" + PLANTED + "-proj-demo",
+    "-home-" + PLANTED,
+    "-mnt-c-Users-" + PLANTED + "-proj-demo",
+    "-Users-" + PLANTED,
+    "C--Users-" + PLANTED + "-SyncDir-a-b-proj",
+    "-home-" + PLANTED + "-smith-proj-demo"
+  ];
+  const homes = [
+    "C:" + BS + "Users" + BS + PLANTED,
+    "/c/Users/" + PLANTED,
+    "/cygdrive/c/Users/" + PLANTED,
+    "C:/Users/" + PLANTED,
+    "//wsl$/Ubuntu/home/" + PLANTED,
+    BS + BS + "wsl.localhost" + BS + "Ubuntu" + BS + "home" + BS + PLANTED
+  ];
+  for (const home of homes) {
+    for (const flavour of ["wsl.localhost", "wsl$"]) {
+      const fs = makeFs();
+      const winRoot = path_win32_join(home);
+      cwds.forEach((c, i) => addProject(fs, winRoot, "w" + i, c));
+      folders.forEach((f, i) => addProject(fs, winRoot, f + "-" + i, null));
+      const base = wslRoot("Ubuntu", flavour) + BS + PLANTED + BS + ".claude" + BS + "projects";
+      cwds.forEach((c, i) => addProject(fs, base, "u" + i, c));
+      folders.forEach((f) => addProject(fs, base, f, null));
+      fs.dir(wslRoot("Ubuntu", flavour === "wsl$" ? "wsl.localhost" : "wsl$") + BS + "x");
+      const runWsl = makeRunner({ [LIST]: ok("Ubuntu" + NL + "Debian"), [RUNNING]: ok("Ubuntu") });
+      const r = await discover({ fs, runWsl, homedir: home });
+      const pub = JSON.stringify(S.publicView(r));
+      assert.ok(!pub.toLowerCase().includes(PLANTED), "planted word leaked: " + home);
+      assert.ok(!PRIVATE.test(pub), "privacy pattern hit for " + home + ": " + pub.slice(0, 200));
+      assert.ok(!/proj-demo.*proj-demo.*[\\/]/.test(pub));
+    }
+  }
+});
+
+function path_win32_join(home) {
+  // Mirrors how the module builds the Windows root so the fake fs holds the same path.
+  const path = require("path");
+  const m = /^\/(?:cygdrive\/)?([A-Za-z])(\/.*)?$/.exec(home);
+  const h = m ? m[1].toUpperCase() + ":" + (m[2] || "/").split("/").join(BS) : home;
+  return path.win32.join(h, ".claude", "projects");
+}
+
+test("a label is only the last folder of the cwd, never the cwd itself", async () => {
+  const fs = makeFs();
+  const cwd = "/home/user/code/deep/nested/proj-demo";
+  addProject(fs, WIN_ROOT, "p1", cwd);
+  addProject(fs, WIN_ROOT, "p2", "C:" + BS + "a" + BS + "b" + BS + "other-demo");
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  assert.deepEqual(r.projects.map((p) => p.label).sort(), ["other-demo", "proj-demo"]);
+  for (const p of r.projects) assert.ok(!p.label.includes("/") && !p.label.includes(BS));
+});
+
+test("home-folder names get a stable 6-hex hash label (Windows, WSL, macOS forms)", async () => {
+  const forms = [
+    "C:" + BS + "Users" + BS + "user",
+    "c:" + BS + "users" + BS + "user",
+    "C:/Users/user",
+    "/home/user",
+    "/Users/user",
+    "/mnt/c/Users/user",
+    "/c/Users/user",
+    "/home/user/",
+    BS + BS + "wsl$" + BS + "Ubuntu" + BS + "home" + BS + "user",
+    "//wsl.localhost/Ubuntu/home/user",
+    BS + BS + "wsl.localhost" + BS + "Ubuntu" + BS + "root",
+    "/root",
+    ...RARE_HOMES("user")
+  ];
+  const fs = makeFs();
+  forms.forEach((c, i) => addProject(fs, WIN_ROOT, "h" + i, c));
+  const run = () => discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const a = await run();
+  const b = await run();
+  assert.equal(a.projects.length, forms.length);
+  assert.deepEqual(
+    a.projects.map((p) => [p.id, p.label]),
+    b.projects.map((p) => [p.id, p.label]),
+    "stable across two runs"
+  );
+  const byPath = new Map(a.projects.map((p) => [p.path, p.label]));
+  forms.forEach((c, i) => {
+    const label = byPath.get(WIN_ROOT + BS + "h" + i);
+    assert.match(label, /^[0-9a-f]{6}$/, c);
+    assert.equal(label, hash6(c), "hash of the full cwd plus the fixed salt: " + c);
+    assert.notEqual(label, "user");
+  });
+  // the raw rarer forms are what the shared privacy patterns exist to catch
+  for (const h of RARE_HOMES("bob")) assert.ok(PRIVATE.test(h), "pattern misses " + h);
+  // a folder that merely sits under a home is a normal label
+  const fs2 = makeFs();
+  addProject(fs2, WIN_ROOT, "x", "/home/user/proj-demo");
+  addProject(fs2, WIN_ROOT, "y", "/var/home/user/proj2-demo");
+  addProject(
+    fs2,
+    WIN_ROOT,
+    "z",
+    BS + BS + "?" + BS + "C:" + BS + "Users" + BS + "user" + BS + "app-demo"
+  );
+  const c = await discover({ fs: fs2, runWsl: makeRunner({ [LIST]: ok("") }) });
+  assert.deepEqual(c.projects.map((p) => p.label).sort(), ["app-demo", "proj-demo", "proj2-demo"]);
+});
+
+test("labels that collide in one source get the hash label; other sources keep theirs", async () => {
+  const fs = makeFs();
+  addProject(fs, WIN_ROOT, "a", "C:" + BS + "one" + BS + "app");
+  addProject(fs, WIN_ROOT, "b", "C:" + BS + "two" + BS + "APP");
+  addProject(fs, WIN_ROOT, "c", "C:" + BS + "three" + BS + "solo");
+  const wsl = wslRoot("Ubuntu") + BS + "user" + BS + ".claude" + BS + "projects";
+  addProject(fs, wsl, "d", "/srv/app");
+  const runWsl = makeRunner({ [LIST]: ok("Ubuntu"), [RUNNING]: ok("Ubuntu") });
+  const r = await discover({ fs, runWsl });
+  const win = r.projects.filter((p) => p.sourceTag === "windows");
+  const labels = win.map((p) => p.label).sort();
+  assert.equal(new Set(labels).size, 3);
+  assert.ok(labels.includes("solo"));
+  const collided = win.filter((p) => p.label !== "solo");
+  for (const p of collided) {
+    assert.match(p.label, /^(app|APP) #[0-9a-f]{6}$/);
+    assert.ok(p.label.endsWith("#" + hash6(p.path)), "hash of the project folder");
+  }
+  assert.equal(r.projects.find((p) => p.sourceTag === "wsl:Ubuntu").label, "app");
+});
+
+test("invalid distro names are dropped with a note and never reach the fs", async () => {
+  const bad = ["Ubu ntu", "-lead", "a".repeat(65), "x" + BS + "y", "..", "a/b", "dist$ro"];
+  const fs = makeFs();
+  const runWsl = makeRunner({
+    [LIST]: ok(["Ubuntu", ...bad].join(NL)),
+    [RUNNING]: ok(["Ubuntu", ...bad].join(NL))
+  });
+  const r = await discover({ fs, runWsl });
+  const note = r.notes.find((n) => n.code === "invalid-distro-name");
+  assert.ok(note && /^7 WSL distro names skipped/.test(note.text), JSON.stringify(r.notes));
+  assert.ok(fs.calls.every(([, p]) => !bad.some((b) => p.includes(b))));
+  assert.ok(r.notes.some((n) => n.text === "Ubuntu: no Claude Code projects") || fs.calls.length);
+  // a 64-char name is the longest allowed
+  const longest = "a" + "b".repeat(63);
+  const r2 = await discover({
+    fs: makeFs(),
+    runWsl: makeRunner({ [LIST]: ok(longest), [RUNNING]: ok(longest) })
+  });
+  assert.ok(r2.notes.some((n) => n.text === longest + ": home folders unreadable"));
+});
+
+test("cwd read is bounded: one read of at most 16 KB, 20 lines, never a whole-file read", async () => {
+  assert.equal(S.READ_BYTES, 16384);
+  assert.equal(S.READ_LINES, 20);
+  const fs = makeFs();
+  const big = JSON.stringify({ type: "x", pad: "p".repeat(1000000) }) + NL; // a 1 MB first line
+  fs.file(
+    WIN_ROOT + BS + "big" + BS + "s.jsonl",
+    big + JSON.stringify({ cwd: "/a/late-demo" }),
+    T1
+  );
+  addProject(fs, WIN_ROOT, "ok", "/a/early-demo");
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  assert.equal(fs.reads.length, 2, "one read per transcript");
+  assert.ok(fs.reads.every((n) => n <= S.READ_BYTES));
+  const labels = r.projects.map((p) => p.label).sort();
+  // the cwd on line 2 is behind a cut-off first line: no cwd, so the hash label of the folder
+  assert.equal(labels.length, 2);
+  assert.ok(labels.includes("early-demo"));
+  assert.ok(labels.includes(hash6(WIN_ROOT + BS + "big")));
+});
+
+/** A transcript of filler lines (like last-prompt, queue-operation, ai-title) then a cwd line. */
+function lineProject(fs, name, before, padBytes, cwd) {
+  const filler = [];
+  for (let i = 0; i < before; i++) {
+    filler.push(JSON.stringify({ type: "last-prompt", pad: "q".repeat(padBytes) }));
+  }
+  const lines = [
+    ...filler,
+    JSON.stringify({ type: "user", cwd }),
+    JSON.stringify({ cwd: "/b/later" })
+  ];
+  fs.file(WIN_ROOT + BS + name + BS + "s.jsonl", lines.join(NL) + NL, T1);
+}
+
+test("cwd on line 12 is found; past the 20-line cap or the 16 KB cap it is not (hash label)", async () => {
+  const fs = makeFs();
+  lineProject(fs, "l12", 11, 20, "/work/deep/secretpath-demo/line12-demo"); // cwd on line 12
+  lineProject(fs, "l20", 19, 20, "/work/l20-demo"); // line 20: the last line read
+  lineProject(fs, "l21", 20, 20, "/work/l21-demo"); // line 21: one past the line cap
+  lineProject(fs, "b6", 6, 2000, "/work/b6-demo"); // starts near 12 KB: inside the byte cap
+  lineProject(fs, "b9", 9, 2000, "/work/b9-demo"); // starts near 18 KB: past the byte cap
+  // a partial last line (cut by the byte cap) after a found cwd is tolerated
+  fs.file(
+    WIN_ROOT + BS + "cut" + BS + "s.jsonl",
+    JSON.stringify({ cwd: "/work/cut-demo" }) + NL + '{"type":"x","pad":"' + "z".repeat(40000),
+    T1
+  );
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const label = (n) => r.projects.find((p) => p.path === WIN_ROOT + BS + n).label;
+  assert.equal(label("l12"), "line12-demo");
+  assert.equal(label("l20"), "l20-demo");
+  assert.equal(label("l21"), hash6(WIN_ROOT + BS + "l21"), "past the line cap");
+  assert.equal(label("b6"), "b6-demo");
+  assert.equal(label("b9"), hash6(WIN_ROOT + BS + "b9"), "past the byte cap");
+  assert.equal(label("cut"), "cut-demo");
+  assert.ok(fs.reads.every((n) => n <= S.READ_BYTES));
+  const pub = JSON.stringify(S.publicView(r));
+  for (const w of ["secretpath", "deep", "/work", "work" + BS]) assert.ok(!pub.includes(w), w);
+});
+
+test("a line is only used when it is valid JSON with a non-empty string cwd", async () => {
+  const fs = makeFs();
+  const text = [
+    "not json",
+    JSON.stringify({ cwd: 5 }),
+    JSON.stringify({ cwd: "" }),
+    JSON.stringify({ cwd: ["/x/arr-demo"] }),
+    '{"cwd":"/x/cut-demo"',
+    JSON.stringify({ cwd: "/x/good-demo" })
+  ].join(NL);
+  fs.file(WIN_ROOT + BS + "p" + BS + "s.jsonl", text, T1);
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  assert.equal(r.projects[0].label, "good-demo");
+});
+
+test("no cwd: the label is the hash of the folder path, nothing from the folder name", async () => {
+  const names = [
+    "C--Users-user-SyncDir-a-b-proj",
+    "C--Users-user-SyncDir-Desktop-Projects-secretco-app",
+    "-home-bob-smith-proj-demo",
+    "C--Users-jane-doe-site",
+    "-home-bob",
+    "-Users-bob",
+    "-root"
+  ];
+  const fs = makeFs();
+  for (const name of names) addProject(fs, WIN_ROOT, name, null);
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  assert.equal(r.projects.length, names.length);
+  for (const name of names) {
+    const full = WIN_ROOT + BS + name;
+    const p = r.projects.find((x) => x.path === full);
+    assert.match(p.label, /^[0-9a-f]{6}$/, name);
+    assert.equal(p.label, hash6(full), name);
+  }
+  const pub = JSON.stringify(S.publicView(r));
+  for (const w of ["SyncDir", "a-b", "secretco", "smith", "doe", "jane", "bob", "Desktop"]) {
+    assert.ok(!pub.includes(w), "leaked " + w);
+  }
+});
+
+test("collision suffix only for real names; a username-form label stays a bare hash", async () => {
+  const fs = makeFs();
+  // two projects whose cwd is the same home folder: same hash label, still no suffix
+  addProject(fs, WIN_ROOT, "h1", "/home/user");
+  addProject(fs, WIN_ROOT, "h2", "/home/user");
+  addProject(fs, WIN_ROOT, "h3", "C:" + BS + "Users" + BS + "user");
+  addProject(fs, WIN_ROOT, "n1", "C:" + BS + "one" + BS + "app");
+  addProject(fs, WIN_ROOT, "n2", "C:" + BS + "two" + BS + "app");
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const label = (n) => r.projects.find((p) => p.path === WIN_ROOT + BS + n).label;
+  assert.equal(label("h1"), hash6("/home/user"));
+  assert.equal(label("h2"), hash6("/home/user"));
+  assert.equal(label("h3"), hash6("C:" + BS + "Users" + BS + "user"));
+  for (const n of ["n1", "n2"]) {
+    assert.equal(label(n), "app #" + hash6(WIN_ROOT + BS + n));
+  }
+});
+
+test("labels lose control and bidi characters and are capped", async () => {
+  const bidi = String.fromCharCode(0x202e);
+  const zw = String.fromCharCode(0x200b);
+  const fs = makeFs();
+  addProject(fs, WIN_ROOT, "a", "/x/ab" + bidi + "cd" + zw + String.fromCharCode(7) + "ef");
+  addProject(fs, WIN_ROOT, "b", "/x/" + "z".repeat(200));
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const labels = r.projects.map((p) => p.label).sort();
+  assert.ok(labels.includes("abcdef"));
+  assert.ok(labels.includes("z".repeat(60)));
+});
+
+test("running distro: first root, then the other spelling; unreadable homes are counted", async () => {
+  const fs = makeFs();
+  const second = wslRoot("Ubuntu", "wsl$");
+  addProject(fs, second + BS + "u1" + BS + ".claude" + BS + "projects", "p", "/srv/one-demo");
+  fs.dir(second + BS + "u2");
+  fs.put(second + BS + "u3", { dir: true, deniedStat: true });
+  fs.put(second + BS + "u4" + BS + ".claude" + BS + "projects", { dir: true, denied: true });
+  fs.link(second + BS + "u5");
+  fs.file(second + BS + "notahome", "x");
+  const runWsl = makeRunner({ [LIST]: ok("Ubuntu"), [RUNNING]: ok("Ubuntu") });
+  const r = await discover({ fs, runWsl });
+  assert.deepEqual(
+    r.projects.map((p) => p.label),
+    ["one-demo"]
+  );
+  assert.ok(
+    r.notes.some((n) => n.text === "Ubuntu: 2 home folders unreadable"),
+    JSON.stringify(r.notes)
+  );
+  const calls = fs.calls.map(([, p]) => p);
+  const firstTry = calls.indexOf(wslRoot("Ubuntu"));
+  assert.ok(firstTry >= 0 && firstTry < calls.indexOf(second), "localhost spelling tried first");
+});
+
+test("a running distro with no projects says so", async () => {
+  const fs = makeFs();
+  fs.dir(wslRoot("Ubuntu") + BS + "u1");
+  const runWsl = makeRunner({ [LIST]: ok("Ubuntu"), [RUNNING]: ok("Ubuntu") });
+  const r = await discover({ fs, runWsl });
+  assert.ok(r.notes.some((n) => n.text === "Ubuntu: no Claude Code projects"));
+  assert.ok(r.notes.some((n) => n.text === "Windows: no Claude Code projects"));
+});
+
+test("caps: 64 homes per distro and 500 projects per source add a truncated note", async () => {
+  const fs = makeFs();
+  const lo = wslRoot("Ubuntu");
+  for (let i = 0; i < 65; i++) {
+    addProject(
+      fs,
+      lo + BS + "h" + String(i).padStart(2, "0") + BS + ".claude" + BS + "projects",
+      "p",
+      "/s/p" + i
+    );
+  }
+  for (let i = 0; i < 501; i++) addProject(fs, WIN_ROOT, "w" + i, "/s/w" + i);
+  const runWsl = makeRunner({ [LIST]: ok("Ubuntu"), [RUNNING]: ok("Ubuntu") });
+  const r = await discover({ fs, runWsl });
+  assert.equal(r.projects.filter((p) => p.sourceTag === "wsl:Ubuntu").length, 64);
+  assert.equal(r.projects.filter((p) => p.sourceTag === "windows").length, 500);
+  assert.ok(r.notes.some((n) => n.text === "Ubuntu: list truncated"));
+  assert.ok(r.notes.some((n) => n.text === "Windows: list truncated"));
+  // exactly at the cap: no note
+  const fs2 = makeFs();
+  for (let i = 0; i < 500; i++) addProject(fs2, WIN_ROOT, "w" + i, "/s/w" + i);
+  const r2 = await discover({ fs: fs2, runWsl: makeRunner({ [LIST]: ok("") }) });
+  assert.equal(r2.projects.length, 500);
+  assert.ok(!r2.notes.some((n) => /truncated/.test(n.text)));
+  // a plain file or an empty folder past the cap is not a project: no note
+  fs2.file(WIN_ROOT + BS + "zz-plain-file", "x");
+  fs2.dir(WIN_ROOT + BS + "zz-empty-dir");
+  const r3 = await discover({ fs: fs2, runWsl: makeRunner({ [LIST]: ok("") }) });
+  assert.equal(r3.projects.length, 500);
+  assert.ok(!r3.notes.some((n) => /truncated/.test(n.text)), JSON.stringify(r3.notes));
+});
+
+/** Fills one distro home with projects (names given) whose transcript mtime comes from mtimeOf. */
+function wslHome(fs, distro, home, names, mtimeOf) {
+  const base = wslRoot(distro) + BS + home + BS + ".claude" + BS + "projects";
+  for (const n of names) addProject(fs, base, n, "/s/" + home + "-" + n, mtimeOf(n));
+}
+const range = (n, pre = "p") => Array.from({ length: n }, (_, i) => pre + i);
+
+test("the 500 cap is per source, not per projects root: one distro, two homes", async () => {
+  const run = async (perHome) => {
+    const fs = makeFs();
+    wslHome(fs, "Ubuntu", "a", range(perHome), () => T1);
+    wslHome(fs, "Ubuntu", "b", range(perHome), () => T1);
+    const runWsl = makeRunner({ [LIST]: ok("Ubuntu"), [RUNNING]: ok("Ubuntu") });
+    const r = await discover({ fs, runWsl });
+    return { r, fs };
+  };
+  const over = await run(300); // 600 candidates
+  assert.equal(over.r.projects.filter((p) => p.sourceTag === "wsl:Ubuntu").length, 500);
+  assert.ok(over.r.notes.some((n) => n.text === "Ubuntu: list truncated" && n.distro === "Ubuntu"));
+  const opens = over.fs.calls.filter(([k, p]) => k === "open" && /wsl/.test(p)).length;
+  assert.equal(opens, 500, "the cwd is read only for projects that survive the cap");
+  const exact = await run(250); // 500 exactly
+  assert.equal(exact.r.projects.filter((p) => p.sourceTag === "wsl:Ubuntu").length, 500);
+  assert.ok(!exact.r.notes.some((n) => /truncated/.test(n.text)), JSON.stringify(exact.r.notes));
+});
+
+test("the cap keeps the newest transcripts, not the newest folders or the first in directory order", async () => {
+  const fs = makeFs();
+  const mk = (name, folderMtime, transcriptMtime) => {
+    fs.put(WIN_ROOT + BS + name, { dir: true, mtimeMs: folderMtime });
+    addProject(fs, WIN_ROOT, name, "/s/" + name, transcriptMtime);
+  };
+  mk("newfolder-oldtranscript", T2 * 2, T1 - 1000); // oldest transcript, newest folder
+  for (let i = 0; i < 499; i++) mk("f" + i, T2 + i, T1 + i);
+  mk("oldfolder-newtranscript", 1, T2 + 100000); // newest transcript, oldest folder, listed last
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const labels = r.projects.map((p) => p.label);
+  assert.equal(r.projects.length, 500);
+  assert.equal(labels[0], "oldfolder-newtranscript", "newest transcript first");
+  assert.ok(!labels.includes("newfolder-oldtranscript"), "the oldest transcript is dropped");
+  assert.ok(labels.includes("f0") && labels.includes("f498"));
+  assert.ok(r.projects.every((p, i, a) => !i || a[i - 1].mtime >= p.mtime));
+  assert.ok(r.notes.some((n) => n.text === "Windows: list truncated"));
+});
+
+test("the cap tie-break is deterministic whatever the directory order", async () => {
+  const names = range(501);
+  const survivors = async (order) => {
+    const fs = makeFs();
+    for (const n of order) addProject(fs, WIN_ROOT, n, "/s/" + n, T1);
+    const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+    return r.projects.map((p) => p.id + " " + p.label);
+  };
+  const fwd = await survivors(names);
+  const rev = await survivors(names.slice().reverse());
+  const odd = names.filter((_, i) => i % 2);
+  const even = names.filter((_, i) => !(i % 2));
+  const mixed = await survivors([...odd, ...even]);
+  assert.equal(fwd.length, 500);
+  assert.deepEqual(fwd, rev);
+  assert.deepEqual(fwd, mixed);
+  // equal mtimes: the folder path decides, so the last path in sort order is the one dropped
+  const dropped = names.slice().sort().pop();
+  assert.ok(!fwd.some((x) => x.endsWith(" " + dropped)));
+});
+
+test("overall cap: the merged list stops at 2000 (newest kept) with a truncated note", async () => {
+  const distros = ["Ubuntu", "Debian", "Alpine", "Arch"];
+  const run = async (n) => {
+    const fs = makeFs();
+    const roots = [WIN_ROOT];
+    for (const d of distros) roots.push(wslRoot(d) + BS + "u" + BS + ".claude" + BS + "projects");
+    let t = 0;
+    for (const root of roots) {
+      for (let i = 0; i < n; i++) addProject(fs, root, "p" + i, "/s/p" + i, T1 + t++);
+    }
+    const list = distros.join(NL);
+    return discover({ fs, runWsl: makeRunner({ [LIST]: ok(list), [RUNNING]: ok(list) }) });
+  };
+  const over = await run(500); // 5 sources x 500 = 2500
+  assert.equal(over.projects.length, 2000);
+  assert.ok(over.notes.some((n) => n.text === "Projects: list truncated"));
+  assert.ok(
+    over.projects.every((p, i, a) => !i || a[i - 1].mtime >= p.mtime),
+    "newest first"
+  );
+  assert.equal(over.projects[0].mtime, T1 + 2499);
+  assert.equal(over.projects[1999].mtime, T1 + 500);
+  const exact = await run(400); // 5 x 400 = 2000 exactly
+  assert.equal(exact.projects.length, 2000);
+  assert.ok(!exact.notes.some((n) => /Projects: list truncated/.test(n.text)));
+});
+
+test("the outer catch names the real platform", async () => {
+  const boom = {
+    toString() {
+      throw new Error("boom");
+    }
+  };
+  const r = await S.discoverClaudeProjects({
+    platform: "linux",
+    homedir: boom,
+    fs: makeFs(),
+    now: () => NOW
+  });
+  assert.ok(
+    r.notes.some((n) => n.text === "Local: projects folder unreadable"),
+    JSON.stringify(r.notes)
+  );
+});
+
+test("default wsl.exe runner: wsl.exe, no shell, hidden window, 3s timeout, allowed args only", async () => {
+  const calls = [];
+  const fake = (reply) => (file, args, opts, cb) => {
+    calls.push({ file, args, opts });
+    reply(cb);
+  };
+  const run = S.makeRunWsl(fake((cb) => cb(null, Buffer.from("x"))));
+  const res = await run(["-l", "-q"]);
+  assert.equal(res.status, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file, "wsl.exe");
+  assert.deepEqual(calls[0].args, ["-l", "-q"]);
+  assert.equal(calls[0].opts.windowsHide, true);
+  assert.equal(calls[0].opts.timeout, 3000);
+  assert.ok(!calls[0].opts.shell, "no shell");
+  await run(["-l", "--running", "-q"]);
+  assert.deepEqual(calls[1].args, ["-l", "--running", "-q"]);
+  // disallowed argument lists reject without calling execFile
+  for (const bad of [["-d", "x"], ["-l"], ["-l", "-q", "-d", "x"], ["--exec", "ls"], []]) {
+    await assert.rejects(run(bad), /not allowed/);
+  }
+  assert.equal(calls.length, 2);
+  // killed or signalled: a timeout
+  const err = (props) => Object.assign(new Error("e"), props);
+  const killed = S.makeRunWsl(fake((cb) => cb(err({ killed: true }), "")));
+  await assert.rejects(killed(["-l", "-q"]), (e) => e.code === "ETIMEDOUT");
+  const sig = S.makeRunWsl(fake((cb) => cb(err({ signal: "SIGTERM" }), "")));
+  await assert.rejects(sig(["-l", "-q"]), (e) => e.code === "ETIMEDOUT");
+  // a numeric exit code resolves as a status
+  const out = Buffer.from("none");
+  const code = S.makeRunWsl(fake((cb) => cb(err({ code: 1 }), out)));
+  assert.deepEqual(await code(["-l", "--running", "-q"]), { status: 1, stdout: out });
+  // a non-numeric code that is not ENOENT still resolves with status 1
+  const odd = S.makeRunWsl(fake((cb) => cb(err({ code: "EPERM" }), out)));
+  assert.equal((await odd(["-l", "-q"])).status, 1);
+  // ENOENT rejects with its own code
+  const gone = S.makeRunWsl(fake((cb) => cb(err({ code: "ENOENT" }))));
+  await assert.rejects(gone(["-l", "-q"]), (e) => e.code === "ENOENT");
+  assert.equal(typeof S.defaultRunWsl, "function");
+});
+
+test("the Windows home comes from the injected homedir; Git Bash roots become drive paths", async () => {
+  const fs = makeFs();
+  addProject(
+    fs,
+    "C:" + BS + "Users" + BS + "user" + BS + ".claude" + BS + "projects",
+    "p",
+    "/s/app"
+  );
+  const r = await discover({
+    fs,
+    homedir: "/c/Users/user",
+    runWsl: makeRunner({ [LIST]: ok("") })
+  });
+  assert.equal(r.projects.length, 1);
+  assert.equal(
+    fs.calls[0][1],
+    "C:" + BS + "Users" + BS + "user" + BS + ".claude" + BS + "projects"
+  );
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = "C:" + BS + "elsewhere";
+  try {
+    const fs2 = makeFs();
+    const r2 = await discover({ fs: fs2, runWsl: makeRunner({ [LIST]: ok("") }) });
+    assert.ok(fs2.calls.every(([, p]) => !p.includes("elsewhere")));
+    assert.equal(r2.projects.length, 0);
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+  }
+});
+
+test("decodeLines handles UTF-16LE with and without a BOM, UTF-8, CRLF and NULs", () => {
+  assert.deepEqual(S.decodeLines(utf16("Ubuntu\r\nDebian\r\n")), ["Ubuntu", "Debian"]);
+  assert.deepEqual(S.decodeLines(utf16("Ubuntu\r\nDebian\r\n", false)), ["Ubuntu", "Debian"]);
+  assert.deepEqual(S.decodeLines(Buffer.from("Ubuntu\r\n\r\nDebian")), ["Ubuntu", "Debian"]);
+  assert.deepEqual(S.decodeLines("A\nB"), ["A", "B"]);
+  assert.deepEqual(S.decodeLines(undefined), []);
+});
+
+test("ids are opaque and stable; hash labels are 6 hex", async () => {
+  const fs = makeFs();
+  addProject(fs, WIN_ROOT, "p", "/s/app");
+  const a = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const id =
+    "cc-" +
+    crypto
+      .createHash("sha256")
+      .update("windows" + String.fromCharCode(0) + a.projects[0].path)
+      .digest("hex")
+      .slice(0, 12);
+  assert.equal(a.projects[0].id, id);
+  assert.match(S.hashLabel("anything"), /^[0-9a-f]{6}$/);
+});
+
+test("paths test: every Claude Code mode response body passes the shared privacy patterns", async () => {
+  // Unit 4 owns the real /api/projects, /api/status and /api/events routes and must re-run
+  // this check against them. Here the bodies come from the public-view helpers.
+  const fs = makeFs();
+  const cwds = [
+    "C:" + BS + "Users" + BS + PLANTED + BS + "proj-demo",
+    "/home/" + PLANTED,
+    BS + BS + "wsl$" + BS + "Ubuntu" + BS + "home" + BS + PLANTED + BS + "x-demo"
+  ];
+  cwds.forEach((c, i) => addProject(fs, WIN_ROOT, "w" + i, c));
+  const base = wslRoot("Ubuntu") + BS + PLANTED + BS + ".claude" + BS + "projects";
+  addProject(fs, base, "u", "/home/" + PLANTED + "/proj-demo");
+  const runWsl = makeRunner({ [LIST]: ok("Ubuntu" + NL + "Debian"), [RUNNING]: ok("Ubuntu") });
+  const r = await discover({ fs, runWsl, homedir: WIN_HOME });
+  const sample = [{ role: "worker", type: "turn", message: "Edit app", sessionId: "s1" }];
+  const bodies = {
+    projects: S.toProjectsResponse(r),
+    status: S.toStatusResponse(r),
+    events: S.toEventsResponse(r, sample)
+  };
+  for (const [name, body] of Object.entries(bodies)) {
+    const text = JSON.stringify(body);
+    assert.ok(!PRIVATE.test(text), name + " matched a privacy pattern");
+    assert.ok(!text.toLowerCase().includes(PLANTED), name + " carries the planted word");
+    assert.ok(!text.includes('"path"'), name + " carries a path field");
+    assert.equal(body.source, "claude-code");
+  }
+  assert.equal(bodies.status.projectCount, r.projects.length);
+  assert.ok(bodies.projects.notes.some((n) => n.text === "Debian skipped: not running"));
+  // the matcher really catches a path, so the check above is not vacuous
+  assert.ok(PRIVATE.test(JSON.stringify({ path: WIN_HOME })));
+  assert.ok(PRIVATE.test("x " + PLANTED));
+});
