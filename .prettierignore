@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.worktrees/
 package-lock.json
 *.min.js
 *.min.css
