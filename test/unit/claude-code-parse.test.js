@@ -450,6 +450,41 @@ test("SYNTHETIC: WebFetch keeps host and path only; query, fragment and userinfo
   assert.equal(bad[0].message, "read · WebFetch");
 });
 
+test("SYNTHETIC: secrets in url paths (Slack webhook, Telegram bot token) never reach a row", () => {
+  const slack = "https://hooks.slack.com/services/T0SECRETA/B0SECRETB/xSECRETCx";
+  const tele = "https://api.telegram.org/bot123456789:AAHSECRETTOKEN/sendMessage";
+  for (const [url, shown] of [
+    [slack, "https://hooks.slack.com/services"],
+    [tele, "https://api.telegram.org"]
+  ]) {
+    for (const name of ["WebFetch", "Read"]) {
+      const rows = toolRows(name, { url });
+      const json = JSON.stringify(rows);
+      assert.ok(!json.includes("SECRET") && !json.includes("123456789"), url);
+      assert.ok(!json.includes("B0") && !json.includes("AAH"), url);
+      assert.equal(rows[0].activity.path, shown, url);
+    }
+  }
+  // a normal url still shows host and first segment; deeper segments are dropped
+  assert.equal(
+    toolRows("WebFetch", { url: "https://docs.x.test/guide/intro/part" })[0].activity.path,
+    "https://docs.x.test/guide"
+  );
+  // a segment that is not a plain word (digits, or over 20 characters) is host only
+  assert.equal(
+    toolRows("WebFetch", { url: "https://x.test/v2/a" })[0].activity.path,
+    "https://x.test"
+  );
+  assert.equal(
+    toolRows("WebFetch", { url: "https://x.test/" + "a".repeat(21) + "/b" })[0].activity.path,
+    "https://x.test"
+  );
+  assert.equal(
+    toolRows("WebFetch", { url: "https://x.test/" + "a".repeat(20) })[0].activity.path,
+    "https://x.test/" + "a".repeat(20)
+  );
+});
+
 /* ---- round 3: allowlist urls, one-pass notice parsing, remembered child family ---- */
 
 const toolRows = (name, input) =>
@@ -474,7 +509,7 @@ test("SYNTHETIC: only http(s) urls survive; every other scheme gives a bare tool
     assert.ok(!JSON.stringify(rows).includes("SECRET"), url);
   }
   const ok = toolRows("WebFetch", { url: "http://x.test:8080/a/b?q=SECRET" });
-  assert.equal(ok[0].activity.path, "http://x.test:8080/a/b");
+  assert.equal(ok[0].activity.path, "http://x.test:8080/a"); // first path segment only
   const long = toolRows("WebFetch", { url: "https://x.test/" + "a".repeat(500) });
   assert.ok(long[0].activity.path.length <= 120);
 });
