@@ -59,6 +59,25 @@ function decodedStrings(v, out = []) {
 }
 
 /**
+ * Line of the first JSON string literal in `text` whose decoded value matches `re` (1 if none
+ * is found). Lets a multi-line .json report where an escaped hit sits, not always line 1.
+ */
+function literalLine(text, re) {
+  const lit = /"(?:[^"\\\n]|\\.)*"/g;
+  let m;
+  while ((m = lit.exec(text))) {
+    let v;
+    try {
+      v = JSON.parse(m[0]);
+    } catch {
+      continue;
+    }
+    if (re.test(v)) return text.slice(0, m.index).split("\n").length;
+  }
+  return 1;
+}
+
+/**
  * First forbidden hit in a file's text as { match, line } (1-based line), or null.
  * Failure messages must use `line` only: `match` can be an owner word and CI logs are public.
  */
@@ -66,7 +85,8 @@ function findHit(fileName, text, re = FORBIDDEN) {
   const raw = re.exec(text);
   if (raw) return { match: raw[0], line: text.slice(0, raw.index).split("\n").length };
   if (!/\.jsonl?$/.test(fileName)) return null;
-  const chunks = fileName.endsWith(".jsonl") ? text.split("\n") : [text];
+  const isLines = fileName.endsWith(".jsonl");
+  const chunks = isLines ? text.split("\n") : [text];
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     if (!chunk) continue;
@@ -78,7 +98,7 @@ function findHit(fileName, text, re = FORBIDDEN) {
     }
     for (const str of decodedStrings(parsed)) {
       const m = re.exec(str);
-      if (m) return { match: m[0], line: i + 1 };
+      if (m) return { match: m[0], line: isLines ? i + 1 : literalLine(text, re) };
     }
   }
   return null;
@@ -261,6 +281,15 @@ test("the content scan decodes JSON escapes and checks keys", () => {
   assert.ok(findHit("x.jsonl", `{"ok":1}\n{"cwd":"${esc}"}\n`), "second line");
   assert.ok(findHit("x.jsonl", '{"ok":1}\n{"cwd":"/Users/b'), "unparseable line scanned raw");
   assert.equal(findHit("x.jsonl", '{"cwd":"S1","k":["toolu_1"]}\n'), null);
+});
+
+test("an escaped hit in a multi-line .json reports its real line", () => {
+  const esc = uEscape("C:\\Users\\someone");
+  const pretty = `{\n  "a": "S1",\n  "b": {\n    "cwd": "${esc}"\n  }\n}\n`;
+  assert.equal(findHit("x.json", pretty).line, 4);
+  const key = `{\n  "a": 1,\n  "${uEscape("/mnt/c/x")}": 2\n}\n`;
+  assert.equal(findHit("x.json", key).line, 3);
+  assert.equal(findHit("x.json", `{"cwd":"${esc}"}`).line, 1);
 });
 
 /** Every object key in a parsed JSON value. */
