@@ -62,8 +62,8 @@ function decodedStrings(v, out = []) {
  * First forbidden hit in a file's text as { match, line } (1-based line), or null.
  * Failure messages must use `line` only: `match` can be an owner word and CI logs are public.
  */
-function findHit(fileName, text) {
-  const raw = FORBIDDEN.exec(text);
+function findHit(fileName, text, re = FORBIDDEN) {
+  const raw = re.exec(text);
   if (raw) return { match: raw[0], line: text.slice(0, raw.index).split("\n").length };
   if (!/\.jsonl?$/.test(fileName)) return null;
   const chunks = fileName.endsWith(".jsonl") ? text.split("\n") : [text];
@@ -77,7 +77,7 @@ function findHit(fileName, text) {
       continue; // unparseable (cut-off) line: the raw scan above already covered it
     }
     for (const str of decodedStrings(parsed)) {
-      const m = FORBIDDEN.exec(str);
+      const m = re.exec(str);
       if (m) return { match: m[0], line: i + 1 };
     }
   }
@@ -94,7 +94,25 @@ function walk(dir, out = []) {
 }
 
 /** A path with every forbidden match masked, so a failure never prints an owner word. */
-const safePath = (p) => p.replace(new RegExp(FORBIDDEN.source, "gi"), "[redacted]");
+const safePath = (p, re = FORBIDDEN) => p.replace(new RegExp(re.source, "gi"), "[redacted]");
+
+/** The real name check: throws an assertion error naming the masked path only. */
+function checkNames(root, re) {
+  for (const e of walk(root)) {
+    assert.ok(!re.test(e.name), `forbidden name: ${safePath(path.relative(root, e.full), re)}`);
+  }
+}
+
+/** The real content check: throws an assertion error naming the masked file and the line only. */
+function checkContents(root, re) {
+  for (const e of walk(root).filter((x) => !x.dir)) {
+    const hit = findHit(e.name, fs.readFileSync(e.full, "utf8"), re);
+    assert.ok(
+      !hit,
+      `forbidden text in ${safePath(path.relative(root, e.full), re)}:${hit && hit.line}`
+    );
+  }
+}
 
 const NO_WORDS_MSG =
   "privacy-words check SKIPPED: no secret (PRIVACY_WORDS env var is unset or empty and " +
@@ -118,19 +136,11 @@ test("fixture tree exists and is non-trivial", () => {
 });
 
 test("no fixture file or folder NAME matches the forbidden patterns", () => {
-  for (const e of walk(ROOT)) {
-    assert.ok(!FORBIDDEN.test(e.name), `forbidden name: ${safePath(path.relative(ROOT, e.full))}`);
-  }
+  checkNames(ROOT, FORBIDDEN);
 });
 
 test("no fixture file CONTENT matches the forbidden patterns", () => {
-  for (const e of walk(ROOT).filter((x) => !x.dir)) {
-    const hit = findHit(e.name, fs.readFileSync(e.full, "utf8"));
-    assert.ok(
-      !hit,
-      `forbidden text in ${safePath(path.relative(ROOT, e.full))}:${hit && hit.line}`
-    );
-  }
+  checkContents(ROOT, FORBIDDEN);
 });
 
 const uEscape = (str) =>
@@ -169,21 +179,77 @@ test("the forbidden-pattern matcher itself catches what it should", () => {
 test("a failure message names file and line but never the matched word", () => {
   const word = "zq-secret-owner";
   const re = buildForbidden([word]);
-  const text = `{"ok":1}\n{"cwd":"/x/${word}/y"}\n`;
-  const raw = re.exec(text);
-  assert.ok(raw, "planted word is found");
-  assert.equal(text.slice(0, raw.index).split("\n").length, 2);
-  // Same message shapes as the real tests, built with the planted word.
-  const masked = (p) => p.replace(new RegExp(re.source, "gi"), "[redacted]");
-  const nameMsg = `forbidden name: ${masked(`sub/${word}.jsonl`)}`;
-  assert.ok(!nameMsg.includes(word) && nameMsg.includes("[redacted]"), nameMsg);
-  // The real assertion path: findHit's result drives a message that must not hold the match.
-  const hit = findHit("x.jsonl", `{"ok":1}\n{"cwd":"/home/bob/x"}\n`);
-  assert.equal(hit.line, 2);
-  assert.throws(
-    () => assert.ok(!hit, `forbidden text in x.jsonl:${hit.line}`),
-    (err) => !err.message.includes(hit.match) && err.message.includes("x.jsonl:2")
-  );
+  // Inside the repo's gitignored .scratch, never the system temp folder.
+  const scratch = path.join(__dirname, "..", "..", ".scratch");
+  fs.mkdirSync(scratch, { recursive: true });
+  const base = fs.mkdtempSync(path.join(scratch, "privacy-msg-"));
+  // Everything an assertion error can expose, as one string.
+  const dump = (err) =>
+    [err.message, String(err.actual), String(err.expected), String(err.generatedMessage)]
+      .concat(JSON.stringify(err), String(err.stack))
+      .join("\n");
+  const caught = (fn) => {
+    try {
+      fn();
+    } catch (err) {
+      return err;
+    }
+    return assert.fail("the real check did not throw, so the test would pass vacuously");
+  };
+  try {
+    const mk = (name, files) => {
+      const dir = path.join(base, name);
+      for (const [rel, body] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+        fs.writeFileSync(path.join(dir, rel), body);
+      }
+      return dir;
+    };
+    const cases = [
+      // [label, check, files, message must contain]
+      [
+        "name",
+        checkNames,
+        { [`sub/${word}.jsonl`]: `{"ok":1}\n` },
+        "forbidden name: sub",
+        "[redacted].jsonl"
+      ],
+      [
+        "jsonl raw",
+        checkContents,
+        { "a.jsonl": `{"ok":1}\n{"cwd":"/x/${word}/y"}\n` },
+        "a.jsonl:2"
+      ],
+      [
+        "jsonl escaped",
+        checkContents,
+        { "b.jsonl": `{"ok":1}\n{"ok":2}\n{"cwd":"/x/${uEscape(word)}/y"}\n` },
+        "b.jsonl:3"
+      ],
+      ["plain text", checkContents, { "c.txt": `one\ntwo\nthree ${word}\n` }, "c.txt:3"],
+      [
+        "file name and content",
+        checkContents,
+        { [`${word}.txt`]: `one\n${word}\n` },
+        "[redacted].txt:2"
+      ]
+    ];
+    for (const [label, check, files, ...wanted] of cases) {
+      const dir = mk(label.replace(/\W/g, "-"), files);
+      const err = caught(() => check(dir, re));
+      assert.ok(err instanceof assert.AssertionError, `${label}: assertion error`);
+      for (const w of wanted) assert.ok(err.message.includes(w), `${label}: "${w}" in message`);
+      const all = dump(err);
+      assert.ok(!all.toLowerCase().includes(word), `${label}: planted word leaked`);
+      assert.ok(!all.includes(uEscape(word)), `${label}: escaped planted word leaked`);
+    }
+    // A clean tree does not throw.
+    const clean = mk("clean", { "ok.jsonl": `{"ok":1}\n` });
+    checkNames(clean, re);
+    checkContents(clean, re);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
 });
 
 test("the content scan decodes JSON escapes and checks keys", () => {
