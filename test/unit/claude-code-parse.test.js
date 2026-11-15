@@ -805,6 +805,122 @@ test("SYNTHETIC: ordinary paths still show as paths", () => {
   }
 });
 
+test("SYNTHETIC: the path check runs on the text the display shows, not the raw value", () => {
+  // Tags and edge whitespace are dropped by the display. If the check saw the raw value
+  // instead, these would be hidden (":42<b></b>" is no line suffix) and the first two would
+  // lose their path.
+  for (const [raw, shown] of [
+    ["file.ts:42<b></b>", "file.ts:42"],
+    ["file.ts:42\u00a0", "file.ts:42"],
+    ["<i></i>src/app.ts:10", "src/app.ts:10"]
+  ]) {
+    const rows = toolRows("Read", { file_path: raw });
+    assert.equal(rows[0].activity.path, shown, JSON.stringify(raw));
+    assert.equal(rows[0].message, "read · " + shown, JSON.stringify(raw));
+  }
+  const url = toolRows("WebFetch", { url: "<b></b>https://x/a?SECRET" });
+  hidden(url);
+  assert.equal(url[0].activity.path, "https://x/a");
+});
+
+test("SYNTHETIC: control and bidi characters never reach a label", () => {
+  const BAD = [
+    "\u0000",
+    "\u0007",
+    "\u001b",
+    "\u007f",
+    "\u0085",
+    "\u00ad",
+    "\u200b",
+    "\u200e",
+    "\u202a",
+    "\u202e",
+    "\u2066",
+    "\u2069",
+    "\u2060",
+    "\ufeff"
+  ];
+  BAD.push(String.fromCharCode(0x180e)); // Mongolian vowel separator
+  const clean = (s) => {
+    for (const c of BAD) assert.ok(!s.includes(c), JSON.stringify(s));
+  };
+  for (const c of BAD) {
+    const rows = toolRows("Read", { file_path: "src/a" + c + "b.ts" });
+    assert.equal(rows[0].activity.path, "src/ab.ts", JSON.stringify(c));
+    assert.equal(rows[0].message, "read · src/ab.ts", JSON.stringify(c));
+    clean(JSON.stringify(rows).replace(/\\u[0-9a-f]{4}/g, (m) => JSON.parse('"' + m + '"')));
+    // an unknown tool name and a subagent type are labels too
+    const t = toolRows("Weird" + c + "Tool", { x: 1 });
+    assert.equal(t[0].message, "tool · WeirdTool", JSON.stringify(c));
+    const spawn = P.parseLine(
+      asst("mb", "claude-opus-5-5", u(1, 1), [
+        { type: "tool_use", id: "tb", name: "Agent", input: { subagent_type: "wor" + c + "ker" } }
+      ]),
+      P.createState()
+    )[0];
+    assert.ok(spawn.message.includes("worker") && !spawn.message.includes(c), JSON.stringify(c));
+  }
+  // an invisible character cannot split a scheme and sneak past the check
+  hidden(toolRows("Read", { file_path: "jav\u200ba\u202escript:SECRET" }));
+  hidden(toolRows("Read", { file_path: "da\u0000ta:,SECRET" }));
+  // ordinary whitespace controls still fold to a space
+  assert.equal(toolRows("Read", { file_path: "a\tb.ts" })[0].activity.path, "a b.ts");
+});
+
+test("SYNTHETIC: model strings, ids, session and source are sanitized on every row", () => {
+  const CODES = [
+    0x0, 0x7, 0x1b, 0x7f, 0x85, 0xad, 0x180e, 0x200b, 0x200e, 0x202a, 0x202e, 0x2060, 0x2066,
+    0x2069, 0xfeff
+  ];
+  const bad = new Set(CODES.map((c) => String.fromCharCode(c)));
+  const strings = (v, out = []) => {
+    if (typeof v === "string") out.push(v);
+    else if (Array.isArray(v)) v.forEach((x) => strings(x, out));
+    else if (v && typeof v === "object") Object.values(v).forEach((x) => strings(x, out));
+    return out;
+  };
+  for (const code of CODES) {
+    const c = String.fromCharCode(code);
+    const tag = code.toString(16);
+    const state = P.createState();
+    const rows = [
+      // an Agent call whose model, id, session and source carry the character
+      ...P.parseLine(
+        {
+          ...agentCall("t" + c + "1", { subagent_type: "worker", model: "x" + c + "evil" }),
+          sessionId: "se" + c + "ss"
+        },
+        state,
+        { source: "so" + c + "urce" }
+      ),
+      // a model that names a family: modelRaw keeps the slug
+      ...P.parseLine(agentCall("t2", { model: "my" + c + "opus" }), state)
+    ];
+    // its result names an agent id and a resolved model; the child's meta names another model
+    P.parseLine(agentResult("t2", "ag" + c + "1", "re" + c + "sonnet"), state);
+    const meta = { agentType: "Explore", toolUseId: "t2", model: "zz" + c + "haiku" };
+    rows.push(...P.parseLine(childUser("ag" + c + "1"), state, { meta }));
+    rows.push(...P.parseLine(doneNote("t2"), state));
+    assert.equal(rows.length, 4, tag);
+    for (const row of rows) {
+      for (const s of strings(row)) {
+        assert.ok(![...s].some((ch) => bad.has(ch)), tag + " " + JSON.stringify(s));
+      }
+    }
+    // the values stay usable, just without the character
+    assert.equal(rows[0].message, "delegates · worker · xevil", tag);
+    assert.equal(rows[0].modelLabel, "xevil", tag);
+    assert.equal(rows[0].toolUseId, "t1", tag);
+    assert.equal(rows[0].sessionId, "sess", tag);
+    assert.equal(rows[0].source, "source", tag);
+    assert.equal(rows[1].modelRaw, "myopus", tag);
+    assert.equal(rows[1].modelLabel, "Opus", tag);
+    assert.equal(rows[2].agentId, "ag1", tag);
+    assert.equal(rows[2].modelRaw, "resonnet", tag);
+    assert.equal(rows[3].agentId, "ag1", tag);
+  }
+});
+
 test("SYNTHETIC: notice header is first-wins: a later tool-use-id or status cannot replace it", () => {
   const n = nt(
     "<tool-use-id>t</tool-use-id><status>completed</status><result>see </result><tool-use-id>SECRET</tool-use-id><status>failed</status></result>"
