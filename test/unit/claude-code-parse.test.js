@@ -867,6 +867,28 @@ test("SYNTHETIC: control and bidi characters never reach a label", () => {
   assert.equal(toolRows("Read", { file_path: "a\tb.ts" })[0].activity.path, "a b.ts");
 });
 
+test("SYNTHETIC: every code point in each stripped range is removed from a label", () => {
+  const RANGES = [
+    [0x0, 0x8],
+    [0xe, 0x1f],
+    [0x7f, 0x9f],
+    [0x200b, 0x200f],
+    [0x202a, 0x202e],
+    [0x2060, 0x206f]
+  ];
+  let checked = 0;
+  for (const [lo, hi] of RANGES) {
+    for (let code = lo; code <= hi; code++) {
+      const c = String.fromCharCode(code);
+      const rows = toolRows("Read", { file_path: "src/a" + c + "b.ts" });
+      assert.equal(rows[0].activity.path, "src/ab.ts", code.toString(16));
+      assert.equal(rows[0].message, "read · src/ab.ts", code.toString(16));
+      checked++;
+    }
+  }
+  assert.equal(checked, 9 + 18 + 33 + 5 + 5 + 16);
+});
+
 test("SYNTHETIC: model strings, ids, session and source are sanitized on every row", () => {
   const CODES = [
     0x0, 0x7, 0x1b, 0x7f, 0x85, 0xad, 0x180e, 0x200b, 0x200e, 0x202a, 0x202e, 0x2060, 0x2066,
