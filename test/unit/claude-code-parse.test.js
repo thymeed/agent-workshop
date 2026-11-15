@@ -409,6 +409,26 @@ test("SYNTHETIC: a notice falls back to its task-id when the call has no agentId
   assert.equal(linked.agentId, "agM");
 });
 
+test("SYNTHETIC: an unknown model name is capped at 40 characters and loses tag-like text", () => {
+  const call = (model) =>
+    P.parseLine(
+      asst("ml", "claude-opus-5-5", u(1, 1), [
+        { type: "tool_use", id: "tl", name: "Agent", input: { subagent_type: "worker", model } }
+      ]),
+      P.createState()
+    )[0];
+  const long = call("my-model-" + "x".repeat(200));
+  assert.equal(long.modelLabel.length, 40);
+  assert.ok(long.message.length < 80);
+  const tagged = call("<img src=x onerror=alert(1)>evil");
+  assert.equal(tagged.modelLabel, "evil");
+  assert.ok(!tagged.message.includes("<"));
+  // exactly 40 is kept whole
+  assert.equal(call("a".repeat(40)).modelLabel, "a".repeat(40));
+  // known families keep their short label
+  assert.equal(call("claude-opus-5-5").modelLabel, "Opus");
+});
+
 test("SYNTHETIC: notificationType maps all six failure words to error, completed to done, the rest unknown", () => {
   for (const s of ["failed", "error", "killed", "stopped", "cancelled", "canceled"]) {
     assert.deepEqual(P.notificationType(s), { type: "error", known: true }, s);
