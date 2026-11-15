@@ -277,13 +277,8 @@
     researcher: { x: 720, y: 360 }
   };
   var PORTAL_PT = { x: 500, y: 445 };
-  var ROLE_LABEL = {
-    opus: "Opus",
-    advisor: "Fable",
-    worker: "Sonnet",
-    explorer: "Explore",
-    researcher: "Research"
-  };
+  /* Live table from role-profiles.js (refilled in place by RoleProfiles.apply). */
+  var ROLE_LABEL = window.RoleProfiles.tables().labels;
 
   var stageDirector = (function () {
     var cratesLayer = document.getElementById("cratesLayer");
