@@ -66,8 +66,29 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: Mask privacy words
+        shell: bash
+        env:
+          PRIVACY_WORDS: ${{ secrets.PRIVACY_WORDS }}
+        run: |
+          short=0
+          IFS=',' read -ra words <<< "$PRIVACY_WORDS"
+          for word in "${words[@]}"; do
+            word="${word#"${word%%[![:space:]]*}"}"
+            word="${word%"${word##*[![:space:]]}"}"
+            [ -n "$word" ] || continue
+            printf '::add-mask::%s\n' "$word"
+            [ "${#word}" -ge 3 ] || short=1
+          done
+          if [ "$short" -eq 1 ]; then
+            printf '::warning::a privacy word shorter than 3 chars cannot be masked\n'
+          fi
+          exit 0
+
       - name: Smoke tests
         run: npm test
+        env:
+          PRIVACY_WORDS: ${{ secrets.PRIVACY_WORDS }}
 
       - name: Packaging check
         run: npm run build:check

@@ -357,6 +357,165 @@ test("SYNTHETIC: usage that drops then recovers for one message.id is not double
   );
 });
 
+test("SYNTHETIC: full usage, a partial line, then the full line again counts every field once", () => {
+  const state = P.createState();
+  const rows = [];
+  for (const usage of [
+    u(2, 50, 100, 25),
+    { output_tokens: 10, input_tokens: 1 },
+    u(2, 50, 100, 25)
+  ]) {
+    rows.push(...P.parseLine(asst("m1", "claude-opus-5-5", usage, text), state));
+  }
+  assert.deepEqual(P.usageTotals(state), {
+    opus: { in: 2, out: 50, cacheRead: 100, cacheWrite: 25 }
+  });
+  const sum = (k) => rows.reduce((n, r) => n + (r.usage ? r.usage[k] : 0), 0);
+  assert.equal(sum("out"), 50);
+  assert.equal(sum("in"), 2);
+  assert.equal(sum("cacheRead"), 100);
+  assert.equal(sum("cacheWrite"), 25);
+});
+
+test("SYNTHETIC: usage on a line with no message.id is not counted (a repeat would double count)", () => {
+  const state = P.createState();
+  for (let i = 0; i < 2; i++) {
+    const rows = P.parseLine(asst(undefined, "claude-opus-5-5", u(2, 50, 1, 1), text), state);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].usage, null);
+  }
+  assert.deepEqual(P.usageTotals(state), {});
+  // a line with an id is still counted
+  P.parseLine(asst("m1", "claude-opus-5-5", u(2, 50), text), state);
+  assert.equal(P.usageTotals(state).opus.out, 50);
+});
+
+test("SYNTHETIC: a notice falls back to its task-id when the call has no agentId yet", () => {
+  const state = P.createState();
+  // the Agent call is known but its result (which carries the agentId) was never seen
+  P.parseLine(agentCall("tN", { subagent_type: "worker" }), state);
+  const row = P.parseLine(
+    noteWith("<task-id>ag9</task-id><tool-use-id>tN</tool-use-id><status>completed</status>"),
+    state
+  )[0];
+  assert.equal(row.agentId, "ag9");
+  // once the result links the call to an agent, that id wins
+  P.parseLine(agentCall("tM", { subagent_type: "worker" }), state);
+  P.parseLine(agentResult("tM", "agM"), state);
+  const linked = P.parseLine(
+    noteWith("<task-id>other</task-id><tool-use-id>tM</tool-use-id><status>completed</status>"),
+    state
+  )[0];
+  assert.equal(linked.agentId, "agM");
+});
+
+test("SYNTHETIC: an unknown model name is capped at 40 characters and loses tag-like text", () => {
+  const call = (model) =>
+    P.parseLine(
+      asst("ml", "claude-opus-5-5", u(1, 1), [
+        { type: "tool_use", id: "tl", name: "Agent", input: { subagent_type: "worker", model } }
+      ]),
+      P.createState()
+    )[0];
+  const long = call("my-model-" + "x".repeat(200));
+  assert.equal(long.modelLabel.length, 40);
+  assert.ok(long.message.length < 80);
+  const tagged = call("<img src=x onerror=alert(1)>evil");
+  assert.equal(tagged.modelLabel, "evil");
+  assert.ok(!tagged.message.includes("<"));
+  // exactly 40 is kept whole
+  assert.equal(call("a".repeat(40)).modelLabel, "a".repeat(40));
+  // known families keep their short label
+  assert.equal(call("claude-opus-5-5").modelLabel, "Opus");
+});
+
+test("SYNTHETIC: meta.toolUseId wins over the parent result's agent link; the link is the fallback", () => {
+  const state = P.createState();
+  P.parseLine(agentCall("tParent", { subagent_type: "planner" }), state);
+  P.parseLine(agentCall("tMeta", { subagent_type: "reviewer" }), state);
+  P.parseLine(agentResult("tParent", "agL"), state);
+  // meta names tMeta although the parent result linked agL to tParent
+  const withMeta = P.parseLine(childUser("agL"), state, {
+    meta: { agentType: "reviewer", toolUseId: "tMeta" }
+  });
+  assert.equal(withMeta[0].toolUseId, "tMeta");
+  assert.equal(withMeta[0].role, "reviewer");
+  // no meta: the parent result's link is used
+  const s2 = P.createState();
+  P.parseLine(agentCall("tParent", { subagent_type: "planner" }), s2);
+  P.parseLine(agentResult("tParent", "agL"), s2);
+  const noMeta = P.parseLine(childUser("agL"), s2);
+  assert.equal(noMeta[0].toolUseId, "tParent");
+  assert.equal(noMeta[0].role, "planner");
+});
+
+test("SYNTHETIC: a child user line with a parentUuid is not a spawn", () => {
+  const line = (parentUuid) => ({ ...childUser("agP"), parentUuid });
+  const state = P.createState();
+  assert.deepEqual(P.parseLine(line("some-uuid"), state, { meta: { toolUseId: "tP" } }), []);
+  // it did not use up the spawn: the real first line still emits one
+  const first = P.parseLine(line(null), state, { meta: { toolUseId: "tP" } });
+  assert.equal(first.length, 1);
+  assert.equal(first[0].type, "spawn");
+});
+
+test("SYNTHETIC: only a trailing :line, :line:col or :line-line suffix may carry a colon in a path", () => {
+  for (const ok of ["src/a.ts:1", "src/a.ts:1:2", "src/a.ts:10-20", "src/a.ts:1:2-9"]) {
+    assert.equal(toolRows("Read", { file_path: ok })[0].activity.path, ok, ok);
+  }
+  // one colon group too many, or a non-digit suffix, is hidden
+  for (const bad of ["src/a.ts:1:2:3", "src/a.ts:1:2-9:4", "src/a.ts:1x", "src/a.ts:-5"]) {
+    assert.equal(toolRows("Read", { file_path: bad })[0].message, "read · Read", bad);
+  }
+});
+
+test("SYNTHETIC: token counts are floored to whole numbers; negative, NaN and text count 0", () => {
+  const state = P.createState();
+  const rows = P.parseLine(
+    asst(
+      "mr",
+      "claude-opus-5-5",
+      {
+        input_tokens: 1.9,
+        output_tokens: 2.7,
+        cache_read_input_tokens: -4,
+        cache_creation_input_tokens: "7"
+      },
+      text
+    ),
+    state
+  );
+  assert.deepEqual(rows[0].usage, {
+    model: "opus",
+    role: "parent",
+    in: 1,
+    out: 2,
+    cacheRead: 0,
+    cacheWrite: 0
+  });
+  // 0.9 floors to 0: nothing to count
+  assert.equal(
+    P.parseLine(asst("mz", "claude-opus-5-5", { output_tokens: 0.9 }, text), state)[0].usage,
+    null
+  );
+  const n = nt(
+    "<tool-use-id>t</tool-use-id><status>completed</status><usage><subagent_tokens>12.9</subagent_tokens><tool_uses>-3</tool_uses><duration_ms>abc</duration_ms></usage>"
+  );
+  assert.equal(n.subagentTokens, 12);
+  assert.equal(n.toolUses, 0);
+  assert.equal(n.durationMs, 0);
+});
+
+test("SYNTHETIC: notificationType maps all six failure words to error, completed to done, the rest unknown", () => {
+  for (const s of ["failed", "error", "killed", "stopped", "cancelled", "canceled"]) {
+    assert.deepEqual(P.notificationType(s), { type: "error", known: true }, s);
+  }
+  assert.deepEqual(P.notificationType("completed"), { type: "done", known: true });
+  for (const s of ["", "running", "Failed", "exploded"]) {
+    assert.deepEqual(P.notificationType(s), { type: "turn", known: false }, s);
+  }
+});
+
 const noteWith = (inner) => ({
   type: "queue-operation",
   operation: "enqueue",
@@ -450,6 +609,41 @@ test("SYNTHETIC: WebFetch keeps host and path only; query, fragment and userinfo
   assert.equal(bad[0].message, "read · WebFetch");
 });
 
+test("SYNTHETIC: secrets in url paths (Slack webhook, Telegram bot token) never reach a row", () => {
+  const slack = "https://hooks.slack.com/services/T0SECRETA/B0SECRETB/xSECRETCx";
+  const tele = "https://api.telegram.org/bot123456789:AAHSECRETTOKEN/sendMessage";
+  for (const [url, shown] of [
+    [slack, "https://hooks.slack.com/services"],
+    [tele, "https://api.telegram.org"]
+  ]) {
+    for (const name of ["WebFetch", "Read"]) {
+      const rows = toolRows(name, { url });
+      const json = JSON.stringify(rows);
+      assert.ok(!json.includes("SECRET") && !json.includes("123456789"), url);
+      assert.ok(!json.includes("B0") && !json.includes("AAH"), url);
+      assert.equal(rows[0].activity.path, shown, url);
+    }
+  }
+  // a normal url still shows host and first segment; deeper segments are dropped
+  assert.equal(
+    toolRows("WebFetch", { url: "https://docs.x.test/guide/intro/part" })[0].activity.path,
+    "https://docs.x.test/guide"
+  );
+  // a segment that is not a plain word (digits, or over 20 characters) is host only
+  assert.equal(
+    toolRows("WebFetch", { url: "https://x.test/v2/a" })[0].activity.path,
+    "https://x.test"
+  );
+  assert.equal(
+    toolRows("WebFetch", { url: "https://x.test/" + "a".repeat(21) + "/b" })[0].activity.path,
+    "https://x.test"
+  );
+  assert.equal(
+    toolRows("WebFetch", { url: "https://x.test/" + "a".repeat(20) })[0].activity.path,
+    "https://x.test/" + "a".repeat(20)
+  );
+});
+
 /* ---- round 3: allowlist urls, one-pass notice parsing, remembered child family ---- */
 
 const toolRows = (name, input) =>
@@ -474,9 +668,28 @@ test("SYNTHETIC: only http(s) urls survive; every other scheme gives a bare tool
     assert.ok(!JSON.stringify(rows).includes("SECRET"), url);
   }
   const ok = toolRows("WebFetch", { url: "http://x.test:8080/a/b?q=SECRET" });
-  assert.equal(ok[0].activity.path, "http://x.test:8080/a/b");
+  assert.equal(ok[0].activity.path, "http://x.test:8080/a"); // first path segment only
   const long = toolRows("WebFetch", { url: "https://x.test/" + "a".repeat(500) });
   assert.ok(long[0].activity.path.length <= 120);
+});
+
+test("SYNTHETIC: a very long host is cut to 120 characters, not dropped", () => {
+  const shown = toolRows("WebFetch", { url: "https://" + "h".repeat(200) + ".test/guide" })[0]
+    .activity.path;
+  assert.ok(shown.startsWith("https://hhh"));
+  assert.equal(shown.length, 120);
+  // cut by safeUrl itself: the later display cut would leave 119 characters plus an ellipsis
+  assert.equal(shown, "https://" + "h".repeat(112));
+});
+
+test("SYNTHETIC: an all-letters first segment is shown (deliberate tradeoff)", () => {
+  // The letters-only rule cannot tell a word from a letters-only key, so a short
+  // all-letters segment is shown. Digits, colons, anything longer than 20 characters
+  // and further segments are dropped (see the tests above).
+  assert.equal(
+    toolRows("WebFetch", { url: "https://x.test/abcdefghij" })[0].activity.path,
+    "https://x.test/abcdefghij"
+  );
 });
 
 test("SYNTHETIC: a url key on any tool, any name case, is sanitized before it reaches a row", () => {
@@ -803,6 +1016,29 @@ test("SYNTHETIC: ordinary paths still show as paths", () => {
     const rows = toolRows("Read", { file_path: odd });
     assert.equal(rows[0].message, "read · Read", odd);
     hidden(rows);
+  }
+});
+
+test("SYNTHETIC: a ?query or #fragment on a colon-free path is cut off", () => {
+  for (const [raw, shown] of [
+    ["/a/b.js?token=SECRET", "/a/b.js"],
+    ["a/b.js#SECRET", "a/b.js"],
+    ["a/b?x=1#SECRET", "a/b"]
+  ]) {
+    const rows = toolRows("Read", { file_path: raw });
+    assert.equal(rows[0].activity.path, shown, raw);
+    hidden(rows);
+  }
+});
+
+test("SYNTHETIC: a # in a file name cuts the shown path there (deliberate, see cleanPathValue)", () => {
+  // The cut cannot tell a fragment from a name like C#-notes.md; hiding more is the safe side.
+  for (const [raw, shown] of [
+    ["docs/C#-notes.md", "docs/C"],
+    ["src/F#/lib.fs", "src/F"]
+  ]) {
+    const rows = toolRows("Read", { file_path: raw });
+    assert.equal(rows[0].activity.path, shown, raw);
   }
 });
 
