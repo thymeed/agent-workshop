@@ -673,6 +673,25 @@ test("SYNTHETIC: only http(s) urls survive; every other scheme gives a bare tool
   assert.ok(long[0].activity.path.length <= 120);
 });
 
+test("SYNTHETIC: a very long host is cut to 120 characters, not dropped", () => {
+  const shown = toolRows("WebFetch", { url: "https://" + "h".repeat(200) + ".test/guide" })[0]
+    .activity.path;
+  assert.ok(shown.startsWith("https://hhh"));
+  assert.equal(shown.length, 120);
+  // cut by safeUrl itself: the later display cut would leave 119 characters plus an ellipsis
+  assert.equal(shown, "https://" + "h".repeat(112));
+});
+
+test("SYNTHETIC: an all-letters first segment is shown (deliberate tradeoff)", () => {
+  // The letters-only rule cannot tell a word from a letters-only key, so a short
+  // all-letters segment is shown. Digits, colons, anything longer than 20 characters
+  // and further segments are dropped (see the tests above).
+  assert.equal(
+    toolRows("WebFetch", { url: "https://x.test/abcdefghij" })[0].activity.path,
+    "https://x.test/abcdefghij"
+  );
+});
+
 test("SYNTHETIC: a url key on any tool, any name case, is sanitized before it reaches a row", () => {
   const url = "https://x.test/a?SECRET";
   for (const name of ["webfetch", "WebSearch", "Read", "Grep", "mcp__x__y"]) {
