@@ -755,4 +755,17 @@ if (require.main === module) {
     process.exit(1);
   }
 }
-module.exports = { createSanitizer, MODEL_RE, KNOWN_KEYS };
+module.exports = {
+  createSanitizer,
+  MODEL_RE,
+  KNOWN_KEYS,
+  PLACEHOLDER,
+  BASE_TS,
+  KNOWN_ENUM_VALUES,
+  KNOWN_AGENT_TYPES,
+  BUILTIN_TOOLS,
+  DOCS_TOOL_RE,
+  ID_KEYS,
+  ID_PREFIX_RE,
+  idKey
+};

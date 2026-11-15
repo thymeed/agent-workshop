@@ -14,7 +14,12 @@ const assert = require("node:assert/strict");
 const { test, before, after } = require("node:test");
 
 const REPO = path.join(__dirname, "..", "..");
-const { MODEL_RE } = require("../../scripts/sanitize-claude-transcript.js");
+const {
+  MODEL_RE,
+  createSanitizer,
+  ID_KEYS,
+  idKey
+} = require("../../scripts/sanitize-claude-transcript.js");
 const SCRIPT = path.join(REPO, "scripts", "sanitize-claude-transcript.js");
 const SCRATCH = path.join(REPO, ".scratch");
 const WORK = path.join(SCRATCH, `sanitize-test-${process.pid}`);
@@ -731,4 +736,233 @@ test("model slugs bound their digit runs", () => {
   assert.ok(!MODEL_RE.test("claude-opus-5551234567"));
   assert.ok(!MODEL_RE.test("claude-opus-4-8-123456789"));
   assert.ok(MODEL_RE.test("claude-haiku-4-5-20251001"));
+});
+
+// ---- rules that had no test of their own ----------------------------------------------
+
+/** Writes a parent file (and an optional subagent file), runs the CLI, returns what it wrote. */
+function sanitizeTree(name, parentObjs, subObjs) {
+  const proj = path.join(WORK, name + "-in", "proj");
+  fs.mkdirSync(proj, { recursive: true });
+  const file = path.join(proj, "t.jsonl");
+  fs.writeFileSync(file, jl(parentObjs) + "\n");
+  if (subObjs) {
+    const sub = path.join(proj, "t", "subagents");
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(path.join(sub, "agent-real.jsonl"), jl(subObjs) + "\n");
+  }
+  const o = path.join(WORK, name + "-out");
+  const r = run(["--session", file, "--out", o, "--proj", "neutral"]);
+  assert.equal(r.status, 0, r.stderr);
+  const outFile = path.join(o, "neutral", "s1.jsonl");
+  const outSub = path.join(o, "neutral", "s1", "subagents", "agent-a1.jsonl");
+  return {
+    parent: readJsonl(outFile),
+    sub: subObjs ? readJsonl(outSub) : null,
+    text: listFiles(o)
+      .map((x) => fs.readFileSync(x, "utf8"))
+      .join("\n")
+  };
+}
+const HASHED_KEY = /^k_[0-9a-f]{12}$/;
+const userLine = (n, parent, extra) =>
+  base(n, parent, { type: "user", message: { role: "user", content: "S1" }, ...extra });
+
+test("keys inside a data map are hashed even when they look like structural keys", () => {
+  const { parent, text } = sanitizeTree("tfb", [
+    userLine(1, null, {
+      snapshot: {
+        trackedFileBackups: {
+          cwd: { version: 1 },
+          content: { version: 2 },
+          type: { version: 3 },
+          [ZQ + "/f.js"]: { version: 4 }
+        }
+      }
+    })
+  ]);
+  const map = parent[0].snapshot.trackedFileBackups;
+  const keys = Object.keys(map);
+  assert.equal(keys.length, 4);
+  for (const k of keys) assert.match(k, HASHED_KEY);
+  assert.ok(!keys.includes("cwd") && !keys.includes("content") && !keys.includes("type"));
+  for (const v of Object.values(map)) assert.ok("version" in v, "the structural child key stays");
+  assert.ok(!text.includes(ZQ));
+});
+
+test("modelUsage: a real model slug key stays, any other key is hashed", () => {
+  const { parent, text } = sanitizeTree("mu", [
+    {
+      ...userLine(1, null, { type: "system" }),
+      modelUsage: {
+        "claude-opus-4-8": { input_tokens: 2 },
+        "claude-PLANTED-x": { input_tokens: 3 },
+        "claude-opus-4-8-planted": { input_tokens: 4 },
+        bob: { input_tokens: 5 }
+      }
+    }
+  ]);
+  const keys = Object.keys(parent[0].modelUsage);
+  assert.equal(keys.length, 4);
+  assert.deepEqual(
+    keys.filter((k) => !HASHED_KEY.test(k)),
+    ["claude-opus-4-8"]
+  );
+  assert.ok(!/planted|bob/i.test(text), "no planted slug or name survives");
+});
+
+test("timestamps: the earliest across all files becomes 2026-01-01T00:00:00.000Z, gaps are kept", () => {
+  const parent = readJsonl(outParent());
+  const sub = readJsonl(path.join(outSubDir(), "agent-a1.jsonl"));
+  const BASE = Date.parse("2026-01-01T00:00:00.000Z");
+  const at = (o) => Date.parse(o.timestamp) - BASE;
+  assert.equal(parent[0].timestamp, "2026-01-01T00:00:00.000Z");
+  // input offsets: line n sits n-1 seconds after line 1
+  assert.equal(at(parent[1]), 1000);
+  assert.equal(at(parent[3]), 3000);
+  assert.equal(at(parent.find((o) => o.type === "queue-operation")), 6000);
+  assert.equal(at(sub[0]), 20000);
+  assert.equal(at(sub[2]), 22000);
+  const all = [...parent, ...sub].map((o) => o.timestamp).filter(Boolean);
+  assert.equal(all.slice().sort()[0], "2026-01-01T00:00:00.000Z");
+});
+
+test("timestamps: the earliest line may sit in a subagent file; unparseable ones become S1", () => {
+  const { parent, sub } = sanitizeTree(
+    "ts",
+    [
+      userLine(1, null, { timestamp: TS(100) }),
+      userLine(2, 1, { timestamp: TS(160.5) }),
+      userLine(3, 2, { timestamp: "plantedword" }),
+      userLine(4, 3, { timestamp: "2025-13-45T00:00:00Z" }),
+      userLine(5, 4, { timestamp: 12345 })
+    ],
+    [userLine(21, null, { timestamp: TS(40), isSidechain: true })]
+  );
+  assert.equal(sub[0].timestamp, "2026-01-01T00:00:00.000Z");
+  assert.equal(parent[0].timestamp, "2026-01-01T00:01:00.000Z");
+  assert.equal(parent[1].timestamp, "2026-01-01T00:02:00.500Z");
+  assert.equal(parent[2].timestamp, "S1");
+  assert.equal(parent[3].timestamp, "S1");
+  assert.equal(parent[4].timestamp, 12345, "a number is data handled by the number rule");
+});
+
+test("<status> in a notification keeps only known words: anything else becomes S1", () => {
+  const q = (status) => ({
+    type: "queue-operation",
+    operation: "enqueue",
+    timestamp: TS(1),
+    sessionId: SESSION,
+    content: notificationBlock(status)
+  });
+  const statuses = [
+    "plantedword",
+    "Planted1",
+    "completed",
+    "failed",
+    "a</status><x>",
+    "",
+    "zqsecret_status",
+    "x".repeat(31)
+  ];
+  const { parent, text } = sanitizeTree("st", statuses.map(q));
+  const got = parent.map((o) => /<status>([^<]*)<\/status>/.exec(o.content)[1]);
+  assert.deepEqual(got, ["S1", "S1", "completed", "failed", "S1", "S1", "S1", "S1"]);
+  assert.ok(!/plantedword|Planted1|zqsecret/i.test(text));
+});
+
+test("a key literally named k_PLANTED is hashed like any unknown key", () => {
+  const { parent, text } = sanitizeTree("kp", [
+    userLine(1, null, {
+      k_PLANTED: { k_PLANTED: 1, deep: { k_0123456789ab: 2 } },
+      k_0123456789ab: 3
+    })
+  ]);
+  assert.ok(!text.includes("k_PLANTED"), "the literal key does not survive");
+  assert.ok(!text.includes("k_0123456789ab"), "a hashed-looking input key is hashed again");
+  const mine = Object.keys(parent[0]).filter((k) => HASHED_KEY.test(k));
+  assert.equal(mine.length, 2, "both planted keys became k_<12 hex>");
+  for (const [k, v] of Object.entries(parent[0])) {
+    if (HASHED_KEY.test(k) && v && typeof v === "object") {
+      for (const k2 of Object.keys(v)) assert.match(k2, HASHED_KEY);
+    }
+  }
+});
+
+// ---- round 4: id shapes the fixture check relies on, and a few more key/timestamp rules -------
+
+test("hashId only emits shapes the fixture check accepts: hex 8..40, prefix + hex 8..24", () => {
+  const HEX_ID = /^[0-9a-f]{8,40}$/; // the same bounds fixture-privacy.test.js allows
+  const PREFIX_REST = /^[0-9a-f]{8,24}$/;
+  const { hashId } = createSanitizer(new Map());
+  const filler = "0123456789abcdefghijklmnopqrstuvwxyz".repeat(4);
+  let checked = 0;
+  for (let len = 0; len <= 100; len++) {
+    const plain = hashId("p" + filler.slice(0, len));
+    assert.match(plain, HEX_ID, "plain id of length " + (len + 1));
+    for (const prefix of ["toolu_", "srvtoolu_", "msg_", "req_", "call_"]) {
+      const out = hashId(prefix + filler.slice(0, len));
+      assert.ok(out.startsWith(prefix), prefix + len + " keeps its prefix");
+      assert.match(out.slice(prefix.length), PREFIX_REST, prefix + " id of length " + len);
+      checked++;
+    }
+  }
+  assert.equal(checked, 505);
+  // the extremes really are reached: 40 hex for a long plain id, 24 for a long prefixed one
+  assert.equal(hashId("q".repeat(100)).length, 40);
+  assert.equal(hashId("toolu_" + "q".repeat(100)).length, "toolu_".length + 24);
+  assert.equal(hashId("short").length, 8);
+});
+
+test("every ID_KEYS key counts as an id key and its string value is hashed", () => {
+  assert.ok(ID_KEYS.size > 0);
+  for (const k of ID_KEYS) {
+    assert.ok(idKey(k), k + " is an id key");
+    const out = createSanitizer(new Map()).sanitize({ [k]: "zqplantedvalue1" }, 0);
+    const values = Object.values(out);
+    assert.equal(values.length, 1, k);
+    assert.match(values[0], /^[0-9a-f]{15}$/, k + " value is hashed (15 chars in, 15 hex out)");
+  }
+  assert.ok(!idKey("name") && !idKey("cwd") && !idKey("hash2"));
+});
+
+test("a toolu_/msg_ key inside a data map is hashed, never kept", () => {
+  const { parent, text } = sanitizeTree("tk", [
+    userLine(1, null, {
+      counts: { toolu_01AbCdEfGhIjKlMnOp: 3, msg_01XyZ0123456789ab: 4 },
+      snapshot: { trackedFileBackups: { toolu_01AbCdEfGhIjKlMnQr: { version: 1 } } }
+    })
+  ]);
+  assert.ok(!/01AbC|01XyZ/.test(text), "the original id text does not survive");
+  const keys = [
+    ...Object.keys(parent[0].counts),
+    ...Object.keys(parent[0].snapshot.trackedFileBackups)
+  ];
+  assert.equal(keys.length, 3);
+  for (const k of keys) assert.match(k, /^(toolu|msg)_[0-9a-f]{8,24}$/, "hashed id key");
+});
+
+test('timestamp "2025" (no time part) becomes S1, not a shifted date', () => {
+  const { parent } = sanitizeTree("ts2025", [
+    userLine(1, null, { timestamp: TS(5) }),
+    userLine(2, 1, { timestamp: "2025" })
+  ]);
+  assert.equal(parent[0].timestamp, "2026-01-01T00:00:00.000Z");
+  assert.equal(parent[1].timestamp, "S1");
+});
+
+test("a modelUsage key named cwd is hashed like any other non-slug key", () => {
+  const { parent } = sanitizeTree("mucwd", [
+    {
+      ...userLine(1, null, { type: "system" }),
+      modelUsage: { cwd: { input_tokens: 1 }, "claude-opus-4-8": { input_tokens: 2 } }
+    }
+  ]);
+  const keys = Object.keys(parent[0].modelUsage);
+  assert.equal(keys.length, 2);
+  assert.ok(!keys.includes("cwd"), "the structural-looking key is not kept");
+  assert.deepEqual(
+    keys.filter((k) => !HASHED_KEY.test(k)),
+    ["claude-opus-4-8"]
+  );
 });
