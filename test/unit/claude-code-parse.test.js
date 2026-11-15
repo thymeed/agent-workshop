@@ -390,6 +390,25 @@ test("SYNTHETIC: usage on a line with no message.id is not counted (a repeat wou
   assert.equal(P.usageTotals(state).opus.out, 50);
 });
 
+test("SYNTHETIC: a notice falls back to its task-id when the call has no agentId yet", () => {
+  const state = P.createState();
+  // the Agent call is known but its result (which carries the agentId) was never seen
+  P.parseLine(agentCall("tN", { subagent_type: "worker" }), state);
+  const row = P.parseLine(
+    noteWith("<task-id>ag9</task-id><tool-use-id>tN</tool-use-id><status>completed</status>"),
+    state
+  )[0];
+  assert.equal(row.agentId, "ag9");
+  // once the result links the call to an agent, that id wins
+  P.parseLine(agentCall("tM", { subagent_type: "worker" }), state);
+  P.parseLine(agentResult("tM", "agM"), state);
+  const linked = P.parseLine(
+    noteWith("<task-id>other</task-id><tool-use-id>tM</tool-use-id><status>completed</status>"),
+    state
+  )[0];
+  assert.equal(linked.agentId, "agM");
+});
+
 test("SYNTHETIC: notificationType maps all six failure words to error, completed to done, the rest unknown", () => {
   for (const s of ["failed", "error", "killed", "stopped", "cancelled", "canceled"]) {
     assert.deepEqual(P.notificationType(s), { type: "error", known: true }, s);
