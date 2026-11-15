@@ -58,13 +58,17 @@ function decodedStrings(v, out = []) {
   return out;
 }
 
-/** First forbidden hit in a file's text, or null. */
+/**
+ * First forbidden hit in a file's text as { match, line } (1-based line), or null.
+ * Failure messages must use `line` only: `match` can be an owner word and CI logs are public.
+ */
 function findHit(fileName, text) {
   const raw = FORBIDDEN.exec(text);
-  if (raw) return raw[0];
+  if (raw) return { match: raw[0], line: text.slice(0, raw.index).split("\n").length };
   if (!/\.jsonl?$/.test(fileName)) return null;
   const chunks = fileName.endsWith(".jsonl") ? text.split("\n") : [text];
-  for (const chunk of chunks) {
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
     if (!chunk) continue;
     let parsed;
     try {
@@ -74,7 +78,7 @@ function findHit(fileName, text) {
     }
     for (const str of decodedStrings(parsed)) {
       const m = FORBIDDEN.exec(str);
-      if (m) return m[0];
+      if (m) return { match: m[0], line: i + 1 };
     }
   }
   return null;
@@ -89,9 +93,13 @@ function walk(dir, out = []) {
   return out;
 }
 
+/** A path with every forbidden match masked, so a failure never prints an owner word. */
+const safePath = (p) => p.replace(new RegExp(FORBIDDEN.source, "gi"), "[redacted]");
+
 const NO_WORDS_MSG =
-  "SKIPPED: no owner words configured (set PRIVACY_WORDS or create .privacy-words); " +
-  "only the generic path patterns were checked";
+  "privacy-words check SKIPPED: no secret (PRIVACY_WORDS env var is unset or empty and " +
+  "there is no .privacy-words file; in CI add the PRIVACY_WORDS repository secret; fork " +
+  "PRs never receive it); only the generic path patterns were checked";
 if (!WORDS.length) console.warn(`[fixture-privacy] ${NO_WORDS_MSG}`);
 
 test(
@@ -99,7 +107,9 @@ test(
   { skip: WORDS.length ? false : NO_WORDS_MSG },
   () => {
     const re = buildForbidden(WORDS);
-    for (const w of WORDS) assert.ok(re.test(`x/${w.toUpperCase()}/y`), `word not matched: ${w}`);
+    WORDS.forEach((w, i) =>
+      assert.ok(re.test(`x/${w.toUpperCase()}/y`), `configured word #${i + 1} not matched`)
+    );
   }
 );
 
@@ -109,14 +119,17 @@ test("fixture tree exists and is non-trivial", () => {
 
 test("no fixture file or folder NAME matches the forbidden patterns", () => {
   for (const e of walk(ROOT)) {
-    assert.ok(!FORBIDDEN.test(e.name), `forbidden name: ${path.relative(ROOT, e.full)}`);
+    assert.ok(!FORBIDDEN.test(e.name), `forbidden name: ${safePath(path.relative(ROOT, e.full))}`);
   }
 });
 
 test("no fixture file CONTENT matches the forbidden patterns", () => {
   for (const e of walk(ROOT).filter((x) => !x.dir)) {
     const hit = findHit(e.name, fs.readFileSync(e.full, "utf8"));
-    assert.ok(!hit, `forbidden text "${hit}" in ${path.relative(ROOT, e.full)}`);
+    assert.ok(
+      !hit,
+      `forbidden text in ${safePath(path.relative(ROOT, e.full))}:${hit && hit.line}`
+    );
   }
 });
 
@@ -151,6 +164,26 @@ test("the forbidden-pattern matcher itself catches what it should", () => {
   for (const ok of ["-home-user-demo", "/home/user/demo", "C--proj-demo", "S1", "toolu_ab12"]) {
     assert.ok(!FORBIDDEN.test(ok), ok);
   }
+});
+
+test("a failure message names file and line but never the matched word", () => {
+  const word = "zq-secret-owner";
+  const re = buildForbidden([word]);
+  const text = `{"ok":1}\n{"cwd":"/x/${word}/y"}\n`;
+  const raw = re.exec(text);
+  assert.ok(raw, "planted word is found");
+  assert.equal(text.slice(0, raw.index).split("\n").length, 2);
+  // Same message shapes as the real tests, built with the planted word.
+  const masked = (p) => p.replace(new RegExp(re.source, "gi"), "[redacted]");
+  const nameMsg = `forbidden name: ${masked(`sub/${word}.jsonl`)}`;
+  assert.ok(!nameMsg.includes(word) && nameMsg.includes("[redacted]"), nameMsg);
+  // The real assertion path: findHit's result drives a message that must not hold the match.
+  const hit = findHit("x.jsonl", `{"ok":1}\n{"cwd":"/home/bob/x"}\n`);
+  assert.equal(hit.line, 2);
+  assert.throws(
+    () => assert.ok(!hit, `forbidden text in x.jsonl:${hit.line}`),
+    (err) => !err.message.includes(hit.match) && err.message.includes("x.jsonl:2")
+  );
 });
 
 test("the content scan decodes JSON escapes and checks keys", () => {
