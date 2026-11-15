@@ -402,3 +402,120 @@ test("no fixture line holds an epoch-millisecond number, even a cut-off one", ()
   assert.ok(!EPOCH_MS.test('{"a":"k_1794106525129ab","b":1234}'), "ids and small numbers pass");
   checkEpoch(ROOT, FORBIDDEN);
 });
+
+test("redaction is case-insensitive in file names and content, in both directions", () => {
+  const scratch = path.join(__dirname, "..", "..", ".scratch");
+  fs.mkdirSync(scratch, { recursive: true });
+  const base = fs.mkdtempSync(path.join(scratch, "privacy-case-"));
+  const dump = (err) =>
+    [err.message, String(err.actual), String(err.expected), String(err.generatedMessage)]
+      .concat(JSON.stringify(err), String(err.stack))
+      .join("\n")
+      .toLowerCase();
+  const caught = (fn) => {
+    try {
+      fn();
+    } catch (err) {
+      return err;
+    }
+    return assert.fail("the real check did not throw, so the test would pass vacuously");
+  };
+  try {
+    let n = 0;
+    for (const [configured, planted] of [
+      ["zq-secret-owner", "ZQ-SECRET-OWNER"],
+      ["ZQ-SECRET-OWNER", "zq-secret-owner"]
+    ]) {
+      const re = buildForbidden([configured]);
+      const lower = configured.toLowerCase();
+      const cases = [
+        ["name", checkNames, `sub/${planted}.jsonl`, `{"ok":1}\n`, "[redacted].jsonl"],
+        [
+          "content",
+          checkContents,
+          `x-${planted}.txt`,
+          `one\ntwo ${planted}\n`,
+          "x-[redacted].txt:2"
+        ],
+        ["escaped", checkContents, "b.jsonl", `{"c":"${uEscape(planted)}"}\n`, "b.jsonl:1"]
+      ];
+      for (const [label, check, rel, body, wanted] of cases) {
+        const dir = path.join(base, "d" + n++);
+        fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+        fs.writeFileSync(path.join(dir, rel), body);
+        const err = caught(() => check(dir, re));
+        const tag = `${label} (${configured} vs ${planted})`;
+        assert.ok(err instanceof assert.AssertionError, `${tag}: assertion error`);
+        assert.ok(err.message.includes(wanted), `${tag}: "${wanted}" in message`);
+        if (label !== "escaped") assert.ok(err.message.includes("[redacted]"), `${tag}: redacted`);
+        const all = dump(err);
+        assert.ok(!all.includes(lower), `${tag}: word leaked in some case`);
+        assert.ok(!all.includes(uEscape(lower)), `${tag}: escaped word leaked`);
+        assert.ok(!all.includes(uEscape(planted.toLowerCase())), `${tag}: escaped word leaked`);
+      }
+    }
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+// Runs a copy of this file in a throwaway tree under .scratch, so its own relative
+// .privacy-words lookup cannot see the real file at the repo root.
+test(
+  "the skip message appears with no words configured and is absent when a word is set",
+  { skip: process.env.PRIVACY_SKIP_CHILD ? "this is the isolated copy: no recursion" : false },
+  () => {
+    const { spawnSync } = require("child_process");
+    const repo = path.join(__dirname, "..", "..");
+    const scratch = path.join(repo, ".scratch");
+    fs.mkdirSync(scratch, { recursive: true });
+    const tree = fs.mkdtempSync(path.join(scratch, "privacy-skip-"));
+    try {
+      const copy = (rel) => {
+        fs.mkdirSync(path.dirname(path.join(tree, rel)), { recursive: true });
+        fs.cpSync(path.join(repo, rel), path.join(tree, rel), { recursive: true });
+      };
+      copy("test/unit/fixture-privacy.test.js");
+      copy("test/fixtures/claude-code");
+      copy("scripts/sanitize-claude-transcript.js");
+      assert.ok(!fs.existsSync(path.join(tree, ".privacy-words")), "no words file in the copy");
+      const run = (words) => {
+        const env = { ...process.env, PRIVACY_SKIP_CHILD: "1" };
+        delete env.PRIVACY_WORDS;
+        delete env.NODE_TEST_CONTEXT; // else the child behaves as a runner worker, not a runner
+        if (words !== undefined) env.PRIVACY_WORDS = words;
+        const r = spawnSync(
+          process.execPath,
+          [
+            "--test",
+            "--test-reporter=tap",
+            path.join(tree, "test", "unit", "fixture-privacy.test.js")
+          ],
+          { cwd: tree, env, encoding: "utf8" }
+        );
+        return { status: r.status, out: String(r.stdout) + String(r.stderr) };
+      };
+      const SKIP = "privacy-words check SKIPPED: no secret";
+      for (const words of [undefined, ""]) {
+        const r = run(words);
+        const tag = `PRIVACY_WORDS ${words === undefined ? "unset" : "empty"}`;
+        assert.equal(r.status, 0, `${tag}: child run passes`);
+        assert.ok(r.out.includes(SKIP), `${tag}: skip message printed`);
+        const line = r.out
+          .split("\n")
+          .find((l) => /^(not )?ok /.test(l) && l.includes("owner name words are configured"));
+        assert.ok(line && line.includes("# SKIP"), `${tag}: owner-words test reported skipped`);
+      }
+      const set = run("zq-secret-owner");
+      assert.equal(set.status, 0, "word set: child run passes");
+      assert.ok(!set.out.includes(SKIP), "word set: no skip message");
+      const line = set.out
+        .split("\n")
+        .find((l) => /^(not )?ok /.test(l) && l.includes("owner name words are configured"));
+      assert.ok(line && !line.includes("# SKIP"), "word set: owner-words test ran");
+      assert.ok(!set.out.includes("zq-secret-owner"), "word set: planted word not printed");
+    } finally {
+      fs.rmSync(tree, { recursive: true, force: true });
+    }
+  }
+);
