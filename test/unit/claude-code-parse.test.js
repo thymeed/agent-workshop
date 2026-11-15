@@ -357,6 +357,36 @@ test("SYNTHETIC: usage that drops then recovers for one message.id is not double
   );
 });
 
+test("SYNTHETIC: full usage, a partial line, then the full line again counts every field once", () => {
+  const state = P.createState();
+  const rows = [];
+  for (const usage of [
+    u(2, 50, 100, 25),
+    { output_tokens: 10, input_tokens: 1 },
+    u(2, 50, 100, 25)
+  ]) {
+    rows.push(...P.parseLine(asst("m1", "claude-opus-5-5", usage, text), state));
+  }
+  assert.deepEqual(P.usageTotals(state), {
+    opus: { in: 2, out: 50, cacheRead: 100, cacheWrite: 25 }
+  });
+  const sum = (k) => rows.reduce((n, r) => n + (r.usage ? r.usage[k] : 0), 0);
+  assert.equal(sum("out"), 50);
+  assert.equal(sum("in"), 2);
+  assert.equal(sum("cacheRead"), 100);
+  assert.equal(sum("cacheWrite"), 25);
+});
+
+test("SYNTHETIC: notificationType maps all six failure words to error, completed to done, the rest unknown", () => {
+  for (const s of ["failed", "error", "killed", "stopped", "cancelled", "canceled"]) {
+    assert.deepEqual(P.notificationType(s), { type: "error", known: true }, s);
+  }
+  assert.deepEqual(P.notificationType("completed"), { type: "done", known: true });
+  for (const s of ["", "running", "Failed", "exploded"]) {
+    assert.deepEqual(P.notificationType(s), { type: "turn", known: false }, s);
+  }
+});
+
 const noteWith = (inner) => ({
   type: "queue-operation",
   operation: "enqueue",
