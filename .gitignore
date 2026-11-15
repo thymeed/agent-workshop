@@ -52,6 +52,7 @@ Desktop.ini
 # Personal notes and scratch (never commit)
 CLAUDE.local.md
 .scratch/
+.worktrees/
 
 # Owner words for the fixture privacy test
 .privacy-words
