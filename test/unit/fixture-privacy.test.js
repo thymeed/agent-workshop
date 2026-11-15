@@ -341,7 +341,7 @@ function allKeys(v, out = new Set()) {
  * count (not the raw list), so assert's diff cannot print an unmasked key or path.
  */
 function checkKeys(root, re, knownKeys) {
-  const files = walk(root).filter((e) => !e.dir && /.jsonl?$/.test(e.name));
+  const files = walk(root).filter((e) => !e.dir && /\.jsonl?$/.test(e.name));
   const bad = [];
   for (const e of files) {
     const text = fs.readFileSync(e.full, "utf8");
@@ -369,13 +369,13 @@ function checkKeys(root, re, knownKeys) {
 
 test("every fixture object key is a KNOWN_KEYS key, a hashed k_<12 hex>, or a hashed id", () => {
   const { KNOWN_KEYS } = require("../../scripts/sanitize-claude-transcript.js");
-  assert.ok(walk(ROOT).filter((e) => !e.dir && /.jsonl?$/.test(e.name)).length >= 5);
+  assert.ok(walk(ROOT).filter((e) => !e.dir && /\.jsonl?$/.test(e.name)).length >= 5);
   checkKeys(ROOT, FORBIDDEN, KNOWN_KEYS);
 });
 
 // A cut-off last line does not parse, so the JSON checks skip it; scan every line raw for
 // epoch-millisecond numbers, which would undo the shifted timestamps.
-const EPOCH_MS = /[:,[]s*-?1[0-9]{12}(?![0-9.])/;
+const EPOCH_MS = /[:,[]\s*-?1[0-9]{12}(?![0-9.])/;
 
 /** The real epoch-ms check: names the masked file and line; the number itself is digits only. */
 function checkEpoch(root, re) {
@@ -398,6 +398,7 @@ function checkEpoch(root, re) {
 test("no fixture line holds an epoch-millisecond number, even a cut-off one", () => {
   assert.ok(EPOCH_MS.test('{"k_1":1794106525129,'), "matcher flags a bare epoch-ms value");
   assert.ok(EPOCH_MS.test('{"a":[1,1794106525129]}'), "matcher flags one inside an array");
+  assert.ok(EPOCH_MS.test('{"ts": 1794106525129}'), "matcher flags one after whitespace");
   assert.ok(!EPOCH_MS.test('{"a":"k_1794106525129ab","b":1234}'), "ids and small numbers pass");
   checkEpoch(ROOT, FORBIDDEN);
 });
