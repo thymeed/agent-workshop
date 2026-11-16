@@ -222,7 +222,12 @@ test("Bedrock ARN exception does not open the door to empty or dot segments", ()
     "arn:aws:bedrock::us-east-1::foundation-model/claude-x",
     "arn:aws:bedrock:us-east-1::inference-profile/claude-x",
     "arn:aws:bedrock:us-east-1::foundation-model/",
-    "arn:aws:bedrock:us-east-1::foundation-model/claude-x::y"
+    "arn:aws:bedrock:us-east-1::foundation-model/claude-x::y",
+    "arn:aws:bedrock:us-east-1::foundation-model/../anthropic.claude-x",
+    "arn:aws:bedrock:us-east-1::foundation-model/./anthropic.claude-x",
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-x//x",
+    "arn:aws:bedrock:us-east-1::foundation-model/a/../anthropic.claude-x",
+    "arn:x::../anthropic.claude-x"
   ];
   for (const id of bad) assert.equal(resolveModelAlias(id), "", id);
 });
