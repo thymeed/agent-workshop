@@ -127,7 +127,7 @@
       /* Price row per slot: [amount text, label]. Fixed strings, as in the static HTML. */
       prices: {
         opus: ["$4.00 / $20.00", "per 1M in/out"],
-        advisor: ["$10.00 / $50.00", "per 1M in/out"],
+        advisor: ["$8.00 / $40.00", "per 1M in/out"],
         worker: ["$2.00 / $10.00", "per 1M in/out"],
         explorer: ["$0.10 / $0.50", "per 1M in/out"],
         researcher: ["$0.10 / $0.50", "per 1M in/out"]
