@@ -1585,6 +1585,59 @@ test("loadOrCreateSalt: lock ownership, takeover, future-dated locks and the wai
   }
 });
 
+test("loadOrCreateSalt: an empty stale lock never takes down a fresh lock that is still empty", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const dir = saltScratch("salt-empty-");
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    const lock = file + ".lock";
+    for (const noHardLinks of [false, true]) {
+      const label = noHardLinks ? "no hard links" : "hard links";
+      nodeFs.rmSync(lock, { force: true });
+      nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
+      nodeFs.writeFileSync(lock, ""); // left by a process that died before writing its token
+      const long = new Date(Date.now() - 60000);
+      nodeFs.utimesSync(lock, long, long);
+      let swapped = 0;
+      const racing = {
+        ...nodeFs,
+        linkSync: (from, to) => {
+          if (!swapped && String(from).endsWith(".lock")) {
+            swapped += 1;
+            // the stale lock is broken by someone else, and a new process opens a fresh lock,
+            // still empty, before this process links or removes anything
+            nodeFs.rmSync(from);
+            nodeFs.closeSync(nodeFs.openSync(from, "wx"));
+            if (noHardLinks) throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+          }
+          return nodeFs.linkSync(from, to);
+        }
+      };
+      let clock = Date.now();
+      const r = S.loadOrCreateSalt({
+        dir,
+        fs: racing,
+        now: () => clock,
+        mono: () => clock,
+        sleep: (ms) => (clock += ms),
+        lockWaitMs: 200
+      });
+      assert.equal(swapped, 1, label);
+      assert.ok(nodeFs.existsSync(lock), label + ": the fresh lock was not deleted");
+      assert.equal(r.note.code, "labels-unstable", label + ": we wait for it, then give up");
+      assert.deepEqual(nodeFs.readFileSync(file), Buffer.alloc(3, 1), label + ": file untouched");
+      assert.deepEqual(
+        nodeFs.readdirSync(dir).sort(),
+        ["label-salt.bin", "label-salt.bin.lock"],
+        label + ": no .stale- file left"
+      );
+    }
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("loadOrCreateSalt: six real processes on a corrupt file (and a dead process's lock) all end on the same salt", async () => {
   const nodeFs = require("fs");
   const nodePath = require("path");
