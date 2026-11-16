@@ -354,7 +354,7 @@ async function main() {
       "list price (Fable 5.2): <strong>$8 / $40</strong>",
       "list price (Sonnet 5.5): <strong>$2 / $10</strong>",
       "list price (Haiku 5.5): <strong>$0.10 / $0.50</strong>",
-      "no list price <strong>list price</strong>"
+      "no <strong>list price</strong>"
     ]);
     assert.deepStrictEqual(
       data.roleProfiles.priceShape.map((p) => [p.nodes, p.kids, p.strongKids]),
@@ -368,7 +368,7 @@ async function main() {
         "list price (Fable 5.2): $8 / $40",
         "list price (Sonnet 5.5): $2 / $10",
         "list price (Haiku 5.5): $0.10 / $0.50",
-        "no list price list price"
+        "no list price"
       ]
     );
     assert.ok(data.roleProfiles.priceTipHaiku.includes("List price of Haiku 5.5,"));

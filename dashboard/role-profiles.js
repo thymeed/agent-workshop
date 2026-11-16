@@ -427,14 +427,14 @@
 
   /**
    * Price row for a slot under a snapshot: [text, strong text]. Cursor: fixed HTML strings.
-   * Claude Code: ["list price (Opus 5.5):", "$4 / $20"], or a status text plus "list price".
+   * Claude Code: ["list price (Opus 5.5):", "$4 / $20"], "model not set" plus "list price", or "no" plus "list price".
    */
   function priceRowFor(p, slot) {
     if (p.prices) return p.prices[slot].slice();
     var model = p.models[slot];
     if (!model) return ["model not set", "list price"];
     var info = listPriceInfo(model);
-    if (!info) return ["no list price", "list price"];
+    if (!info) return ["no", "list price"];
     var e = info.entry;
     return ["list price (" + e.model + "):", money(e.in) + " / " + money(e.out)];
   }

@@ -522,7 +522,7 @@ test("claude-code price row: a set model with no list price says no list price",
   const RP = loadProfiles();
   RP.setModels({ worker: "gpt-5", explorer: "claude-haiku-4-5" });
   RP.apply("claude-code");
-  assert.deepEqual(plain(RP.priceRow("worker")), ["no list price", "list price"]);
+  assert.deepEqual(plain(RP.priceRow("worker")), ["no", "list price"]);
   assert.deepEqual(plain(RP.priceRow("explorer")), PRICE_ROWS.haiku);
   assert.deepEqual(plain(RP.priceRow("opus")), ["model not set", "list price"]);
   RP.setModels({ worker: "" });
@@ -639,7 +639,7 @@ test("list price matches whole family tokens, once, never substrings", () => {
     "claude-haikus-v2"
   ]) {
     assert.equal(RP.setModels({ worker: id }), true, id);
-    assert.deepEqual(plain(RP.priceRow("worker")), ["no list price", "list price"], id);
+    assert.deepEqual(plain(RP.priceRow("worker")), ["no", "list price"], id);
   }
   RP.apply("cursor");
 });
@@ -659,12 +659,12 @@ test("a price needs a claude or anthropic token: bare family names have no list 
     "anthropics-opus"
   ]) {
     assert.equal(RP.setModels({ worker: id }), true, id);
-    assert.deepEqual(plain(RP.priceRow("worker")), ["no list price", "list price"], id);
+    assert.deepEqual(plain(RP.priceRow("worker")), ["no", "list price"], id);
     assert.ok(RP.current().cardTips.worker.priceDetail.includes("of the model this role runs"), id);
   }
   for (const id of ["claude-opus", "anthropic-opus", "ANTHROPIC.Opus", "claude_haiku"]) {
     RP.setModels({ worker: id });
-    assert.notEqual(RP.priceRow("worker")[0], "no list price", id);
+    assert.notEqual(RP.priceRow("worker")[0], "no", id);
   }
   RP.apply("cursor");
 });
@@ -858,7 +858,7 @@ test("price row DOM is one text node plus one strong, built without parsing mark
   }
   assert.equal(priceEls.opus.textContent, "list price (Opus 5.5): $4 / $20");
   assert.equal(priceEls.worker.textContent, "list price (Haiku 5.5): $0.10 / $0.50");
-  assert.equal(priceEls.explorer.textContent, "no list price list price");
+  assert.equal(priceEls.explorer.textContent, "no list price");
   assert.equal(priceEls.advisor.textContent, "model not set list price");
   assert.ok(
     created.every((n) => n.nodeType === 3 || n.tag === "strong"),
@@ -881,5 +881,20 @@ test("hint keyword order: the first hintRoles entry found wins, not the first wo
   assert.equal(AC.roleFromAgentHint("lead-worker"), "worker");
   assert.equal(AC.roleFromAgentHint("worker-lead"), "worker");
   assert.equal(AC.roleFromAgentHint("worker-planner"), "advisor");
+  RP.apply("cursor");
+});
+
+test("claude-code price rows read exactly: no list price, and model not set", () => {
+  const RP = loadProfiles();
+  RP.apply("claude-code");
+  const text = (slot) => {
+    const row = RP.priceRow(slot);
+    return row[0] + " " + row[1];
+  };
+  assert.equal(text("opus"), "model not set list price");
+  RP.setModels({ opus: "opus", worker: "gpt-5" });
+  assert.equal(text("opus"), "no list price", "a bare alias has no list price");
+  assert.equal(text("worker"), "no list price", "a non-Claude id has no list price");
+  assert.ok(!/list price list price/.test(text("opus") + text("worker")));
   RP.apply("cursor");
 });
