@@ -1185,20 +1185,120 @@ test("loadOrCreateSalt: unreadable or unwritable gives a random in-memory salt a
     assert.deepEqual(r.note, { code: "labels-unstable", text: "Labels change after restart" });
   }
   assert.notDeepEqual(a.salt, b.salt, "two sessions never share a fallback salt");
-  // a rename that fails after the write also falls back, and the write went to a temp name
+  // a rename that fails after the write also falls back; the write went to a temp file (an fd)
   const written = [];
   const renameFails = {
     readFileSync: () => {
       throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     },
     mkdirSync: () => {},
+    openSync: () => 7,
     writeFileSync: (p) => written.push(p),
+    fsyncSync: () => {},
+    closeSync: () => {},
+    linkSync: boom,
     renameSync: boom,
     unlinkSync: () => {}
   };
   assert.equal(S.loadOrCreateSalt({ dir: "x", fs: renameFails }).note.code, "labels-unstable");
-  assert.equal(written.length, 1);
-  assert.notEqual(written[0], require("path").join("x", "label-salt.bin"));
+  assert.deepEqual(written, [7], "only the temp file descriptor was written, never the final name");
+});
+
+function saltScratch(prefix) {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const base = nodePath.join(__dirname, "..", "..", ".scratch");
+  nodeFs.mkdirSync(base, { recursive: true });
+  return nodeFs.mkdtempSync(nodePath.join(base, prefix));
+}
+
+test("loadOrCreateSalt: two first starts at once agree on the salt on disk", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const dir = saltScratch("salt-race-");
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    let other = null;
+    // process A looks, sees no file; before A writes anything, process B starts and finishes
+    const fsA = {
+      ...nodeFs,
+      readFileSync: (...args) => {
+        if (!other) {
+          other = S.loadOrCreateSalt({ dir, fs: nodeFs });
+          throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        }
+        return nodeFs.readFileSync(...args);
+      }
+    };
+    const a = S.loadOrCreateSalt({ dir, fs: fsA });
+    assert.ok(other, "the other process ran in the gap");
+    assert.deepEqual(a.salt, other.salt, "A uses the salt B already put on disk");
+    assert.deepEqual(a.salt, nodeFs.readFileSync(file));
+    assert.equal(a.note, undefined);
+    assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"], "no temp file left behind");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadOrCreateSalt: the temp file is flushed before it is published, on both paths", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const dir = saltScratch("salt-sync-");
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    const spyFs = (log) => ({
+      ...nodeFs,
+      openSync: (...a) => {
+        const fd = nodeFs.openSync(...a);
+        log.push(["open", fd]);
+        return fd;
+      },
+      fsyncSync: (fd) => (log.push(["fsync", fd]), nodeFs.fsyncSync(fd)),
+      closeSync: (fd) => (log.push(["close", fd]), nodeFs.closeSync(fd)),
+      linkSync: (...a) => (log.push(["publish"]), nodeFs.linkSync(...a)),
+      renameSync: (...a) => (log.push(["publish"]), nodeFs.renameSync(...a))
+    });
+    const kinds = (log) => log.map((x) => x[0]);
+    // missing file: link path
+    const log1 = [];
+    S.loadOrCreateSalt({ dir, fs: spyFs(log1) });
+    assert.deepEqual(kinds(log1), ["open", "fsync", "close", "publish"]);
+    assert.equal(log1[0][1], log1[1][1], "the flushed descriptor is the one that was opened");
+    // corrupt file: rename path
+    nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
+    const log2 = [];
+    S.loadOrCreateSalt({ dir, fs: spyFs(log2) });
+    assert.deepEqual(kinds(log2), ["open", "fsync", "close", "publish"]);
+    // no hard links on this disk: falls back to a rename and still returns what is on disk
+    nodeFs.rmSync(file);
+    const noLink = {
+      ...nodeFs,
+      linkSync: () => {
+        throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+      }
+    };
+    const c = S.loadOrCreateSalt({ dir, fs: noLink });
+    assert.equal(c.note, undefined);
+    assert.deepEqual(c.salt, nodeFs.readFileSync(file));
+    assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"]);
+    // what is on disk after publishing is not a valid salt: say so instead of claiming it is stable
+    nodeFs.rmSync(file);
+    let reads = 0;
+    const odd = {
+      ...nodeFs,
+      readFileSync: () => {
+        reads += 1;
+        if (reads === 1) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        return Buffer.alloc(2, 9);
+      }
+    };
+    const d = S.loadOrCreateSalt({ dir, fs: odd });
+    assert.equal(d.salt.length, 16);
+    assert.equal(d.note.code, "labels-unstable");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("wsl.exe runs by its System32 path, read at call time; other argument lists still fail", async () => {
