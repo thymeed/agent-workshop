@@ -1313,7 +1313,7 @@ test("loadOrCreateSalt: a corrupt file is replaced only under the lock", () => {
     const corrupt = () => nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
     const clock = (start) => {
       let t = start;
-      return { now: () => t, sleep: (ms) => (t += ms) };
+      return { now: () => t, mono: () => t, sleep: (ms) => (t += ms) };
     };
     const names = () => nodeFs.readdirSync(dir).sort();
 
@@ -1392,7 +1392,200 @@ test("loadOrCreateSalt: a corrupt file is replaced only under the lock", () => {
   }
 });
 
-test("loadOrCreateSalt: six real processes on a corrupt file all end on the same salt", async () => {
+test("loadOrCreateSalt: a lock file that cannot be read or removed never hangs startup", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const dir = saltScratch("salt-nohang-");
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    const lock = file + ".lock";
+    const epermAt =
+      (name, counter, cap) =>
+      (p, ...a) => {
+        if (String(p).includes(".lock")) {
+          counter.n += 1;
+          if (counter.n > cap) return nodeFs[name](p, ...a); // a regression ends here, and fails the count
+          throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+        }
+        return nodeFs[name](p, ...a);
+      };
+    const corrupt = () => nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
+    const old = () => {
+      const d = new Date(Date.now() - 60000);
+      nodeFs.writeFileSync(lock, "dead");
+      nodeFs.utimesSync(lock, d, d);
+    };
+    const check = (r, counter, label) => {
+      assert.equal(r.salt.length, 16, label);
+      assert.equal(r.note.code, "labels-unstable", label);
+      assert.ok(counter.n <= 3, label + ": gave up at once, calls=" + counter.n);
+      assert.deepEqual(nodeFs.readFileSync(file), Buffer.alloc(3, 1), label + ": file untouched");
+    };
+    // the lock cannot be looked at
+    corrupt();
+    nodeFs.writeFileSync(lock, "x");
+    let c = { n: 0 };
+    check(
+      S.loadOrCreateSalt({ dir, fs: { ...nodeFs, statSync: epermAt("statSync", c, 50) } }),
+      c,
+      "stat fails"
+    );
+    // the lock is old but cannot be linked or removed
+    old();
+    c = { n: 0 };
+    check(
+      S.loadOrCreateSalt({
+        dir,
+        fs: {
+          ...nodeFs,
+          linkSync: epermAt("linkSync", c, 50),
+          unlinkSync: epermAt("unlinkSync", c, 50)
+        }
+      }),
+      c,
+      "stale lock cannot be removed"
+    );
+    // the lock is old but cannot be read
+    c = { n: 0 };
+    check(
+      S.loadOrCreateSalt({ dir, fs: { ...nodeFs, readFileSync: epermAt("readFileSync", c, 50) } }),
+      c,
+      "stale lock cannot be read"
+    );
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadOrCreateSalt: lock ownership, takeover, future-dated locks and the wait clock", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const dir = saltScratch("salt-owner-");
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    const lock = file + ".lock";
+    const corrupt = () => nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
+    const setAge = (ms) => {
+      const d = new Date(Date.now() - ms);
+      nodeFs.utimesSync(lock, d, d);
+    };
+
+    // we never release a lock that has someone else's token in it
+    corrupt();
+    const swapped = {
+      ...nodeFs,
+      renameSync: (...a) => {
+        nodeFs.writeFileSync(lock, "someone-else");
+        return nodeFs.renameSync(...a);
+      }
+    };
+    const r1 = S.loadOrCreateSalt({ dir, fs: swapped });
+    assert.equal(r1.note, undefined);
+    assert.equal(nodeFs.readFileSync(lock, "utf8"), "someone-else", "their lock is left alone");
+    nodeFs.rmSync(lock);
+
+    // our own lock is released
+    corrupt();
+    S.loadOrCreateSalt({ dir, fs: nodeFs });
+    assert.ok(!nodeFs.existsSync(lock));
+
+    // a fresh lock slips in over the stale one we judged: the real lock is never moved or deleted
+    corrupt();
+    nodeFs.writeFileSync(lock, "old-holder");
+    setAge(60000);
+    let swappedOnce = false;
+    const takeover = {
+      ...nodeFs,
+      linkSync: (from, to) => {
+        if (!swappedOnce && String(from).endsWith(".lock")) {
+          swappedOnce = true;
+          nodeFs.writeFileSync(from, "fresh-holder"); // a new lock, made just now
+        }
+        return nodeFs.linkSync(from, to);
+      }
+    };
+    let t = Date.now();
+    const r2 = S.loadOrCreateSalt({
+      dir,
+      fs: takeover,
+      now: () => t,
+      mono: () => t,
+      sleep: (ms) => (t += ms),
+      lockWaitMs: 200
+    });
+    assert.ok(swappedOnce);
+    assert.equal(r2.note.code, "labels-unstable", "the fresh holder keeps the lock");
+    assert.equal(nodeFs.readFileSync(lock, "utf8"), "fresh-holder", "its lock was never touched");
+    assert.deepEqual(nodeFs.readFileSync(file), Buffer.alloc(3, 1), "file untouched");
+    assert.deepEqual(
+      nodeFs.readdirSync(dir).sort(),
+      ["label-salt.bin", "label-salt.bin.lock"],
+      "no .stale- file left"
+    );
+    nodeFs.rmSync(lock);
+
+    // the process that was removing a stale lock died after linking it: its old link is cleared
+    corrupt();
+    nodeFs.writeFileSync(lock, "dead-holder");
+    setAge(60000);
+    let linked = 0;
+    const deadWinner = {
+      ...nodeFs,
+      linkSync: (from, to) => {
+        linked += 1;
+        if (linked === 1) {
+          nodeFs.linkSync(from, to); // the other process's link, left behind
+          throw Object.assign(new Error("EEXIST"), { code: "EEXIST" });
+        }
+        return nodeFs.linkSync(from, to);
+      },
+      statSync: (p, ...a) => {
+        const st = nodeFs.statSync(p, ...a);
+        return String(p).includes(".stale-") ? { ...st, ctimeMs: Date.now() - 60000 } : st;
+      }
+    };
+    const r5 = S.loadOrCreateSalt({ dir, fs: deadWinner, sleep: () => {} });
+    assert.equal(r5.note, undefined, "the stale lock was broken after all");
+    assert.deepEqual(r5.salt, nodeFs.readFileSync(file));
+    assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"], "no lock or link left");
+
+    // a lock dated far in the future (clock went back after a crash) counts as stale
+    corrupt();
+    nodeFs.writeFileSync(lock, "from-the-future");
+    const fut = new Date(Date.now() + 3600000);
+    nodeFs.utimesSync(lock, fut, fut);
+    const r3 = S.loadOrCreateSalt({ dir, fs: nodeFs });
+    assert.equal(r3.note, undefined);
+    assert.deepEqual(r3.salt, nodeFs.readFileSync(file));
+    assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"]);
+
+    // the wait uses its own steady clock: a wall clock that stands still cannot extend it
+    corrupt();
+    nodeFs.writeFileSync(lock, "busy");
+    const wall = Date.now();
+    let steady = 0;
+    let sleeps = 0;
+    const r4 = S.loadOrCreateSalt({
+      dir,
+      fs: nodeFs,
+      now: () => wall,
+      mono: () => steady,
+      sleep: (ms) => {
+        sleeps += 1;
+        if (sleeps > 100) throw new Error("waited past the limit");
+        steady += ms;
+      },
+      lockWaitMs: 100
+    });
+    assert.equal(r4.note.code, "labels-unstable");
+    assert.ok(sleeps >= 1 && sleeps <= 6, "waited about lockWaitMs, sleeps=" + sleeps);
+    assert.equal(nodeFs.readFileSync(lock, "utf8"), "busy");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadOrCreateSalt: six real processes on a corrupt file (and a dead process's lock) all end on the same salt", async () => {
   const nodeFs = require("fs");
   const nodePath = require("path");
   const { spawn } = require("child_process");
@@ -1424,8 +1617,15 @@ test("loadOrCreateSalt: six real processes on a corrupt file all end on the same
     });
   try {
     const file = nodePath.join(dir, "label-salt.bin");
-    for (let round = 0; round < 5; round++) {
+    for (let round = 0; round < 6; round++) {
       nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
+      if (round % 2 === 1) {
+        // a lock left by a process that died: all six try to break it at once
+        const lockFile = file + ".lock";
+        nodeFs.writeFileSync(lockFile, "dead-process");
+        const long = new Date(Date.now() - 60000);
+        nodeFs.utimesSync(lockFile, long, long);
+      }
       const go = Date.now() + 1500;
       const results = await Promise.all([1, 2, 3, 4, 5, 6].map(() => run(go)));
       const disk = nodeFs.readFileSync(file).toString("hex");
