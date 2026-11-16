@@ -382,12 +382,390 @@ async function testSalt() {
   assert.strictEqual(first.ids.length, 3);
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const POLL_WAIT_MS = 2 * 900 + 400; // more than 2x the bridge's POLL_MS (900)
+
+async function waitUntil(fn, ms, what) {
+  const deadline = Date.now() + (ms || 8000);
+  for (;;) {
+    const v = await fn();
+    if (v) return v;
+    if (Date.now() > deadline) throw new Error("timed out waiting for " + what);
+    await sleep(100);
+  }
+}
+
+const userLine = (t) =>
+  JSON.stringify({
+    role: "user",
+    message: { content: [{ type: "text", text: "<user_query>" + t + "</user_query>" }] }
+  }) + "\n";
+const TERMINAL_OK = JSON.stringify({ type: "turn_ended", status: "success" }) + "\n";
+const TERMINAL_ERR = JSON.stringify({ type: "turn_ended", status: "error" }) + "\n";
+const LEAK_TEXT = PLANTED + " /home/" + PLANTED + "/x C:\\Users\\" + PLANTED + "\\y";
+
+/** Records unhandled rejections for the duration of one test. */
+function rejectionRecorder() {
+  const list = [];
+  const fn = (err) => list.push(err);
+  process.on("unhandledRejection", fn);
+  return { list, stop: () => process.removeListener("unhandledRejection", fn) };
+}
+
+/** fs.promises where every call waits `ms` first. */
+function delayedFs(ms) {
+  return new Proxy(fs.promises, {
+    get(target, prop) {
+      const v = target[prop];
+      if (typeof v !== "function") return v;
+      return (...args) => sleep(ms).then(() => v.apply(target, args));
+    }
+  });
+}
+
+/**
+ * Cursor transcripts must never reach Claude Code mode (the poll guard), Cursor alerts are
+ * tagged by source, and lastScanAt keeps moving in Claude Code mode.
+ */
+async function testCursorIsolation() {
+  const S = "11111111-2222-4333-8444-555555555555";
+  const dir = path.join(CURSOR_ROOT, "cur-a", "agent-transcripts", S);
+  const parentFile = path.join(dir, S + ".jsonl");
+  const subFile = path.join(dir, "subagents", PLANTED + "-sub.jsonl");
+  const sub2File = path.join(dir, "subagents", PLANTED + "-sub2.jsonl");
+  try {
+    await withBridge({ claudeCode: claudeBag() }, async (port) => {
+      assert.strictEqual((await post(port, "/api/select", { id: "cur-a" })).status, 200);
+      fs.mkdirSync(path.join(dir, "subagents"), { recursive: true });
+      fs.writeFileSync(parentFile, userLine(LEAK_TEXT));
+      fs.writeFileSync(subFile, userLine(LEAK_TEXT) + TERMINAL_OK);
+
+      const cursorAlerts = await waitUntil(
+        async () => {
+          const r = await request(port, { path: "/api/alerts" });
+          const j = JSON.parse(r.body);
+          return j.alerts.some((a) => a.status === "finished") ? r.body : null;
+        },
+        10000,
+        "a Cursor finished alert"
+      );
+      const cursorList = JSON.parse(cursorAlerts).alerts;
+      assert.deepStrictEqual(Object.keys(cursorList[0]), ["id", "ts", "name", "status", "agentId"]);
+      assert.strictEqual(cursorList[0].agentId, PLANTED + "-sub");
+      const curEvents = (await request(port, { path: "/api/events" })).body;
+      assert.ok(curEvents.includes(PLANTED), "the Cursor poll does ingest this transcript");
+
+      const stream = openStream(port);
+      await stream.waitFor("event: hello");
+      assert.strictEqual((await post(port, "/api/source", { source: "claude-code" })).status, 200);
+      await stream.waitFor("event: reset");
+      const cut = stream.text().indexOf("event: reset");
+
+      // alerts: the Cursor one is hidden, not deleted
+      const hidden = await get(port, "/api/alerts", true);
+      assert.deepStrictEqual(hidden.json, { alerts: [] });
+
+      // more Cursor bytes land while Claude Code mode is on, for more than 2x POLL_MS
+      const st1 = (await get(port, "/api/status", true)).json;
+      fs.appendFileSync(parentFile, userLine(LEAK_TEXT));
+      fs.appendFileSync(subFile, userLine(LEAK_TEXT));
+      fs.writeFileSync(sub2File, userLine(LEAK_TEXT) + TERMINAL_ERR);
+      await sleep(POLL_WAIT_MS);
+      const st2 = (await get(port, "/api/status", true)).json;
+      const evs = await get(port, "/api/events", true);
+      const al = await get(port, "/api/alerts", true);
+      assert.deepStrictEqual(al.json, { alerts: [] }, "no Cursor-side alert appears in this mode");
+      const tail = stream.text().slice(cut);
+      record("SSE isolation tail", tail);
+      for (const [label, text] of [
+        ["status", JSON.stringify(st2)],
+        ["events", JSON.stringify(evs.json)],
+        ["stream", tail]
+      ]) {
+        assert.ok(!text.includes(PLANTED), label + " carries the planted name: " + text);
+        assert.ok(!text.includes("/home/"), label + " carries a home path");
+        assert.ok(!DRIVE_PATH.test(text), label + " carries a drive path");
+      }
+      assert.ok(!tail.includes("event: alert"), "no alert frame in Claude Code mode");
+      assert.ok(
+        evs.json.events.every((e) => e.source === "bridge"),
+        "only bridge rows exist: " + JSON.stringify(evs.json.events.map((e) => e.source))
+      );
+
+      // the HUD's sync age keeps moving (the poll ticks without reading Cursor files)
+      assert.ok(st1.lastScanAt && st2.lastScanAt, "lastScanAt is set");
+      assert.ok(
+        Date.parse(st2.lastScanAt) > Date.parse(st1.lastScanAt),
+        "lastScanAt advances in Claude Code mode: " + st1.lastScanAt + " -> " + st2.lastScanAt
+      );
+      stream.close();
+
+      // back to Cursor: the same alert list returns, shape unchanged
+      await post(port, "/api/source", { source: "cursor" });
+      const back = JSON.parse((await request(port, { path: "/api/alerts" })).body);
+      assert.deepStrictEqual(back.alerts, cursorList);
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** checkStalledAgents is for Cursor only; a Cursor agent tracked before a switch never stalls later. */
+async function testStallGate() {
+  const { checkStalledAgents, recordHistoryEvent } = require("../live-bridge.js");
+  const S = "22222222-3333-4444-8555-666666666666";
+  const dir = path.join(CURSOR_ROOT, "cur-b", "agent-transcripts", S);
+  const stallFile = path.join(dir, "subagents", PLANTED + "-stall.jsonl");
+  try {
+    await withBridge({ claudeCode: claudeBag(), stallMs: 300 }, async (port) => {
+      assert.strictEqual((await post(port, "/api/select", { id: "cur-b" })).status, 200);
+      fs.mkdirSync(path.join(dir, "subagents"), { recursive: true });
+      fs.writeFileSync(stallFile, userLine("work"));
+      await waitUntil(
+        async () => {
+          const h = (await get(port, "/api/history")).json;
+          return h.events.some((e) => e.agentId === PLANTED + "-stall");
+        },
+        10000,
+        "the Cursor agent to be tracked"
+      );
+      const stream = openStream(port);
+      await stream.waitFor("event: hello");
+      await post(port, "/api/source", { source: "claude-code" });
+      await stream.waitFor("event: reset");
+      await sleep(400);
+      checkStalledAgents();
+      assert.deepStrictEqual((await get(port, "/api/alerts", true)).json, { alerts: [] });
+
+      // back in Cursor, the agent tracked before the switch is gone: it must not stall now
+      await post(port, "/api/source", { source: "cursor" });
+      await sleep(400);
+      checkStalledAgents();
+      const cur = (await get(port, "/api/alerts")).json.alerts;
+      assert.ok(
+        !cur.some((a) => a.status === "stalled"),
+        "stale Cursor agent stalled: " + JSON.stringify(cur)
+      );
+
+      // an agent that is tracked while Claude Code mode is on is still never reported
+      await post(port, "/api/source", { source: "claude-code" });
+      recordHistoryEvent({
+        ts: new Date().toISOString(),
+        sessionId: S,
+        agentId: PLANTED + "-seeded",
+        parentId: "parent:parent",
+        name: "Worker",
+        model: "sonnet",
+        type: "spawn",
+        inputTokens: 1,
+        outputTokens: 1,
+        files: []
+      });
+      await sleep(400);
+      checkStalledAgents();
+      assert.deepStrictEqual((await get(port, "/api/alerts", true)).json, { alerts: [] });
+      assert.ok(!stream.text().includes("event: alert"), "no alert frame on the stream");
+      stream.close();
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** stopBridge -> startBridge starts in Cursor mode with a fresh Claude Code state; selectProject refuses. */
+async function testRestartAndSelectProject() {
+  const { selectProject } = require("../live-bridge.js");
+  let firstId;
+  await withBridge({ claudeCode: claudeBag() }, async (port) => {
+    const curId = (await get(port, "/api/status")).json.projectId;
+    firstId = curId;
+    await post(port, "/api/source", { source: "claude-code" });
+    const list = (await get(port, "/api/projects")).json;
+    const pick = await post(port, "/api/select", { id: list.projects[0].id });
+    assert.strictEqual(pick.status, 200);
+    assert.strictEqual((await get(port, "/api/status")).json.source, "claude-code");
+
+    // the exported selectProject refuses outside Cursor mode and changes nothing
+    const refused = selectProject(curId === "cur-a" ? "cur-b" : "cur-a");
+    assert.strictEqual(refused.ok, false);
+    await post(port, "/api/source", { source: "cursor" });
+    const st = (await get(port, "/api/status")).json;
+    assert.strictEqual(st.projectId, curId, "Cursor project unchanged by the refused select");
+    assert.ok(st.transcripts.includes(curId));
+    await post(port, "/api/source", { source: "claude-code" });
+  }); // stopBridge runs here, still in Claude Code mode with a selection
+
+  await withBridge({ claudeCode: claudeBag() }, async (port) => {
+    const st = (await get(port, "/api/status")).json;
+    assert.strictEqual(st.source, "cursor", "a restart begins in Cursor mode");
+    assert.ok(typeof st.transcripts === "string" && st.transcripts.includes(firstId));
+    await post(port, "/api/source", { source: "claude-code" });
+    const cc = (await get(port, "/api/status")).json;
+    assert.strictEqual(cc.projectId, null, "the Claude Code selection does not survive a restart");
+    assert.ok(cc.projectCount > 0, "and the mode is rebuilt and discovers again");
+  });
+}
+
+/** Under BRIDGE_TEST=1 a missing bag, or a missing key, never reaches the real home or wsl.exe. */
+async function testInertBag() {
+  const inertHome = path.join(SCRATCH, "inert-home");
+  writeJsonl(
+    path.join(inertHome, ".claude", "projects", "enc-x", "x.jsonl"),
+    "/srv/inert-demo",
+    Math.floor(Date.now() / 1000) - 100
+  );
+  const keys = ["HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "XDG_CONFIG_HOME"];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  process.env.HOME = inertHome;
+  process.env.USERPROFILE = inertHome;
+  process.env.APPDATA = path.join(inertHome, "AppData");
+  process.env.XDG_CONFIG_HOME = path.join(inertHome, ".config");
+  try {
+    const projectsOf = async (opts) =>
+      withBridge(opts, async (port) => {
+        await post(port, "/api/source", { source: "claude-code" });
+        return (await get(port, "/api/projects")).json.projects;
+      });
+    assert.deepStrictEqual(await projectsOf({}), [], "no bag: inert");
+    assert.deepStrictEqual(await projectsOf({ claudeCode: {} }), [], "empty bag: inert");
+    assert.deepStrictEqual(
+      await projectsOf({ claudeCode: { platform: "linux" } }),
+      [],
+      "bag without homedir: inert"
+    );
+    // wsl.exe is never run: a win32 bag without runWsl gets the blocked runner (a visible note),
+    // and an empty bag gets platform "linux" (no WSL step at all)
+    const notesOf = (opts) =>
+      withBridge(opts, async (port) => {
+        await post(port, "/api/source", { source: "claude-code" });
+        return (await get(port, "/api/projects")).json.notes.map((n) => n.code);
+      });
+    assert.ok((await notesOf({ claudeCode: { platform: "win32" } })).includes("wsl-unavailable"));
+    assert.ok(!(await notesOf({ claudeCode: {} })).some((c) => c.startsWith("wsl-")));
+    // explicit values are kept: the named home is read with the real fs
+    const kept = await projectsOf({ claudeCode: { platform: "linux", homedir: inertHome } });
+    assert.deepStrictEqual(
+      kept.map((p) => p.label),
+      ["inert-demo"]
+    );
+    const counted = countingFs(false);
+    const keptFs = await projectsOf({
+      claudeCode: { platform: "linux", homedir: inertHome, fs: counted.fs }
+    });
+    assert.strictEqual(keptFs.length, 1);
+    assert.ok(counted.counter.calls > 0, "an explicit fs is used");
+  } finally {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+}
+
+/** A select that loses a race with a source switch is refused and stores nothing. */
+async function testSelectRaceKeepsSelection() {
+  let id;
+  await withBridge({ claudeCode: claudeBag() }, async (port) => {
+    await post(port, "/api/source", { source: "claude-code" });
+    const list = (await get(port, "/api/projects")).json.projects;
+    id = list.find((p) => p.label === "proj-demo").id;
+  });
+  await withBridge({ claudeCode: claudeBag({ fs: delayedFs(30), ttlMs: 1 }) }, async (port) => {
+    await post(port, "/api/source", { source: "claude-code" });
+    const racing = post(port, "/api/select", { id });
+    await sleep(5);
+    await post(port, "/api/source", { source: "cursor" });
+    const res = await racing;
+    assert.strictEqual(res.status, 400, "the racing select is refused");
+    await post(port, "/api/source", { source: "claude-code" });
+    const st = (await get(port, "/api/status")).json;
+    assert.strictEqual(st.projectId, null, "the refused select left no selection behind");
+    assert.strictEqual(st.projectLabel, null);
+  });
+}
+
+/** stopBridge while discovery is in flight: no unhandled rejection, and the client is answered or closed. */
+async function testStopDuringDiscovery() {
+  const { stopBridge } = require("../live-bridge.js");
+  const rec = rejectionRecorder();
+  try {
+    for (const route of ["/api/projects", "/api/status", "/api/events"]) {
+      await stopDuringRoute(route, rec);
+    }
+  } finally {
+    rec.stop();
+    await stopBridge();
+  }
+}
+
+async function stopDuringRoute(route, rec) {
+  const { startBridge, stopBridge } = require("../live-bridge.js");
+  {
+    const port = await getFreePort();
+    await startBridge({
+      port,
+      quiet: true,
+      projectsRoot: CURSOR_ROOT,
+      eventLogDir: LOG_DIR,
+      reuseExisting: false,
+      claudeCode: claudeBag({ fs: delayedFs(40), ttlMs: 1 })
+    });
+    await post(port, "/api/source", { source: "claude-code" });
+    const pending = request(port, { path: route }).then(
+      (r) => ({ answered: true, status: r.status }),
+      () => ({ answered: false })
+    );
+    await sleep(5);
+    await stopBridge();
+    const out = await Promise.race([pending, sleep(2000).then(() => ({ hung: true }))]);
+    assert.ok(!out.hung, route + ": neither answered nor closed within 2000 ms");
+    if (out.answered) assert.strictEqual(out.status, 200, route + ": an answer is a normal 200");
+    await sleep(400);
+    assert.deepStrictEqual(rec.list, [], route + " unhandled rejection: " + rec.list.map(String));
+  }
+}
+
+/** A throw while building an async Claude Code response becomes a fixed 500, not a hang. */
+async function testRouteFailureAnswers500() {
+  const { pushEvent, resetWatchState } = require("../live-bridge.js");
+  const rec = rejectionRecorder();
+  try {
+    await withBridge({ claudeCode: claudeBag() }, async (port) => {
+      await post(port, "/api/source", { source: "claude-code" });
+      try {
+        // a BigInt cannot be serialised: the events route fails while it builds the body
+        pushEvent({ role: "parent", kind: "status", message: "x", tokensDelta: 1n });
+      } catch (_e) {
+        /* the SSE broadcast may throw too; the event is already stored */
+      }
+      try {
+        const r = await request(port, { path: "/api/events" });
+        assert.strictEqual(r.status, 500);
+        assert.deepStrictEqual(JSON.parse(r.body), { ok: false, error: "Internal error" });
+        await sleep(100);
+        assert.deepStrictEqual(rec.list, [], "unhandled rejection: " + rec.list.map(String));
+      } finally {
+        resetWatchState(); // drop the unserialisable event for later tests
+      }
+    });
+  } finally {
+    rec.stop();
+  }
+}
+
 async function main() {
   buildTrees();
   try {
     await testSwitching();
     await testTimeout();
     await testSalt();
+    await testCursorIsolation();
+    await testStallGate();
+    await testRestartAndSelectProject();
+    await testInertBag();
+    await testSelectRaceKeepsSelection();
+    await testStopDuringDiscovery();
+    await testRouteFailureAnswers500();
     // every Claude Code body and stream chunk, checked together
     assert.ok(seen.length >= 10, "expected many recorded bodies, got " + seen.length);
     for (const { label, text } of seen) {
@@ -395,7 +773,9 @@ async function main() {
       assert.ok(!DRIVE_PATH.test(text), label + " carries a drive path: " + text);
       assert.ok(!text.includes(PLANTED), label + " carries the planted name");
     }
-    console.log("claude-code-bridge OK · switch, select, guards, privacy, salt, timeout");
+    console.log(
+      "claude-code-bridge OK · switch, select, guards, privacy, salt, timeout, isolation, alerts, restart, stop race"
+    );
   } finally {
     fs.rmSync(SCRATCH, { recursive: true, force: true });
   }

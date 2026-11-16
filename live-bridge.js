@@ -153,7 +153,7 @@ let claudeCode = null;
 
 /** @type {Array<object>} */
 const events = [];
-/** @type {Array<{id:number,ts:string,name:string,status:string,agentId?:string}>} */
+/** @type {Array<{alert:{id:number,ts:string,name:string,status:string,agentId?:string}, source:string}>} */
 const alerts = [];
 /** @type {Set<http.ServerResponse>} */
 const sseClients = new Set();
@@ -380,7 +380,9 @@ function emitAgentAlert(name, status, agentId) {
   const id = agentId != null && String(agentId) ? String(agentId) : "";
   if (id) alert.agentId = id;
 
-  alerts.push(alert);
+  /* The ring keeps an internal source tag so GET /api/alerts can serve only the current
+     source's alerts. The tag never leaves the process: SSE and the response use `alert`. */
+  alerts.push({ alert, source });
   if (alerts.length > MAX_ALERTS) alerts.splice(0, alerts.length - MAX_ALERTS);
 
   broadcastSse("alert", alert);
@@ -447,6 +449,7 @@ function touchAgentWatch(agentId, name, terminalStatus, opts) {
 }
 
 function checkStalledAgents() {
+  if (source !== "cursor") return; // stall watch belongs to the Cursor tree only
   const now = Date.now();
   for (const [id, state] of agentWatch) {
     if (!state || state.terminal || state.stallAlerted) continue;
@@ -566,7 +569,10 @@ function clearWatchState() {
   lastScanError = null;
 }
 
-/** Enter (or refresh) Claude Code mode: nothing from the Cursor tree is kept or sent. */
+/**
+ * Enter (or refresh) Claude Code mode: no Cursor event, stall watch or alert is shown or sent
+ * (Cursor alerts stay in the ring tagged "cursor" and are served again after switching back).
+ */
 function resetClaudeWatch() {
   clearWatchState();
   agentWatch.clear();
@@ -664,9 +670,9 @@ function statusPayload() {
 }
 
 /** /api/status in Claude Code mode: no transcripts path, no `exists`, no drift sample text. */
-async function claudeStatusPayload() {
-  const sel = claudeCode.selection();
-  const pub = await claudeCode.statusBody();
+async function claudeStatusPayload(cc) {
+  const sel = cc.selection();
+  const pub = await cc.statusBody();
   return {
     ok: true,
     bridgeId: BRIDGE_ID,
@@ -693,13 +699,15 @@ async function claudeStatusPayload() {
 }
 
 /** POST /api/select in Claude Code mode: the id must come from the last discovery. */
-async function selectClaudeProject(id) {
-  const r = await claudeCode.select(id);
-  if (!r.ok || source !== "claude-code") {
+async function selectClaudeProject(cc, id) {
+  /* The guard runs inside select(), right before the selection is stored, so a select that
+     raced a source switch or a stop is refused without changing the stored selection. */
+  const r = await cc.select(id, () => source === "claude-code" && claudeCode === cc);
+  if (!r.ok || source !== "claude-code" || claudeCode !== cc) {
     return { status: 400, body: { ok: false, error: "Unknown or disallowed project id" } };
   }
   resetClaudeWatch();
-  const sel = claudeCode.selection();
+  const sel = cc.selection();
   return {
     status: 200,
     body: { ok: true, projectId: sel.id, projectLabel: sel.label, source }
@@ -1381,7 +1389,11 @@ function ingestNewBytes(filePath) {
 }
 
 function scan() {
-  if (source !== "cursor") return; // Claude Code transcripts are not tailed yet
+  if (source !== "cursor") {
+    // Claude Code transcripts are not tailed yet: only keep the HUD's sync age fresh
+    lastScanAt = nowIso();
+    return;
+  }
   try {
     const files = listJsonlFiles(TRANSCRIPTS).slice(0, TRANSCRIPT_SCAN_LIMIT);
     if (warmScanAfterInventory) {
@@ -1398,6 +1410,19 @@ function scan() {
     lastScanError = String(e.message || e);
   }
   lastScanAt = nowIso();
+}
+
+/** Fixed-text 500 for a failed async Claude Code route; never the error message. */
+function sendInternalError(res) {
+  if (res.headersSent || res.writableEnded || res.destroyed) {
+    try {
+      res.end();
+    } catch (_e) {
+      /* already gone */
+    }
+    return;
+  }
+  sendJson(res, 500, { ok: false, error: "Internal error" });
 }
 
 function createServer() {
@@ -1431,7 +1456,10 @@ function createServer() {
 
     if (url.pathname === "/api/status") {
       if (source === "claude-code") {
-        claudeStatusPayload().then((body) => sendJson(res, 200, body));
+        const cc = claudeCode;
+        claudeStatusPayload(cc)
+          .then((body) => sendJson(res, 200, body))
+          .catch(() => sendInternalError(res));
         return;
       }
       sendJson(res, 200, statusPayload());
@@ -1440,10 +1468,13 @@ function createServer() {
 
     if (url.pathname === "/api/projects") {
       if (source === "claude-code") {
-        claudeCode.projectsBody().then((body) => {
-          const sel = claudeCode.selection();
-          sendJson(res, 200, { ok: true, ...body, selectedId: sel.id, selectedLabel: sel.label });
-        });
+        const cc = claudeCode;
+        cc.projectsBody()
+          .then((body) => {
+            const sel = cc.selection();
+            sendJson(res, 200, { ok: true, ...body, selectedId: sel.id, selectedLabel: sel.label });
+          })
+          .catch(() => sendInternalError(res));
         return;
       }
       const projects = discoverProjects();
@@ -1540,7 +1571,10 @@ function createServer() {
             return;
           }
           if (source === "claude-code") {
-            return selectClaudeProject(id).then((r) => sendJson(res, r.status, r.body));
+            const cc = claudeCode;
+            return selectClaudeProject(cc, id)
+              .then((r) => sendJson(res, r.status, r.body))
+              .catch(() => sendInternalError(res));
           }
           const result = selectProject(id);
           sendJson(res, result.ok ? 200 : 400, result);
@@ -1554,10 +1588,13 @@ function createServer() {
     if (url.pathname === "/api/events") {
       const after = Number(url.searchParams.get("after") || 0);
       if (source === "claude-code") {
-        claudeCode.eventsBody(events.filter((e) => e.id > after)).then((body) => {
-          const sel = claudeCode.selection();
-          sendJson(res, 200, { ...body, projectId: sel.id, projectLabel: sel.label });
-        });
+        const cc = claudeCode;
+        cc.eventsBody(events.filter((e) => e.id > after))
+          .then((body) => {
+            const sel = cc.selection();
+            sendJson(res, 200, { ...body, projectId: sel.id, projectLabel: sel.label });
+          })
+          .catch(() => sendInternalError(res));
         return;
       }
       sendJson(res, 200, {
@@ -1574,7 +1611,7 @@ function createServer() {
         sendJson(res, 405, { ok: false, error: "GET required" });
         return;
       }
-      sendJson(res, 200, { alerts: alerts.slice() });
+      sendJson(res, 200, { alerts: alerts.filter((a) => a.source === source).map((a) => a.alert) });
       return;
     }
 
@@ -1755,11 +1792,20 @@ function probeExistingBridge(port) {
 function makeClaudeCodeMode(opts) {
   const dir = resolveLogDir({ logDir: opts.eventLogDir });
   const { salt, note } = loadOrCreateSalt({ dir });
-  let bag = opts.claudeCode;
-  if (!bag && process.env.BRIDGE_TEST === "1") {
-    bag = { platform: "linux", homedir: "", runWsl: () => Promise.reject(new Error("blocked")) };
+  let bag = opts.claudeCode || {};
+  if (process.env.BRIDGE_TEST === "1") {
+    /* Each missing key gets an inert default, so a partial bag never reaches the real home
+       or wsl.exe. A bag that names a homedir keeps the real fs unless it passes its own. */
+    const blocked = () => Promise.reject(new Error("blocked"));
+    const inertFs = new Proxy({}, { get: () => blocked });
+    bag = {
+      ...bag,
+      platform: bag.platform || "linux",
+      homedir: bag.homedir === undefined ? "" : bag.homedir,
+      runWsl: bag.runWsl || blocked
+    };
+    if (!bag.fs && !opts.claudeCode?.homedir) bag.fs = inertFs;
   }
-  bag = bag || {};
   const { ttlMs, ...discover } = bag;
   return createClaudeCodeMode({ salt, saltNote: note || null, discover, ttlMs });
 }
