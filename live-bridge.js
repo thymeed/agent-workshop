@@ -2046,6 +2046,7 @@ module.exports = {
   sessionIdsInTranscripts,
   clearHistory,
   recordHistoryEvent,
+  claudeStatusPayload, // exported for tests only
   scanTranscripts: scan,
   checkStalledAgents,
   terminalTypeFromTranscript,

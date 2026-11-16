@@ -627,6 +627,21 @@ test("labels lose control and bidi characters and are capped", async () => {
   assert.ok(labels.includes("z".repeat(60)));
 });
 
+test("labels lose a zero-width space (U+200B) and a left-to-right mark (U+200E)", async () => {
+  const zws = String.fromCharCode(0x200b);
+  const lrm = String.fromCharCode(0x200e);
+  const fs = makeFs();
+  addProject(fs, WIN_ROOT, "a", "/x/ab" + zws + "cd");
+  addProject(fs, WIN_ROOT, "b", "/x/wx" + lrm + "yz");
+  addProject(fs, WIN_ROOT, "c", "/x/" + zws + "pq" + lrm + "rs" + lrm);
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const labels = r.projects.map((p) => p.label).sort();
+  assert.deepEqual(labels, ["abcd", "pqrs", "wxyz"]);
+  for (const l of labels) {
+    assert.ok(!l.includes(zws) && !l.includes(lrm), "no invisible character left in " + l);
+  }
+});
+
 test("running distro: first root, then the other spelling; unreadable homes are counted", async () => {
   const fs = makeFs();
   const second = wslRoot("Ubuntu", "wsl$");
@@ -1638,61 +1653,258 @@ test("loadOrCreateSalt: an empty stale lock never takes down a fresh lock that i
   }
 });
 
-test("loadOrCreateSalt: six real processes on a corrupt file (and a dead process's lock) all end on the same salt", async () => {
+test("loadOrCreateSalt: a lock swapped for a different token with the same time is not removed", () => {
   const nodeFs = require("fs");
   const nodePath = require("path");
-  const { spawn } = require("child_process");
-  const dir = saltScratch("salt-procs-");
-  const code = [
-    "const S = require(process.argv[1]);",
-    "const go = Number(process.argv[3]);",
-    "while (Date.now() < go) {}",
-    "const r = S.loadOrCreateSalt({ dir: process.argv[2] });",
-    "process.stdout.write(JSON.stringify({ salt: r.salt.toString('hex'), note: r.note || null }));"
-  ].join(" ");
-  const run = (go) =>
-    new Promise((resolve, reject) => {
-      const p = spawn(
-        process.execPath,
-        [
-          "-e",
-          code,
-          nodePath.join(__dirname, "..", "..", "lib", "claude-code-sources.js"),
-          dir,
-          String(go)
-        ],
-        { stdio: ["ignore", "pipe", "inherit"] }
-      );
-      let out = "";
-      p.stdout.on("data", (d) => (out += d));
-      p.on("error", reject);
-      p.on("close", () => resolve(JSON.parse(out)));
-    });
+  const dir = saltScratch("salt-sametime-");
   try {
     const file = nodePath.join(dir, "label-salt.bin");
-    for (let round = 0; round < 6; round++) {
+    const lock = file + ".lock";
+    for (const noHardLinks of [false, true]) {
+      const label = noHardLinks ? "no hard links" : "hard links";
+      nodeFs.rmSync(lock, { force: true });
       nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
-      if (round % 2 === 1) {
-        // a lock left by a process that died: all six try to break it at once
-        const lockFile = file + ".lock";
-        nodeFs.writeFileSync(lockFile, "dead-process");
-        const long = new Date(Date.now() - 60000);
-        nodeFs.utimesSync(lockFile, long, long);
-      }
-      const go = Date.now() + 1500;
-      const results = await Promise.all([1, 2, 3, 4, 5, 6].map(() => run(go)));
-      const disk = nodeFs.readFileSync(file).toString("hex");
-      assert.equal(disk.length, 32, "round " + round + ": a valid salt is on disk");
-      for (const r of results) {
-        assert.equal(r.salt, disk, "round " + round + ": every process uses the salt on disk");
-        assert.equal(r.note, null, "round " + round + ": and none reports instability");
-      }
-      assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"], "no lock or temp left");
+      nodeFs.writeFileSync(lock, "old-token");
+      const long = new Date(Math.floor(Date.now() / 1000) * 1000 - 60000); // whole milliseconds
+      nodeFs.utimesSync(lock, long, long);
+      const staleMtime = nodeFs.statSync(lock).mtimeMs;
+      let swapped = 0;
+      let sameTime = null;
+      let touched = false;
+      const racing = {
+        ...nodeFs,
+        // its owner is alive: once we have made our decision, it keeps the lock fresh
+        openSync: (p, ...a) => {
+          if (swapped && !touched && String(p).endsWith(".lock")) {
+            touched = true;
+            const now = new Date();
+            nodeFs.utimesSync(p, now, now);
+          }
+          return nodeFs.openSync(p, ...a);
+        },
+        linkSync: (from, to) => {
+          if (!swapped && String(from).endsWith(".lock")) {
+            swapped += 1;
+            // another process's lock: different token, but the very same modification time
+            nodeFs.writeFileSync(from, "other-token");
+            nodeFs.utimesSync(from, long, long);
+            sameTime = nodeFs.statSync(from).mtimeMs === staleMtime;
+            if (noHardLinks) throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+          }
+          return nodeFs.linkSync(from, to);
+        }
+      };
+      let clock = Date.now();
+      const r = S.loadOrCreateSalt({
+        dir,
+        fs: racing,
+        now: () => clock,
+        mono: () => clock,
+        sleep: (ms) => (clock += ms),
+        lockWaitMs: 200
+      });
+      assert.equal(swapped, 1, label);
+      assert.equal(sameTime, true, label + ": the swapped lock really has the same mtime");
+      assert.equal(nodeFs.readFileSync(lock, "utf8"), "other-token", label + ": lock kept");
+      assert.equal(r.note.code, "labels-unstable", label + ": we wait for it, then give up");
+      assert.deepEqual(nodeFs.readFileSync(file), Buffer.alloc(3, 1), label + ": file untouched");
+      assert.deepEqual(
+        nodeFs.readdirSync(dir).sort(),
+        ["label-salt.bin", "label-salt.bin.lock"],
+        label + ": no .stale- file left"
+      );
     }
   } finally {
     nodeFs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("loadOrCreateSalt: a failed token write removes the lock, so the next start gets it", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const dir = saltScratch("salt-tokenfail-");
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    const lock = file + ".lock";
+    nodeFs.writeFileSync(file, Buffer.alloc(3, 1)); // corrupt, so the lock is needed
+    let opens = 0;
+    let closes = 0;
+    let writes = 0;
+    const flaky = {
+      ...nodeFs,
+      openSync: (...a) => (opens++, nodeFs.openSync(...a)),
+      closeSync: (...a) => (closes++, nodeFs.closeSync(...a)),
+      writeFileSync: (...a) => {
+        // the first write is the token into the new lock file
+        if (++writes === 1) throw Object.assign(new Error("EIO"), { code: "EIO" });
+        return nodeFs.writeFileSync(...a);
+      }
+    };
+    const first = S.loadOrCreateSalt({ dir, fs: flaky, lockWaitMs: 100 });
+    assert.equal(first.note.code, "labels-unstable");
+    assert.ok(!nodeFs.existsSync(lock), "the empty lock file was removed");
+    assert.equal(opens, closes, "the descriptor was closed");
+    assert.deepEqual(nodeFs.readFileSync(file), Buffer.alloc(3, 1), "nothing was replaced");
+    // an immediate retry gets the lock and fixes the file
+    const second = S.loadOrCreateSalt({ dir, fs: flaky, lockWaitMs: 100 });
+    assert.equal(second.note, undefined);
+    assert.deepEqual(second.salt, nodeFs.readFileSync(file));
+    assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"], "no lock or temp left");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test(
+  "loadOrCreateSalt: a brief Windows sharing error (EPERM/EBUSY) is waited out, not a throwaway salt",
+  { timeout: 30000 },
+  () => {
+    const nodeFs = require("fs");
+    const nodePath = require("path");
+    const cases = [
+      ["lock open", (p, op) => op === "open" && String(p).endsWith(".lock"), "EPERM"],
+      ["re-read under the lock", (p, op, n) => op === "read" && n === 2, "EBUSY"],
+      ["rename into place", (p, op) => op === "rename", "EPERM"],
+      ["read-back", (p, op, n) => op === "read" && n === 3, "EBUSY"]
+    ];
+    for (const [label, hit, code] of cases) {
+      const dir = saltScratch("salt-transient-");
+      try {
+        const file = nodePath.join(dir, "label-salt.bin");
+        nodeFs.writeFileSync(file, Buffer.alloc(3, 1)); // corrupt, so the lock path runs
+        let thrown = 0;
+        let reads = 0;
+        const once = (p, op, n) => {
+          if (!thrown && hit(p, op, n)) {
+            thrown = 1;
+            throw Object.assign(new Error(code), { code });
+          }
+        };
+        const flaky = {
+          ...nodeFs,
+          openSync: (p, ...a) => (once(p, "open"), nodeFs.openSync(p, ...a)),
+          readFileSync: (p, ...a) => {
+            if (p === file) once(p, "read", ++reads);
+            return nodeFs.readFileSync(p, ...a);
+          },
+          renameSync: (a, b) => (once(b, "rename"), nodeFs.renameSync(a, b))
+        };
+        let clock = 0;
+        const r = S.loadOrCreateSalt({
+          dir,
+          fs: flaky,
+          mono: () => clock,
+          sleep: (ms) => (clock += ms)
+        });
+        assert.equal(thrown, 1, label + ": the error was really thrown");
+        assert.equal(r.note, undefined, label + ": no throwaway salt");
+        assert.deepEqual(r.salt, nodeFs.readFileSync(file), label + ": the salt on disk is used");
+      } finally {
+        nodeFs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
+);
+
+test(
+  "loadOrCreateSalt: no hard links plus a brief EPERM on rename is waited out",
+  { timeout: 30000 },
+  () => {
+    const nodeFs = require("fs");
+    const nodePath = require("path");
+    const dir = saltScratch("salt-nolink-transient-");
+    try {
+      const file = nodePath.join(dir, "label-salt.bin"); // missing, so the link path runs
+      let renameThrown = 0;
+      const flaky = {
+        ...nodeFs,
+        linkSync: () => {
+          throw Object.assign(new Error("EPERM"), { code: "EPERM" }); // no hard links here
+        },
+        renameSync: (a, b) => {
+          if (!renameThrown++) throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+          return nodeFs.renameSync(a, b);
+        }
+      };
+      let clock = 0;
+      const r = S.loadOrCreateSalt({
+        dir,
+        fs: flaky,
+        mono: () => clock,
+        sleep: (ms) => (clock += ms)
+      });
+      assert.equal(renameThrown, 2, "the rename failed once, then succeeded");
+      assert.equal(r.note, undefined, "no throwaway salt");
+      assert.deepEqual(r.salt, nodeFs.readFileSync(file), "the salt on disk is used");
+    } finally {
+      nodeFs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "loadOrCreateSalt: six real processes on a corrupt file (and a dead process's lock) all end on the same salt",
+  { timeout: 30000 },
+  async () => {
+    const nodeFs = require("fs");
+    const nodePath = require("path");
+    const { spawn } = require("child_process");
+    const dir = saltScratch("salt-procs-");
+    const code = [
+      "const S = require(process.argv[1]);",
+      "const go = Number(process.argv[3]);",
+      "while (Date.now() < go) {}",
+      "const r = S.loadOrCreateSalt({ dir: process.argv[2] });",
+      "process.stdout.write(JSON.stringify({ salt: r.salt.toString('hex'), note: r.note || null }));"
+    ].join(" ");
+    const run = (go) =>
+      new Promise((resolve, reject) => {
+        const p = spawn(
+          process.execPath,
+          [
+            "-e",
+            code,
+            nodePath.join(__dirname, "..", "..", "lib", "claude-code-sources.js"),
+            dir,
+            String(go)
+          ],
+          { stdio: ["ignore", "pipe", "inherit"] }
+        );
+        let out = "";
+        p.stdout.on("data", (d) => (out += d));
+        p.on("error", reject);
+        p.on("close", () => resolve(JSON.parse(out)));
+      });
+    try {
+      const file = nodePath.join(dir, "label-salt.bin");
+      for (let round = 0; round < 6; round++) {
+        nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
+        if (round % 2 === 1) {
+          // a lock left by a process that died: all six try to break it at once
+          const lockFile = file + ".lock";
+          nodeFs.writeFileSync(lockFile, "dead-process");
+          const long = new Date(Date.now() - 60000);
+          nodeFs.utimesSync(lockFile, long, long);
+        }
+        const go = Date.now() + 1500;
+        const results = await Promise.all([1, 2, 3, 4, 5, 6].map(() => run(go)));
+        const disk = nodeFs.readFileSync(file).toString("hex");
+        assert.equal(disk.length, 32, "round " + round + ": a valid salt is on disk");
+        for (const r of results) {
+          assert.equal(
+            r.salt,
+            disk,
+            "round " + round + ": every process uses the salt on disk " + JSON.stringify(r)
+          );
+          assert.equal(r.note, null, "round " + round + ": and none reports instability");
+        }
+        assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"], "no lock or temp left");
+      }
+    } finally {
+      nodeFs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+);
 
 test("wsl.exe runs by its System32 path, read at call time; other argument lists still fail", async () => {
   const calls = [];

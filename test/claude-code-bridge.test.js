@@ -777,6 +777,63 @@ async function testRouteFailureAnswers500() {
   }
 }
 
+/** The drift sample is Cursor transcript text: Claude Code status must not carry it. */
+async function testStatusHidesDriftSample() {
+  const S = "66666666-7777-4888-8999-aaaaaaaaaaaa";
+  const dir = path.join(CURSOR_ROOT, "cur-a", "agent-transcripts", S);
+  const SAMPLE = "drift-sample-not-json";
+  try {
+    await withBridge({ claudeCode: claudeBag() }, async (port) => {
+      assert.strictEqual((await post(port, "/api/select", { id: "cur-a" })).status, 200);
+      await sleep(POLL_WAIT_MS); // warm-up done: lines that arrive now count as drift
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, S + ".jsonl"), SAMPLE + " {" + String.fromCharCode(10));
+      const cursorStatus = await waitUntil(
+        async () => {
+          const j = (await get(port, "/api/status")).json;
+          return j.drift.lastSample ? j : null;
+        },
+        10000,
+        "a drift sample in Cursor mode"
+      );
+      assert.ok(cursorStatus.drift.lastSample.includes(SAMPLE), "Cursor status shows its sample");
+      // the Claude Code status body, called directly while the sample is still set
+      const { claudeStatusPayload } = require("../live-bridge.js");
+      const stub = {
+        selection: () => ({ id: null, label: null }),
+        statusBody: async () => ({ source: "claude-code", notes: [] })
+      };
+      const direct = await claudeStatusPayload(stub);
+      assert.ok(direct.drift.unparsed >= 1, "the drift counters are non-zero here");
+      assert.strictEqual(direct.drift.lastSample, "");
+      assert.ok(!JSON.stringify(direct).includes(SAMPLE));
+      assert.strictEqual((await post(port, "/api/source", { source: "claude-code" })).status, 200);
+      const cc = await get(port, "/api/status", true);
+      assert.strictEqual(cc.json.source, "claude-code");
+      assert.strictEqual(cc.json.drift.lastSample, "");
+      assert.ok(!JSON.stringify(cc.json).includes(SAMPLE));
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** A second switch to Claude Code is a refresh: it drops the cached discovery. */
+async function testRepeatedSwitchRediscovers() {
+  const counted = countingFs(false);
+  await withBridge({ claudeCode: claudeBag({ fs: counted.fs, ttlMs: 600000 }) }, async (port) => {
+    assert.strictEqual((await post(port, "/api/source", { source: "claude-code" })).status, 200);
+    assert.strictEqual((await get(port, "/api/projects", true)).status, 200);
+    const afterFirst = counted.counter.calls;
+    assert.ok(afterFirst > 0, "the first request discovers");
+    await get(port, "/api/projects", true);
+    assert.strictEqual(counted.counter.calls, afterFirst, "within the ttl the result is reused");
+    assert.strictEqual((await post(port, "/api/source", { source: "claude-code" })).status, 200);
+    assert.strictEqual((await get(port, "/api/projects", true)).status, 200);
+    assert.ok(counted.counter.calls > afterFirst, "the second switch triggered a fresh discovery");
+  });
+}
+
 async function main() {
   buildTrees();
   try {
@@ -790,6 +847,8 @@ async function main() {
     await testSelectRaceKeepsSelection();
     await testStopDuringDiscovery();
     await testRouteFailureAnswers500();
+    await testStatusHidesDriftSample();
+    await testRepeatedSwitchRediscovers();
     // every Claude Code body and stream chunk, checked together
     assert.ok(seen.length >= 10, "expected many recorded bodies, got " + seen.length);
     for (const { label, text } of seen) {
