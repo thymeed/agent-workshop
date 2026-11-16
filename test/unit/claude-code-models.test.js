@@ -199,3 +199,30 @@ test("an unknown alias stays unset and shows model not set", () => {
   assert.equal(RP.setModels({ worker: id }), true, "empty string clears a slot");
   assert.deepEqual([...RP.priceRow("worker")], ["", "model not set"]);
 });
+
+test("Bedrock foundation-model ARN: the empty account field is the one allowed empty segment", () => {
+  const arn =
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0";
+  assert.equal(resolveModelAlias(arn), arn);
+  assert.equal(resolveModelAlias(arn + "[1m]"), arn);
+  assert.equal(resolveModelAlias("inherit", arn), arn);
+  const profile =
+    "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-5-v1:0";
+  assert.equal(resolveModelAlias(profile), profile);
+});
+
+test("Bedrock ARN exception does not open the door to empty or dot segments", () => {
+  const bad = [
+    "arn:x::../",
+    "arn:aws:bedrock:us-east-1::foundation-model/../x",
+    "arn:aws:bedrock:us-east-1::foundation-model/./x",
+    "arn:aws:bedrock:us-east-1::foundation-model//x",
+    "arn:aws:bedrock:us-east-1:::foundation-model/claude-x",
+    "claude::x",
+    "arn:aws:bedrock::us-east-1::foundation-model/claude-x",
+    "arn:aws:bedrock:us-east-1::inference-profile/claude-x",
+    "arn:aws:bedrock:us-east-1::foundation-model/",
+    "arn:aws:bedrock:us-east-1::foundation-model/claude-x::y"
+  ];
+  for (const id of bad) assert.equal(resolveModelAlias(id), "", id);
+});

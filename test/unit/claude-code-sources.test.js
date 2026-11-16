@@ -36,6 +36,7 @@ function makeFs(entries = {}) {
   const calls = [];
   const reads = [];
   const stats = { inflight: 0, max: 0 };
+  const handles = { opened: 0, closed: 0 };
   const put = (p, node) => {
     const n = norm(p);
     const parts = n.split("/");
@@ -60,6 +61,7 @@ function makeFs(entries = {}) {
     calls,
     reads,
     stats,
+    handles,
     put,
     dir: (p) => put(p, { dir: true }),
     file: (p, text = "{}", mtimeMs = T1) => put(p, { file: true, text, mtimeMs }),
@@ -97,6 +99,7 @@ function makeFs(entries = {}) {
       return track("open", p, () => {
         const node = nodes.get(norm(p));
         if (!node || !node.file) throw enoent(p);
+        handles.opened++;
         return {
           read: (buf, off, len) =>
             track("read", p, () => {
@@ -104,7 +107,10 @@ function makeFs(entries = {}) {
               const b = Buffer.from(node.text, "utf8");
               return { bytesRead: b.copy(buf, off, 0, Math.min(len, b.length)), buffer: buf };
             }),
-          close: () => track("close", p, () => {})
+          close: () =>
+            track("close", p, () => {
+              handles.closed++;
+            })
         };
       });
     },
@@ -1625,4 +1631,202 @@ test("home folders written drive-relative, or with trailing dots or spaces, stil
   assert.equal(label("n1"), "proj-demo", "a folder under a home keeps its name");
   assert.equal(label("n2"), "proj2-demo");
   assert.equal(label("n3"), "app3-demo", "Userspace is not Users");
+});
+
+// ---- rework round 1 ----
+
+const WSL_PROJECTS = wslRoot("distro-a") + BS + "user" + BS + ".claude" + BS + "projects";
+const wslRunner = () => makeRunner({ [LIST]: ok("distro-a"), [RUNNING]: ok("distro-a") });
+
+test("timeout: with only the cwd open held, a late completion cannot change the returned result", async () => {
+  const fs = makeFs();
+  addProject(fs, WIN_ROOT, "p", "/s/win-demo");
+  addProject(fs, WSL_PROJECTS, "q", "/s/wsl-demo");
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  // the home and projects listings and every lstat finish; only the cwd open waits
+  fs.hold = (kind, p) => (kind === "open" && /wsl/.test(p) ? gate : undefined);
+  const r = await discover({ fs, runWsl: wslRunner(), timeoutMs: 30 });
+  assert.ok(r.notes.some((n) => n.code === "discovery-timeout"));
+  const before = JSON.stringify(r);
+  assert.ok(!before.includes("wsl-demo"));
+  assert.ok(before.includes("win-demo"));
+  assert.equal(fs.handles.opened, 1, "only the Windows cwd was opened so far");
+  release();
+  for (let i = 0; i < 30; i++) await later();
+  assert.equal(fs.handles.opened, 2, "the late open really completed");
+  assert.equal(JSON.stringify(r), before, "the returned object did not change");
+  assert.ok(!r.projects.some((p) => p.sourceTag === "wsl:distro-a"));
+});
+
+test("makeDiscoverer: invalidate drops a scan that is still running", async () => {
+  const mk = () => {
+    const fs = makeFs();
+    addProject(fs, WIN_ROOT, "p", "/s/win-demo");
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    fs.hold = (kind) => (kind === "readdir" ? gate : undefined);
+    const base = { platform: "win32", homedir: WIN_HOME, now: () => NOW, salt: SALT, fs };
+    base.runWsl = noWsl();
+    return { fs, release, d: S.makeDiscoverer(base, { ttlMs: 60000, now: () => 1 }) };
+  };
+  // a call after invalidate() starts its own scan while the first is still held
+  const a = mk();
+  const p1 = a.d.discover();
+  a.d.invalidate();
+  const p2 = a.d.discover();
+  await later();
+  assert.notEqual(p1, p2, "the dropped scan is not handed out again");
+  assert.equal(readdirCount(a.fs, WIN_ROOT), 2, "two scans, both still waiting");
+  a.release();
+  await Promise.all([p1, p2]);
+  // the dropped scan's result is not cached
+  const b = mk();
+  const q1 = b.d.discover();
+  b.d.invalidate();
+  b.release();
+  await q1;
+  await b.d.discover();
+  assert.equal(readdirCount(b.fs, WIN_ROOT), 2, "the dropped result was not reused");
+});
+
+test("WSL: a cut listing inside one home adds the distro's truncated note", async () => {
+  const name = (i) => "f" + String(i).padStart(4, "0");
+  // the projects folder of the home holds 2001 entries
+  const fs = makeFs();
+  for (let i = 0; i <= 2000; i++) fs.file(WSL_PROJECTS + BS + name(i));
+  const r = await discover({ fs, runWsl: wslRunner() });
+  assert.ok(r.notes.some((n) => n.text === "distro-a: list truncated" && n.distro === "distro-a"));
+  // one project folder with 2001 transcripts
+  const fs2 = makeFs();
+  for (let i = 0; i <= 2000; i++) fs2.file(WSL_PROJECTS + BS + "big" + BS + name(i) + ".jsonl");
+  const r2 = await discover({ fs: fs2, runWsl: wslRunner() });
+  assert.ok(r2.notes.some((n) => n.text === "distro-a: list truncated"));
+  assert.equal(r2.projects.filter((p) => p.sourceTag === "wsl:distro-a").length, 1);
+  // exactly 2000: no note
+  const fs3 = makeFs();
+  for (let i = 0; i < 2000; i++) fs3.file(WSL_PROJECTS + BS + "big" + BS + name(i) + ".jsonl");
+  const r3 = await discover({ fs: fs3, runWsl: wslRunner() });
+  assert.ok(!r3.notes.some((n) => /truncated/.test(n.text)));
+});
+
+test("every opened file handle is closed: normal run, a failing read, a late open", async () => {
+  const fs = makeFs();
+  for (let i = 0; i < 6; i++) addProject(fs, WIN_ROOT, "p" + i, "/s/p" + i);
+  await discover({ fs, runWsl: noWsl() });
+  assert.equal(fs.handles.opened, 6);
+  assert.equal(fs.handles.closed, 6);
+  // read throws EIO
+  const fs2 = makeFs();
+  for (let i = 0; i < 3; i++) addProject(fs2, WIN_ROOT, "p" + i, "/s/p" + i);
+  fs2.hold = (kind) => {
+    if (kind === "read") throw Object.assign(new Error("EIO"), { code: "EIO" });
+    return undefined;
+  };
+  const r2 = await discover({ fs: fs2, runWsl: noWsl() });
+  assert.equal(r2.projects.length, 3, "projects are listed with hash labels");
+  assert.equal(fs2.handles.opened, 3);
+  assert.equal(fs2.handles.closed, 3);
+  // open resolves after the deadline
+  const fs3 = makeFs();
+  addProject(fs3, WIN_ROOT, "p", "/s/win-demo");
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  fs3.hold = (kind) => (kind === "open" ? gate : undefined);
+  const r3 = await discover({ fs: fs3, runWsl: noWsl(), timeoutMs: 30 });
+  assert.ok(r3.notes.some((n) => n.code === "discovery-timeout"));
+  assert.equal(fs3.handles.opened, 0);
+  release();
+  for (let i = 0; i < 30; i++) await later();
+  assert.equal(fs3.handles.opened, 1);
+  assert.equal(fs3.handles.closed, 1, "the late handle was closed");
+});
+
+test("timeoutMs is clamped to the largest timer delay: huge values do not fire at once", async () => {
+  const warnings = [];
+  const onWarning = (w) => warnings.push(w.name);
+  process.on("warning", onWarning);
+  try {
+    for (const timeoutMs of [Infinity, 3e9, 2 ** 31, 2147483647, 2147483648]) {
+      const fs = makeFs();
+      addProject(fs, WIN_ROOT, "p", "/s/win-demo");
+      fs.hold = (kind) =>
+        kind === "readdir" ? new Promise((resolve) => setTimeout(resolve, 15)) : undefined;
+      const t0 = Date.now();
+      const r = await discover({ fs, runWsl: noWsl(), timeoutMs });
+      const tag = "timeoutMs " + timeoutMs;
+      assert.ok(!r.notes.some((n) => n.code === "discovery-timeout"), tag);
+      assert.deepEqual(
+        r.projects.map((p) => p.label),
+        ["win-demo"],
+        tag
+      );
+      assert.ok(Date.now() - t0 < 2000, tag);
+      assert.equal(process.getActiveResourcesInfo().filter((x) => x === "Timeout").length, 0, tag);
+    }
+    for (let i = 0; i < 10; i++) await later();
+    assert.deepEqual(warnings, [], "no TimeoutOverflowWarning");
+  } finally {
+    process.off("warning", onWarning);
+  }
+});
+
+test("timeoutMs: zero, negative and NaN fall back to the default, not to an instant timeout", async () => {
+  for (const timeoutMs of [0, -5, NaN, "x"]) {
+    const fs = makeFs();
+    addProject(fs, WIN_ROOT, "p", "/s/win-demo");
+    fs.hold = (kind) =>
+      kind === "readdir" ? new Promise((resolve) => setTimeout(resolve, 15)) : undefined;
+    const r = await discover({ fs, runWsl: noWsl(), timeoutMs });
+    assert.equal(r.projects.length, 1, "timeoutMs " + timeoutMs);
+    assert.ok(!r.notes.some((n) => n.code === "discovery-timeout"));
+  }
+});
+
+test("project folder cap counts only .jsonl names; session sub-folders never count", async () => {
+  const name = (i) => "f" + String(i).padStart(4, "0");
+  const stats = (fs) => fs.calls.filter(([k]) => k === "lstat").map(([, p]) => p);
+  const big = WIN_ROOT + BS + "big";
+  // (a) 2001 .jsonl names plus 3000 folders: cut to 2000 .jsonl, note, the 2001st never stat'ed
+  const fsA = makeFs();
+  for (let i = 0; i <= 2000; i++) fsA.file(big + BS + name(i) + ".jsonl");
+  for (let i = 0; i < 3000; i++) fsA.dir(big + BS + "d" + name(i));
+  const rA = await discover({ fs: fsA, runWsl: noWsl() });
+  const stA = stats(fsA);
+  assert.equal(stA.filter((p) => p.endsWith(".jsonl")).length, 2000);
+  assert.ok(!stA.includes(big + BS + name(2000) + ".jsonl"), "the 2001st name was never stat'ed");
+  assert.equal(stA.filter((p) => p.startsWith(big + BS + "d")).length, 0, "folders never stat'ed");
+  assert.ok(rA.notes.some((n) => n.text === "Windows: list truncated"));
+  assert.equal(rA.projects.length, 1);
+  // (b) exactly 2000 .jsonl plus 3000 folders: nothing cut, no note
+  const fsB = makeFs();
+  for (let i = 0; i < 2000; i++) fsB.file(big + BS + name(i) + ".jsonl");
+  for (let i = 0; i < 3000; i++) fsB.dir(big + BS + "d" + name(i));
+  const rB = await discover({ fs: fsB, runWsl: noWsl() });
+  assert.equal(stats(fsB).filter((p) => p.endsWith(".jsonl")).length, 2000);
+  assert.ok(!rB.notes.some((n) => /truncated/.test(n.text)), JSON.stringify(rB.notes));
+  // (c) 5 .jsonl plus 3000 folders: no note; the newest .jsonl (last in name order) sets mtime
+  const fsC = makeFs();
+  for (let i = 0; i < 4; i++) fsC.file(big + BS + name(i) + ".jsonl", "{}", T1);
+  fsC.file(big + BS + "zz-new.jsonl", JSON.stringify({ cwd: "/s/new-demo" }) + NL, T2);
+  for (let i = 0; i < 3000; i++) fsC.dir(big + BS + "d" + name(i));
+  const rC = await discover({ fs: fsC, runWsl: noWsl() });
+  assert.ok(!rC.notes.some((n) => /truncated/.test(n.text)), JSON.stringify(rC.notes));
+  assert.equal(stats(fsC).filter((p) => p.endsWith(".jsonl")).length, 5);
+  assert.deepEqual(
+    rC.projects.map((p) => [p.label, p.mtime]),
+    [["new-demo", T2]]
+  );
+  // the same through a WSL home
+  const fsD = makeFs();
+  fsD.file(WSL_PROJECTS + BS + "big" + BS + "a.jsonl", "{}", T1);
+  for (let i = 0; i < 3000; i++) fsD.dir(WSL_PROJECTS + BS + "big" + BS + "d" + name(i));
+  const rD = await discover({ fs: fsD, runWsl: wslRunner() });
+  assert.ok(!rD.notes.some((n) => /truncated/.test(n.text)), JSON.stringify(rD.notes));
 });
