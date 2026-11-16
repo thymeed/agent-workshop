@@ -1269,7 +1269,9 @@ test("loadOrCreateSalt: the temp file is flushed before it is published, on both
     nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
     const log2 = [];
     S.loadOrCreateSalt({ dir, fs: spyFs(log2) });
-    assert.deepEqual(kinds(log2), ["open", "fsync", "close", "publish"]);
+    // the lock file is opened and closed first, then the temp file is flushed before publishing
+    assert.deepEqual(kinds(log2), ["open", "close", "open", "fsync", "close", "publish"]);
+    assert.equal(log2[2][1], log2[3][1], "the flushed descriptor is the temp file's");
     // no hard links on this disk: falls back to a rename and still returns what is on disk
     nodeFs.rmSync(file);
     const noLink = {
@@ -1296,6 +1298,144 @@ test("loadOrCreateSalt: the temp file is flushed before it is published, on both
     const d = S.loadOrCreateSalt({ dir, fs: odd });
     assert.equal(d.salt.length, 16);
     assert.equal(d.note.code, "labels-unstable");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadOrCreateSalt: a corrupt file is replaced only under the lock", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const dir = saltScratch("salt-lock-");
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    const lock = file + ".lock";
+    const corrupt = () => nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
+    const clock = (start) => {
+      let t = start;
+      return { now: () => t, sleep: (ms) => (t += ms) };
+    };
+    const names = () => nodeFs.readdirSync(dir).sort();
+
+    // a fresh lock held by someone else: we wait, give up, and replace nothing
+    corrupt();
+    nodeFs.writeFileSync(lock, "");
+    const c1 = clock(Date.now());
+    const r1 = S.loadOrCreateSalt({ dir, fs: nodeFs, ...c1, lockWaitMs: 200 });
+    assert.equal(r1.salt.length, 16);
+    assert.equal(r1.note.code, "labels-unstable");
+    assert.deepEqual(nodeFs.readFileSync(file), Buffer.alloc(3, 1), "the file was not replaced");
+    assert.ok(nodeFs.existsSync(lock), "someone else's fresh lock is left alone");
+
+    // a lock left by a crashed process (old mtime) is removed after the stale timeout
+    const old = new Date(Date.now() - 60000);
+    nodeFs.utimesSync(lock, old, old);
+    const r2 = S.loadOrCreateSalt({ dir, fs: nodeFs });
+    assert.equal(r2.note, undefined);
+    assert.deepEqual(r2.salt, nodeFs.readFileSync(file));
+    assert.deepEqual(names(), ["label-salt.bin"], "no lock or temp file left");
+
+    // the holder fixes the file while we wait: we use its salt and write nothing
+    corrupt();
+    nodeFs.writeFileSync(lock, "");
+    const fixed = Buffer.alloc(16, 7);
+    let slept = 0;
+    const writes = [];
+    const watching = {
+      ...nodeFs,
+      renameSync: (...a) => (writes.push("rename"), nodeFs.renameSync(...a)),
+      linkSync: (...a) => (writes.push("link"), nodeFs.linkSync(...a))
+    };
+    const r3 = S.loadOrCreateSalt({
+      dir,
+      fs: watching,
+      now: Date.now,
+      sleep: () => {
+        slept += 1;
+        nodeFs.writeFileSync(file, fixed);
+        nodeFs.rmSync(lock);
+      }
+    });
+    assert.equal(slept, 1);
+    assert.deepEqual(r3.salt, fixed);
+    assert.equal(r3.note, undefined);
+    assert.deepEqual(writes, [], "nothing was published");
+    assert.deepEqual(nodeFs.readFileSync(file), fixed);
+
+    // the lock is released when the replace fails too
+    corrupt();
+    const renameBoom = {
+      ...nodeFs,
+      renameSync: () => {
+        throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+      }
+    };
+    const r4 = S.loadOrCreateSalt({ dir, fs: renameBoom });
+    assert.equal(r4.note.code, "labels-unstable");
+    assert.deepEqual(names(), ["label-salt.bin"], "lock and temp file are gone after a failure");
+
+    // a folder where the lock cannot be created: no replace, a note
+    corrupt();
+    const noLock = {
+      ...nodeFs,
+      openSync: (p, ...a) => {
+        if (String(p).endsWith(".lock"))
+          throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+        return nodeFs.openSync(p, ...a);
+      }
+    };
+    const r5 = S.loadOrCreateSalt({ dir, fs: noLock });
+    assert.equal(r5.note.code, "labels-unstable");
+    assert.deepEqual(nodeFs.readFileSync(file), Buffer.alloc(3, 1));
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadOrCreateSalt: six real processes on a corrupt file all end on the same salt", async () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const { spawn } = require("child_process");
+  const dir = saltScratch("salt-procs-");
+  const code = [
+    "const S = require(process.argv[1]);",
+    "const go = Number(process.argv[3]);",
+    "while (Date.now() < go) {}",
+    "const r = S.loadOrCreateSalt({ dir: process.argv[2] });",
+    "process.stdout.write(JSON.stringify({ salt: r.salt.toString('hex'), note: r.note || null }));"
+  ].join(" ");
+  const run = (go) =>
+    new Promise((resolve, reject) => {
+      const p = spawn(
+        process.execPath,
+        [
+          "-e",
+          code,
+          nodePath.join(__dirname, "..", "..", "lib", "claude-code-sources.js"),
+          dir,
+          String(go)
+        ],
+        { stdio: ["ignore", "pipe", "inherit"] }
+      );
+      let out = "";
+      p.stdout.on("data", (d) => (out += d));
+      p.on("error", reject);
+      p.on("close", () => resolve(JSON.parse(out)));
+    });
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    for (let round = 0; round < 5; round++) {
+      nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
+      const go = Date.now() + 1500;
+      const results = await Promise.all([1, 2, 3, 4, 5, 6].map(() => run(go)));
+      const disk = nodeFs.readFileSync(file).toString("hex");
+      assert.equal(disk.length, 32, "round " + round + ": a valid salt is on disk");
+      for (const r of results) {
+        assert.equal(r.salt, disk, "round " + round + ": every process uses the salt on disk");
+        assert.equal(r.note, null, "round " + round + ": and none reports instability");
+      }
+      assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"], "no lock or temp left");
+    }
   } finally {
     nodeFs.rmSync(dir, { recursive: true, force: true });
   }
