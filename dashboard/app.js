@@ -277,8 +277,21 @@
     researcher: { x: 720, y: 360 }
   };
   var PORTAL_PT = { x: 500, y: 445 };
-  /* Live table from role-profiles.js (refilled in place by RoleProfiles.apply). */
-  var ROLE_LABEL = window.RoleProfiles.tables().labels;
+  /* Read-only view of the current role labels. Each slot is a getter that asks
+     RoleProfiles for the label now, so a holder of this object (demo-playbook, activity)
+     follows apply() and no copy goes stale. Writes are ignored (or throw in strict code). */
+  var ROLE_LABEL = (function () {
+    var view = {};
+    ["opus", "advisor", "worker", "explorer", "researcher"].forEach(function (slot) {
+      Object.defineProperty(view, slot, {
+        enumerable: true,
+        get: function () {
+          return window.RoleProfiles.label(slot);
+        }
+      });
+    });
+    return Object.freeze(view);
+  })();
 
   var stageDirector = (function () {
     var cratesLayer = document.getElementById("cratesLayer");
@@ -1899,6 +1912,7 @@
   /* Introspection hooks. Defined on every origin, including file:// Demo, so the
      smoke and unit suites can drive the stage without a bridge. Read-only. */
   globalThis.__cursorAgentsDashTest = {
+    ROLE_LABEL: ROLE_LABEL,
     applyLiveEvent: applyLiveEvent,
     jumpToAgent: jumpToAgent,
     getLivePresence: function () {

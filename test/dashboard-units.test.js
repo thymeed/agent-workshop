@@ -207,12 +207,45 @@ async function main() {
           const priceEmpty = (RP.apply("claude-code"), snap().prices);
           const modelsOk = RP.setModels({
             opus: "claude-opus-4-5",
-            advisor: "fable",
+            advisor: "claude-fable-5-2",
             worker: "claude-sonnet-4-5",
             explorer: "claude-haiku-4-5",
             researcher: "octopus-1"
           });
           const priceFilled = snap().prices;
+          const priceShape = SLOTS.map((r) => {
+            const el = document.querySelector("#card-" + r + " .price");
+            return {
+              nodes: Array.from(el.childNodes).map((n) => n.nodeType),
+              kids: Array.from(el.children).map((c) => c.tagName),
+              strongKids: el.children[0] ? el.children[0].children.length : -1,
+              text: el.textContent
+            };
+          });
+          const priceTipHaiku = document
+            .querySelector("#card-explorer .price")
+            .getAttribute("data-tip-detail");
+          /* Stale-reference check: ROLE_LABEL is grabbed before apply() and read after. */
+          const RL = T.ROLE_LABEL;
+          RP.apply("cursor");
+          const staleBefore = RL.opus;
+          RP.apply("claude-code");
+          const staleAfter = SLOTS.map((r) => RL[r]);
+          RL.opus = "x";
+          let strictThrew = false;
+          try {
+            new Function("o", "'use strict'; o.opus = 'x';")(RL);
+          } catch (e) {
+            strictThrew = e instanceof TypeError;
+          }
+          const staleAfterWrite = RL.opus;
+          const hudLabel = (() => {
+            return document.querySelector("#char-opus .char-label").textContent;
+          })();
+          const rlFrozen = Object.isFrozen(RL);
+          RP.apply("cursor");
+          const staleRestored = RL.opus;
+          RP.apply("claude-code");
           const priceTip = document
             .querySelector("#card-opus .price")
             .getAttribute("data-tip-detail");
@@ -228,6 +261,17 @@ async function main() {
             priceEmpty,
             modelsOk,
             priceFilled,
+            priceShape,
+            priceTipHaiku,
+            stale: {
+              staleBefore,
+              staleAfter,
+              strictThrew,
+              staleAfterWrite,
+              hudLabel,
+              rlFrozen,
+              staleRestored
+            },
             priceTip,
             priceBack,
             refused: RP.apply("nope"),
@@ -306,12 +350,41 @@ async function main() {
     );
     assert.ok(rp.modelsOk);
     assert.deepStrictEqual(rp.priceFilled, [
-      "$4.00 / $20.00 <strong>list price per 1M in/out</strong>",
-      "$10.00 / $50.00 <strong>list price per 1M in/out</strong>",
-      "$2.00 / $10.00 <strong>list price per 1M in/out</strong>",
-      "$0.10 / $0.50 <strong>list price per 1M in/out</strong>",
+      "list price (Opus 5.5): <strong>$4 / $20</strong>",
+      "list price (Fable 5.2): <strong>$8 / $40</strong>",
+      "list price (Sonnet 5.5): <strong>$2 / $10</strong>",
+      "list price (Haiku 5.5): <strong>$0.10 / $0.50</strong>",
       "no list price <strong>list price</strong>"
     ]);
+    assert.deepStrictEqual(
+      data.roleProfiles.priceShape.map((p) => [p.nodes, p.kids, p.strongKids]),
+      Array(5).fill([[3, 1], ["STRONG"], 0]),
+      "each price row is one text node plus one strong holding text only"
+    );
+    assert.deepStrictEqual(
+      data.roleProfiles.priceShape.map((p) => p.text),
+      [
+        "list price (Opus 5.5): $4 / $20",
+        "list price (Fable 5.2): $8 / $40",
+        "list price (Sonnet 5.5): $2 / $10",
+        "list price (Haiku 5.5): $0.10 / $0.50",
+        "no list price list price"
+      ]
+    );
+    assert.ok(data.roleProfiles.priceTipHaiku.includes("List price of Haiku 5.5,"));
+    assert.ok(data.roleProfiles.priceTipHaiku.includes("$0.50 / $2.50 over 100k"));
+    const st = data.roleProfiles.stale;
+    assert.strictEqual(st.staleBefore, "Opus", "ROLE_LABEL read under cursor");
+    assert.deepStrictEqual(
+      st.staleAfter,
+      ["Lead", "Planner", "Worker", "Researcher", "Reviewer"],
+      "a ROLE_LABEL reference taken before apply() sees the claude-code labels"
+    );
+    assert.ok(st.strictThrew, "a strict write to ROLE_LABEL throws");
+    assert.strictEqual(st.staleAfterWrite, "Lead", "a write to ROLE_LABEL changes nothing");
+    assert.strictEqual(st.hudLabel, "Lead", "the stage label is unaffected by the write");
+    assert.ok(st.rlFrozen, "ROLE_LABEL is frozen");
+    assert.strictEqual(st.staleRestored, "Opus", "apply(cursor) restores ROLE_LABEL");
     assert.match(rp.priceTip, /List price/, "price tip says list price under claude-code");
     assert.deepStrictEqual(
       rp.priceBack,

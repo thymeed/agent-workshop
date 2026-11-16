@@ -7,13 +7,28 @@
  * only through apply() from the devtools console for now (no source switch yet).
  * Loaded after cards.js and before app.js; exposes window.RoleProfiles.
  *
- * tables() returns live objects that apply() refills in place, so holders of a
- * reference (app.js ROLE_LABEL, activity and demo wiring) see the new names.
+ * get(), current() and tables() hand out deeply frozen copies, never the live profile
+ * objects, so nothing on the page can edit a profile by accident. A copy is a snapshot:
+ * code that must follow apply() reads through label(slot) (app.js ROLE_LABEL does) or
+ * calls tables() again per use (cards.js does). Never keep a tables() result.
  */
 (function () {
   "use strict";
 
   var SLOT_KEYS = ["opus", "advisor", "worker", "explorer", "researcher"];
+
+  function deepFreeze(obj) {
+    Object.keys(obj).forEach(function (key) {
+      var v = obj[key];
+      if (v && typeof v === "object" && !Object.isFrozen(v)) deepFreeze(v);
+    });
+    return Object.freeze(obj);
+  }
+
+  // JSON clone: PROFILES must hold plain values only. A function, RegExp or undefined would be dropped silently.
+  function clone(obj) {
+    return JSON.parse(JSON.stringify(obj));
+  }
 
   var PROFILES = {
     cursor: {
@@ -163,16 +178,8 @@
         explorer: "Researcher",
         researcher: "Reviewer"
       },
-      /* No fixed model names: a Claude Code slot does not pin one model. Empty until
-         setModels() fills a slot from data (agent file or session). The price rows and
-         the model text read this table. */
-      models: {
-        opus: "",
-        advisor: "",
-        worker: "",
-        explorer: "",
-        researcher: ""
-      },
+      /* No models table here: a Claude Code slot does not pin one model. The table is
+         the private ccModels below, filled by setModels() and merged into the snapshot. */
       cardTips: {
         opus: {
           name: "Lead",
@@ -302,40 +309,65 @@
     }
   };
 
-  /* Live tables. apply() refills these in place; nothing else replaces them. */
-  var live = {
-    labels: {},
-    models: {},
-    cardTips: {},
-    chipTips: [],
-    hintRoles: []
+  deepFreeze(PROFILES);
+
+  /* The claude-code models table. Private and mutable; only setModels() writes it. */
+  var ccModels = {
+    opus: "",
+    advisor: "",
+    worker: "",
+    explorer: "",
+    researcher: ""
   };
 
   var activeId = "cursor";
 
-  function fillTables(p) {
-    refill(live.labels, p.labels);
-    refill(live.models, p.models);
-    refill(live.cardTips, p.cardTips);
-    refill(live.chipTips, p.chipTips);
-    refill(live.hintRoles, p.hintRoles);
-  }
+  /* Frozen snapshots per source, rebuilt after setModels(). */
+  var snapshots = {};
+  var tableSets = {};
 
   function has(source) {
     return Object.prototype.hasOwnProperty.call(PROFILES, source);
   }
 
-  function refill(target, src) {
-    if (Array.isArray(target)) {
-      target.length = 0;
-    } else {
-      Object.keys(target).forEach(function (key) {
-        delete target[key];
+  function snapshotFor(source) {
+    if (snapshots[source]) return snapshots[source];
+    var copy = clone(PROFILES[source]);
+    if (source === "claude-code") {
+      copy.models = clone(ccModels);
+      SLOT_KEYS.forEach(function (slot) {
+        var info = listPriceInfo(copy.models[slot]);
+        if (!info) return;
+        var e = info.entry;
+        var over = e.over
+          ? ", " +
+            e.over.when +
+            "; " +
+            money(e.over.in) +
+            " / " +
+            money(e.over.out) +
+            " " +
+            e.over.label
+          : "";
+        copy.cardTips[slot].priceDetail =
+          "List price of " + e.model + ", $ per 1M tokens in/out" + over + " · not a bill";
       });
     }
-    Object.keys(src).forEach(function (key) {
-      target[key] = src[key];
+    snapshots[source] = deepFreeze(copy);
+    return snapshots[source];
+  }
+
+  function tablesFor(source) {
+    if (tableSets[source]) return tableSets[source];
+    var p = snapshotFor(source);
+    tableSets[source] = Object.freeze({
+      labels: p.labels,
+      models: p.models,
+      cardTips: p.cardTips,
+      chipTips: p.chipTips,
+      hintRoles: p.hintRoles
     });
+    return tableSets[source];
   }
 
   function setText(el, text) {
@@ -352,37 +384,59 @@
   var MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$/;
   var FAMILIES = ["opus", "fable", "sonnet", "haiku"];
 
-  /**
-   * List price text for a model id, from the read-only rate table in bill-math.js
-   * (WorkshopBillMath.RATES + formatMoney). Not normalizeModel(): that guesses Opus for
-   * anything unknown, and this row must not guess. Returns "" when no list price exists.
+  /*
+   * Current list price of each family's newest model, $ per 1M tokens in/out. A row names
+   * this model, so it is never read as the price of the id's own version. Separate from
+   * bill-math.js on purpose: the Bill keeps its own rates.
    */
-  function listPriceFor(model) {
-    var math = window.WorkshopBillMath;
+  // Source: https://docs.anthropic.com/en/docs/about-claude/pricing, checked 2026-11-15
+  var LIST_PRICES = deepFreeze({
+    opus: { model: "Opus 5.5", in: 4, out: 20 },
+    fable: { model: "Fable 5.2", in: 8, out: 40 },
+    sonnet: { model: "Sonnet 5.5", in: 2, out: 10 },
+    haiku: {
+      model: "Haiku 5.5",
+      in: 0.1,
+      out: 0.5,
+      over: { when: "for prompts up to 100k tokens", in: 0.5, out: 2.5, label: "over 100k" }
+    }
+  });
+
+  /** Whole dollars without cents ($4), anything else with two decimals ($0.10). */
+  function money(n) {
+    return "$" + (Number.isInteger(n) ? String(n) : n.toFixed(2));
+  }
+
+  /**
+   * { family, entry } for a model id, or null. Not normalizeModel() from bill-math.js:
+   * that guesses Opus for anything unknown, and this row must not guess. Whole tokens
+   * only ("octopus" is not opus), exactly one family, and a "claude" or "anthropic" token
+   * must also be present, so a bare "opus" or a non-Claude id gets no price.
+   */
+  function listPriceInfo(model) {
     var tokens = String(model || "")
       .toLowerCase()
       .split(new RegExp("[^a-z]+"));
-    if (!math || !math.RATES) return "";
-    /* Whole tokens only ("octopus" is not opus), and exactly one family may appear. */
+    if (tokens.indexOf("claude") < 0 && tokens.indexOf("anthropic") < 0) return null;
     var found = FAMILIES.filter(function (f) {
       return tokens.indexOf(f) >= 0;
     });
-    if (found.length !== 1) return "";
-    var rates = Object.prototype.hasOwnProperty.call(math.RATES, found[0])
-      ? math.RATES[found[0]]
-      : null;
-    if (!rates) return "";
-    return math.formatMoney(rates.in) + " / " + math.formatMoney(rates.out);
+    if (found.length !== 1) return null;
+    return { family: found[0], entry: LIST_PRICES[found[0]] };
   }
 
-  /** Price row for a slot under a profile: [amount text, label]. */
+  /**
+   * Price row for a slot under a snapshot: [text, strong text]. Cursor: fixed HTML strings.
+   * Claude Code: ["list price (Opus 5.5):", "$4 / $20"], or a status text plus "list price".
+   */
   function priceRowFor(p, slot) {
-    if (p.prices) return p.prices[slot];
+    if (p.prices) return p.prices[slot].slice();
     var model = p.models[slot];
     if (!model) return ["model not set", "list price"];
-    var price = listPriceFor(model);
-    if (!price) return ["no list price", "list price"];
-    return [price, "list price per 1M in/out"];
+    var info = listPriceInfo(model);
+    if (!info) return ["no list price", "list price"];
+    var e = info.entry;
+    return ["list price (" + e.model + "):", money(e.in) + " / " + money(e.out)];
   }
 
   function updatePrices(p) {
@@ -436,22 +490,27 @@
   var RoleProfiles = {
     /** Profile object for a source id, or null when unknown. */
     get: function (source) {
-      return has(source) ? PROFILES[source] : null;
+      return has(source) ? snapshotFor(source) : null;
     },
 
     /** Profile object for the active source. */
     current: function () {
-      return PROFILES[activeId];
+      return snapshotFor(activeId);
     },
 
-    /** Live tables read by cards.js and app.js. Same object every call. */
+    /** Frozen tables of the active profile. A snapshot: call again after apply(). */
     tables: function () {
-      return live;
+      return tablesFor(activeId);
     },
 
-    /** Price row [amount text, label] a slot shows under the active profile. */
+    /** Current label of a slot, or undefined for a non-slot. Follows apply(). */
+    label: function (slot) {
+      return SLOT_KEYS.indexOf(slot) >= 0 ? snapshotFor(activeId).labels[slot] : undefined;
+    },
+
+    /** Price row [text, strong text] a slot shows under the active profile. */
     priceRow: function (slot) {
-      return SLOT_KEYS.indexOf(slot) >= 0 ? priceRowFor(PROFILES[activeId], slot) : null;
+      return SLOT_KEYS.indexOf(slot) >= 0 ? priceRowFor(snapshotFor(activeId), slot) : null;
     },
 
     /**
@@ -462,9 +521,9 @@
      * provider-prefixed ids (anthropic/claude-sonnet-4), Vertex ids (claude-opus-4-1@20250805)
      * and Bedrock ARNs pass; spaces, quotes, angle brackets and a leading symbol never do.
      * Slots not listed are kept. This is the only supported way to write the models table:
-     * get("claude-code") hands out the live profile, so writing to it directly skips this check.
+     * get("claude-code") hands out a frozen copy, so the table cannot be written any other way.
      * Under claude-code a slot with no model shows "model not set"; a model with no list
-     * price in bill-math.js (or whose id names no family, or several) shows "no list price".
+     * price (no "claude" or "anthropic" token, no family, or several) shows "no list price".
      * Text goes in through textContent only. Called while Cursor is active, it stores the
      * models in the claude-code profile; they show on the next apply("claude-code") and
      * Cursor stays unchanged.
@@ -477,13 +536,13 @@
         if (SLOT_KEYS.indexOf(keys[i]) < 0) return false;
         if (typeof v !== "string" || (v !== "" && !MODEL_ID_RE.test(v))) return false;
       }
-      var cc = PROFILES["claude-code"];
       keys.forEach(function (k) {
-        cc.models[k] = map[k];
+        ccModels[k] = map[k];
       });
+      snapshots["claude-code"] = null;
+      tableSets["claude-code"] = null;
       if (activeId === "claude-code") {
-        fillTables(cc);
-        updatePrices(cc);
+        updatePrices(snapshotFor("claude-code"));
         if (window.AgentCards && typeof window.AgentCards.refreshRoleTips === "function") {
           window.AgentCards.refreshRoleTips();
         }
@@ -497,9 +556,8 @@
      */
     apply: function (source) {
       if (!has(source)) return false;
-      var p = PROFILES[source];
+      var p = snapshotFor(source);
       activeId = source;
-      fillTables(p);
       updateDom(p);
       if (window.AgentCards && typeof window.AgentCards.refreshRoleTips === "function") {
         window.AgentCards.refreshRoleTips();
@@ -508,6 +566,5 @@
     }
   };
 
-  fillTables(PROFILES.cursor);
   window.RoleProfiles = RoleProfiles;
 })();

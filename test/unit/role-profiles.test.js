@@ -338,18 +338,19 @@ test("claude-code hint mapping agrees with the bridge parser map for all five ro
   RP.apply("cursor");
 });
 
-test("apply switches the live tables in place and keeps the same object", () => {
+test("apply switches what get/tables/label return; earlier copies stay as they were", () => {
   const RP = loadProfiles();
-  const live = RP.tables();
-  const labels = live.labels;
+  const before = RP.tables();
   assert.equal(RP.apply("claude-code"), true);
   assert.equal(RP.current().id, "claude-code");
-  assert.equal(RP.tables(), live, "tables() must return the same object");
-  assert.equal(live.labels, labels, "the labels object must be refilled, not replaced");
-  assert.equal(labels.opus, "Lead", "a held reference sees the new name");
+  assert.equal(before.labels.opus, "Opus", "a copy taken earlier is a snapshot, not a view");
+  assert.equal(RP.tables().labels.opus, "Lead", "tables() again sees the new name");
+  assert.equal(RP.label("opus"), "Lead", "label() follows apply()");
+  assert.equal(RP.label("nope"), undefined);
+  assert.equal(RP.label("constructor"), undefined);
   assert.equal(RP.apply("cursor"), true);
-  assert.equal(labels.opus, "Opus", "apply(cursor) restores the original name");
-  assert.equal(live.chipTips.length, 3);
+  assert.equal(RP.label("opus"), "Opus", "apply(cursor) restores the original name");
+  assert.equal(RP.tables().chipTips.length, 3);
 });
 
 test("boundaries: unknown and prototype-like sources are refused and change nothing", () => {
@@ -404,12 +405,19 @@ test("claude-code price rows: model not set while the models table is empty", ()
   RP.apply("cursor");
 });
 
-test("claude-code price rows show the list price of each slot's own model", () => {
+const PRICE_ROWS = {
+  opus: ["list price (Opus 5.5):", "$4 / $20"],
+  fable: ["list price (Fable 5.2):", "$8 / $40"],
+  sonnet: ["list price (Sonnet 5.5):", "$2 / $10"],
+  haiku: ["list price (Haiku 5.5):", "$0.10 / $0.50"]
+};
+
+test("claude-code price rows show the current model's list price and name it", () => {
   const RP = loadProfiles();
   assert.equal(
     RP.setModels({
       opus: "claude-opus-4-5",
-      advisor: "fable",
+      advisor: "claude-fable-5-2",
       worker: "claude-sonnet-4-5",
       explorer: "claude-haiku-4-5",
       researcher: "claude-opus-4-5"
@@ -417,17 +425,12 @@ test("claude-code price rows show the list price of each slot's own model", () =
     true
   );
   RP.apply("claude-code");
-  const per = "list price per 1M in/out";
-  assert.deepEqual(plain(RP.priceRow("opus")), ["$4.00 / $20.00", per]);
-  assert.deepEqual(plain(RP.priceRow("advisor")), ["$10.00 / $50.00", per]);
-  assert.deepEqual(plain(RP.priceRow("worker")), ["$2.00 / $10.00", per]);
-  assert.deepEqual(plain(RP.priceRow("explorer")), ["$0.10 / $0.50", per]);
-  assert.deepEqual(
-    plain(RP.priceRow("researcher")),
-    ["$4.00 / $20.00", per],
-    "follows its own model"
-  );
-  assert.equal(RP.tables().models.worker, "claude-sonnet-4-5", "live models table is refilled");
+  assert.deepEqual(plain(RP.priceRow("opus")), PRICE_ROWS.opus);
+  assert.deepEqual(plain(RP.priceRow("advisor")), PRICE_ROWS.fable, "Fable 5.2 is $8 / $40");
+  assert.deepEqual(plain(RP.priceRow("worker")), PRICE_ROWS.sonnet);
+  assert.deepEqual(plain(RP.priceRow("explorer")), PRICE_ROWS.haiku);
+  assert.deepEqual(plain(RP.priceRow("researcher")), PRICE_ROWS.opus, "follows its own model");
+  assert.equal(RP.tables().models.worker, "claude-sonnet-4-5", "models table follows setModels");
   RP.apply("cursor");
   assert.deepEqual(
     plain(RP.priceRow("worker")),
@@ -437,12 +440,90 @@ test("claude-code price rows show the list price of each slot's own model", () =
   assert.equal(RP.tables().models.worker, "Sonnet");
 });
 
+test("every family's row names its current model, whatever the id's own version", () => {
+  const RP = loadProfiles();
+  RP.apply("claude-code");
+  const ids = [
+    ["claude-opus-4-1", "Opus 5.5"],
+    ["claude-3-5-sonnet-latest", "Sonnet 5.5"],
+    ["claude-3-5-haiku-20241022", "Haiku 5.5"],
+    ["claude-fable-5-1", "Fable 5.2"]
+  ];
+  for (const [id, name] of ids) {
+    RP.setModels({ worker: id });
+    const row = RP.priceRow("worker");
+    assert.ok(row[0].includes("(" + name + ")"), id + " row must name " + name + ": " + row[0]);
+    assert.ok(
+      RP.current().cardTips.worker.priceDetail.includes("List price of " + name + ","),
+      id + " tip must name " + name
+    );
+  }
+  assert.deepEqual(plain(RP.priceRow("worker")), PRICE_ROWS.fable);
+  RP.apply("cursor");
+});
+
+test("price number format: whole dollars without cents, fractions with two decimals", () => {
+  const RP = loadProfiles();
+  RP.apply("claude-code");
+  RP.setModels({ worker: "claude-haiku-4-5" });
+  assert.equal(RP.priceRow("worker")[1], "$0.10 / $0.50");
+  RP.setModels({ worker: "claude-opus-4-5" });
+  assert.equal(RP.priceRow("worker")[1], "$4 / $20");
+  RP.apply("cursor");
+});
+
+test("Haiku price tip carries the over-100k note; other families do not", () => {
+  const RP = loadProfiles();
+  RP.setModels({
+    opus: "claude-opus-4-5",
+    advisor: "claude-fable-5-2",
+    worker: "claude-sonnet-4-5",
+    explorer: "claude-haiku-4-5",
+    researcher: "mystery"
+  });
+  RP.apply("claude-code");
+  const tips = RP.current().cardTips;
+  assert.ok(
+    tips.explorer.priceDetail.includes("$0.50 / $2.50 over 100k"),
+    tips.explorer.priceDetail
+  );
+  assert.ok(tips.explorer.priceDetail.includes("up to 100k tokens"));
+  assert.equal(
+    tips.opus.priceDetail,
+    "List price of Opus 5.5, $ per 1M tokens in/out · not a bill"
+  );
+  assert.ok(tips.advisor.priceDetail.startsWith("List price of Fable 5.2, "));
+  assert.ok(tips.worker.priceDetail.startsWith("List price of Sonnet 5.5, "));
+  for (const slot of ["opus", "advisor", "worker"]) {
+    assert.ok(!/over 100k/.test(tips[slot].priceDetail), slot);
+  }
+  assert.ok(/not a bill/.test(tips.researcher.priceDetail), "unpriced slot keeps the generic tip");
+  RP.apply("cursor");
+});
+
+test("price list is its own table: bill-math rates do not feed the row", () => {
+  const sandbox = { window: {} };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(MATH_SRC, "utf8"), sandbox, { filename: MATH_SRC });
+  const stub = {
+    RATES: { opus: { in: 1, out: 2 }, fable: { in: 3, out: 4 } },
+    formatMoney: () => "X"
+  };
+  sandbox.window.WorkshopBillMath = stub;
+  vm.runInContext(fs.readFileSync(PROFILES_SRC, "utf8"), sandbox, { filename: PROFILES_SRC });
+  const RP = sandbox.window.RoleProfiles;
+  RP.setModels({ opus: "claude-opus-4-5", advisor: "claude-fable-5-2" });
+  RP.apply("claude-code");
+  assert.deepEqual(plain(RP.priceRow("opus")), PRICE_ROWS.opus);
+  assert.deepEqual(plain(RP.priceRow("advisor")), PRICE_ROWS.fable);
+});
+
 test("claude-code price row: a set model with no list price says no list price", () => {
   const RP = loadProfiles();
   RP.setModels({ worker: "gpt-5", explorer: "claude-haiku-4-5" });
   RP.apply("claude-code");
   assert.deepEqual(plain(RP.priceRow("worker")), ["no list price", "list price"]);
-  assert.deepEqual(RP.priceRow("explorer")[0], "$0.10 / $0.50");
+  assert.deepEqual(plain(RP.priceRow("explorer")), PRICE_ROWS.haiku);
   assert.deepEqual(plain(RP.priceRow("opus")), ["model not set", "list price"]);
   RP.setModels({ worker: "" });
   assert.deepEqual(
@@ -452,12 +533,12 @@ test("claude-code price row: a set model with no list price says no list price",
   );
 });
 
-test("claude-code price labels all say list price", () => {
+test("claude-code price rows always mention list price and the tip says List price", () => {
   const RP = loadProfiles();
   RP.setModels({ opus: "claude-opus-4-5", worker: "mystery" });
   RP.apply("claude-code");
   for (const slot of SLOTS) {
-    assert.match(RP.priceRow(slot)[1], /list price/, slot);
+    assert.match(RP.priceRow(slot).join(" "), /list price/, slot);
     assert.match(RP.current().cardTips[slot].priceDetail, /List price/, slot);
   }
 });
@@ -524,16 +605,6 @@ test("roleFromAgentHint under claude-code matches whole words, not substrings", 
   assert.equal(AC.roleFromAgentHint("leader-parent-x"), "opus", "cursor keeps substring parent");
 });
 
-/** Expected list price text for a family, read from bill-math.js itself. */
-function expectedPrice(family) {
-  const sandbox = { window: {} };
-  vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(MATH_SRC, "utf8"), sandbox, { filename: MATH_SRC });
-  const m = sandbox.window.WorkshopBillMath;
-  const r = m.RATES[family];
-  return m.formatMoney(r.in) + " / " + m.formatMoney(r.out);
-}
-
 test("list price matches whole family tokens, once, never substrings", () => {
   const RP = loadProfiles();
   RP.apply("claude-code");
@@ -544,13 +615,13 @@ test("list price matches whole family tokens, once, never substrings", () => {
     ["Claude-OPUS-4-5-20251101", "opus"],
     ["anthropic.claude-haiku-4-5-v1:0", "haiku"],
     ["claude-fable-5-2", "fable"],
-    ["Fable-5.2", "fable"],
     ["claude-3-5-sonnet-latest", "sonnet"],
     ["claude-3-5-haiku-20241022", "haiku"],
     ["claude-opus-4-1", "opus"],
     ["claude-sonnet-4-5", "sonnet"],
     ["anthropic/claude-sonnet-4", "sonnet"],
     ["claude-opus-4-1@20250805", "opus"],
+    ["anthropic-fable", "fable"],
     [
       "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
       "sonnet"
@@ -558,15 +629,42 @@ test("list price matches whole family tokens, once, never substrings", () => {
   ];
   for (const [id, family] of cases) {
     assert.equal(RP.setModels({ worker: id }), true, "setModels must accept " + id);
-    assert.deepEqual(
-      plain(RP.priceRow("worker")),
-      [expectedPrice(family), "list price per 1M in/out"],
-      id
-    );
+    assert.deepEqual(plain(RP.priceRow("worker")), PRICE_ROWS[family], id);
   }
-  for (const id of ["octopus-1", "magnum-opus-haiku", "sonnetina", "haikus-v2"]) {
+  for (const id of [
+    "octopus-1",
+    "claude-octopus-1",
+    "claude-magnum-opus-haiku",
+    "claude-sonnetina",
+    "claude-haikus-v2"
+  ]) {
     assert.equal(RP.setModels({ worker: id }), true, id);
     assert.deepEqual(plain(RP.priceRow("worker")), ["no list price", "list price"], id);
+  }
+  RP.apply("cursor");
+});
+
+test("a price needs a claude or anthropic token: bare family names have no list price", () => {
+  const RP = loadProfiles();
+  RP.apply("claude-code");
+  for (const id of [
+    "fable",
+    "Fable-5.2",
+    "opus",
+    "opus-4-5",
+    "sonnet",
+    "haiku-4-5",
+    "gpt-opus",
+    "claudette-opus",
+    "anthropics-opus"
+  ]) {
+    assert.equal(RP.setModels({ worker: id }), true, id);
+    assert.deepEqual(plain(RP.priceRow("worker")), ["no list price", "list price"], id);
+    assert.ok(RP.current().cardTips.worker.priceDetail.includes("of the model this role runs"), id);
+  }
+  for (const id of ["claude-opus", "anthropic-opus", "ANTHROPIC.Opus", "claude_haiku"]) {
+    RP.setModels({ worker: id });
+    assert.notEqual(RP.priceRow("worker")[0], "no list price", id);
   }
   RP.apply("cursor");
 });
@@ -608,4 +706,180 @@ test("claude-code hint rule: camelCase and word forms, no cursor substring fall-
   assert.equal(AC.roleFromAgentHint({ model: "fable" }), "", "model alone does not pick a slot");
   RP.apply("cursor");
   assert.equal(AC.roleFromAgentHint("apparently"), "opus", "cursor substring logic is untouched");
+});
+
+function deepFrozen(o) {
+  if (o === null || typeof o !== "object") return true;
+  if (!Object.isFrozen(o)) return false;
+  return Object.keys(o).every((k) => deepFrozen(o[k]));
+}
+
+test("get, current and tables return deeply frozen copies of the profile", () => {
+  const RP = loadProfiles();
+  for (const id of ["cursor", "claude-code"]) {
+    assert.ok(deepFrozen(RP.get(id)), "get(" + id + ") must be deeply frozen");
+  }
+  assert.ok(deepFrozen(RP.current()));
+  assert.ok(deepFrozen(RP.tables()));
+  assert.notStrictEqual(RP.priceRow("opus"), RP.priceRow("opus"));
+  RP.apply("claude-code");
+  RP.setModels({ worker: "claude-sonnet-4-5" });
+  assert.ok(deepFrozen(RP.get("claude-code")), "frozen after setModels too");
+  assert.ok(deepFrozen(RP.tables()));
+});
+
+test("writing to a returned object, nested or not, changes nothing (strict and sloppy)", () => {
+  const RP = loadProfiles();
+  const AC = loadCards(RP);
+  RP.apply("claude-code");
+  RP.setModels({ worker: "claude-sonnet-4-5" });
+  const snap = JSON.stringify([RP.get("cursor"), RP.get("claude-code"), RP.tables()]);
+  const targets = () => [
+    RP.get("claude-code"),
+    RP.get("cursor"),
+    RP.current(),
+    RP.tables(),
+    RP.tables().labels,
+    RP.tables().models,
+    RP.tables().cardTips.opus,
+    RP.tables().chipTips,
+    RP.tables().hintRoles,
+    RP.tables().hintRoles[0],
+    RP.get("cursor").prices.opus,
+    RP.get("claude-code").pills.opus
+  ];
+  // Sloppy attempts (a Function body is sloppy): silently ignored, nothing throws.
+  const sloppy = new Function(
+    "t",
+    "t.opus = 'x'; t.id = 'x'; t.models = {}; t.name = 'x'; t[0] = 'x'; t.length = 0; delete t.opus; delete t.labels; return 1;"
+  );
+  for (const t of targets()) assert.equal(sloppy(t), 1);
+  // Strict attempts: each one must throw.
+  const strictAdd = new Function("t", "'use strict'; t.__added__ = 'x';");
+  const strictPush = new Function("t", "'use strict'; t.push('x');");
+  for (const t of targets()) {
+    assert.throws(() => strictAdd(t), { name: "TypeError" });
+    if (Array.isArray(t)) assert.throws(() => strictPush(t), { name: "TypeError" });
+  }
+  assert.throws(
+    () => {
+      "use strict";
+      RP.tables().labels.opus = "x";
+    },
+    { name: "TypeError" }
+  );
+  assert.throws(
+    () => {
+      "use strict";
+      RP.get("claude-code").models.worker = "x";
+    },
+    { name: "TypeError" }
+  );
+  assert.equal(
+    JSON.stringify([RP.get("cursor"), RP.get("claude-code"), RP.tables()]),
+    snap,
+    "no profile or table changed"
+  );
+  assert.equal(RP.label("opus"), "Lead");
+  assert.equal(RP.tables().models.worker, "claude-sonnet-4-5");
+  assert.equal(AC.roleFromAgentHint("lead"), "opus", "hint rules unharmed");
+  RP.apply("cursor");
+  assert.equal(RP.label("opus"), "Opus");
+});
+
+test("returned copies are not the live data: setModels cannot reach through an old copy", () => {
+  const RP = loadProfiles();
+  const first = RP.get("claude-code");
+  assert.notEqual(first, RP.get("cursor"));
+  RP.setModels({ worker: "claude-sonnet-4-5" });
+  assert.equal(first.models.worker, "", "an old copy keeps its old table");
+  assert.equal(RP.get("claude-code").models.worker, "claude-sonnet-4-5");
+});
+
+test("price row DOM is one text node plus one strong, built without parsing markup", () => {
+  const created = [];
+  const mk = (type, text) => ({
+    nodeType: type,
+    text: text || "",
+    children: [],
+    get textContent() {
+      return this.children.length ? this.children.map((c) => c.textContent).join("") : this.text;
+    },
+    set textContent(v) {
+      this.children = [];
+      this.text = String(v);
+    },
+    appendChild(c) {
+      this.children.push(c);
+      return c;
+    },
+    innerHTMLWrites: 0,
+    set innerHTML(v) {
+      this.innerHTMLWrites++;
+      throw new Error("innerHTML must not be used");
+    }
+  });
+  const priceEls = {};
+  const doc = {
+    createTextNode: (t) => {
+      const n = mk(3, t);
+      created.push(n);
+      return n;
+    },
+    createElement: (tag) => {
+      const n = mk(1);
+      n.tag = tag;
+      created.push(n);
+      return n;
+    },
+    getElementById: (id) => {
+      const m = /^card-(.+)$/.exec(id);
+      if (!m) return null;
+      priceEls[m[1]] = priceEls[m[1]] || mk(1);
+      return { querySelector: (sel) => (sel === ".price" ? priceEls[m[1]] : null) };
+    },
+    querySelector: () => null
+  };
+  const sandbox = { window: { document: doc } };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(PROFILES_SRC, "utf8"), sandbox, { filename: PROFILES_SRC });
+  const RP = sandbox.window.RoleProfiles;
+  const vertexId = "claude-opus-4-1@20250805";
+  RP.setModels({ opus: vertexId, worker: "claude-haiku-4-5", explorer: "mystery" });
+  RP.apply("claude-code");
+  for (const slot of SLOTS) {
+    const el = priceEls[slot];
+    assert.equal(el.children.length, 2, slot + ": exactly two children");
+    assert.equal(el.children[0].nodeType, 3, slot + ": first child is a text node");
+    assert.equal(el.children[1].nodeType, 1, slot + ": second child is an element");
+    assert.equal(el.children[1].tag, "strong", slot + ": and it is a strong");
+    assert.equal(el.children[1].children.length, 0, slot + ": strong holds text only");
+    assert.equal(el.innerHTMLWrites, 0);
+  }
+  assert.equal(priceEls.opus.textContent, "list price (Opus 5.5): $4 / $20");
+  assert.equal(priceEls.worker.textContent, "list price (Haiku 5.5): $0.10 / $0.50");
+  assert.equal(priceEls.explorer.textContent, "no list price list price");
+  assert.equal(priceEls.advisor.textContent, "model not set list price");
+  assert.ok(
+    created.every((n) => n.nodeType === 3 || n.tag === "strong"),
+    "no element other than strong was ever created"
+  );
+});
+
+test("hint keyword order: the first hintRoles entry found wins, not the first word typed", () => {
+  const RP = loadProfiles();
+  const AC = loadCards(RP);
+  RP.apply("claude-code");
+  // reviewer is listed before researcher, so it wins in both word orders.
+  assert.equal(AC.roleFromAgentHint("reviewer-researcher"), "researcher");
+  assert.equal(AC.roleFromAgentHint("researcher-reviewer"), "researcher");
+  assert.equal(AC.roleFromAgentHint({ name: "researcher", agentId: "reviewer-1" }), "researcher");
+  // researcher alone is the explorer slot, so the two words resolve to different slots alone.
+  assert.equal(AC.roleFromAgentHint("researcher"), "explorer");
+  assert.equal(AC.roleFromAgentHint("reviewer"), "researcher");
+  // planner before worker before lead.
+  assert.equal(AC.roleFromAgentHint("lead-worker"), "worker");
+  assert.equal(AC.roleFromAgentHint("worker-lead"), "worker");
+  assert.equal(AC.roleFromAgentHint("worker-planner"), "advisor");
+  RP.apply("cursor");
 });
