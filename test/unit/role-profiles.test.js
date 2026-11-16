@@ -400,7 +400,7 @@ test("claude-code price rows: model not set while the models table is empty", ()
   const RP = loadProfiles();
   RP.apply("claude-code");
   for (const slot of SLOTS) {
-    assert.deepEqual(plain(RP.priceRow(slot)), ["model not set", "list price"], slot);
+    assert.deepEqual(plain(RP.priceRow(slot)), ["", "model not set"], slot);
   }
   RP.apply("cursor");
 });
@@ -524,21 +524,19 @@ test("claude-code price row: a set model with no list price says no list price",
   RP.apply("claude-code");
   assert.deepEqual(plain(RP.priceRow("worker")), ["no", "list price"]);
   assert.deepEqual(plain(RP.priceRow("explorer")), PRICE_ROWS.haiku);
-  assert.deepEqual(plain(RP.priceRow("opus")), ["model not set", "list price"]);
+  assert.deepEqual(plain(RP.priceRow("opus")), ["", "model not set"]);
   RP.setModels({ worker: "" });
-  assert.deepEqual(
-    plain(RP.priceRow("worker")),
-    ["model not set", "list price"],
-    "empty clears a slot"
-  );
+  assert.deepEqual(plain(RP.priceRow("worker")), ["", "model not set"], "empty clears a slot");
 });
 
-test("claude-code price rows always mention list price and the tip says List price", () => {
+test("claude-code price rows mention list price unless the slot is unset, and the tip says List price", () => {
   const RP = loadProfiles();
   RP.setModels({ opus: "claude-opus-4-5", worker: "mystery" });
   RP.apply("claude-code");
   for (const slot of SLOTS) {
-    assert.match(RP.priceRow(slot).join(" "), /list price/, slot);
+    const row = RP.priceRow(slot).join(" ").trim();
+    if (slot === "opus" || slot === "worker") assert.match(row, /list price/, slot);
+    else assert.equal(row, "model not set", slot);
     assert.match(RP.current().cardTips[slot].priceDetail, /List price/, slot);
   }
 });
@@ -572,11 +570,7 @@ test("setModels validates: bad slots, non-strings and odd ids are refused whole"
     assert.equal(RP.setModels(b), false, JSON.stringify(b));
   }
   RP.apply("claude-code");
-  assert.deepEqual(
-    plain(RP.priceRow("opus")),
-    ["model not set", "list price"],
-    "nothing was stored"
-  );
+  assert.deepEqual(plain(RP.priceRow("opus")), ["", "model not set"], "nothing was stored");
   assert.equal(RP.setModels({ opus: "x".repeat(128) }), true, "128 chars is the limit");
   assert.equal(RP.setModels({}), true, "empty map is a no-op");
   assert.equal(RP.setModels({ opus: "claude-opus-4-5" }), true);
@@ -859,7 +853,7 @@ test("price row DOM is one text node plus one strong, built without parsing mark
   assert.equal(priceEls.opus.textContent, "list price (Opus 5.5): $4 / $20");
   assert.equal(priceEls.worker.textContent, "list price (Haiku 5.5): $0.10 / $0.50");
   assert.equal(priceEls.explorer.textContent, "no list price");
-  assert.equal(priceEls.advisor.textContent, "model not set list price");
+  assert.equal(priceEls.advisor.textContent, "model not set");
   assert.ok(
     created.every((n) => n.nodeType === 3 || n.tag === "strong"),
     "no element other than strong was ever created"
@@ -889,12 +883,43 @@ test("claude-code price rows read exactly: no list price, and model not set", ()
   RP.apply("claude-code");
   const text = (slot) => {
     const row = RP.priceRow(slot);
-    return row[0] + " " + row[1];
+    return (row[0] ? row[0] + " " : "") + row[1];
   };
-  assert.equal(text("opus"), "model not set list price");
+  assert.equal(text("opus"), "model not set");
   RP.setModels({ opus: "opus", worker: "gpt-5" });
   assert.equal(text("opus"), "no list price", "a bare alias has no list price");
   assert.equal(text("worker"), "no list price", "a non-Claude id has no list price");
   assert.ok(!/list price list price/.test(text("opus") + text("worker")));
+  RP.apply("cursor");
+});
+
+test("claude-code price rows never carry a stray or doubled list price label", () => {
+  const RP = loadProfiles();
+  RP.apply("claude-code");
+  const SLOT_NAMES = ["opus", "advisor", "worker", "explorer", "researcher"];
+  const text = (slot) => {
+    const row = RP.priceRow(slot);
+    return (row[0] ? row[0] + " " : "") + row[1];
+  };
+  const states = [
+    {},
+    { opus: "claude-opus-5-5", advisor: "claude-fable-5-2", worker: "claude-sonnet-5-5" },
+    { opus: "opus", advisor: "gpt-5", worker: "claude-haiku-5-5", explorer: "mystery" }
+  ];
+  for (const models of states) {
+    RP.setModels({ opus: "", advisor: "", worker: "", explorer: "", researcher: "" });
+    RP.setModels(models);
+    for (const slot of SLOT_NAMES) {
+      const t = text(slot);
+      assert.ok(!/list price list price/.test(t), slot + ": " + t);
+      if (t === "model not set") continue;
+      if (t === "no list price") continue;
+      assert.ok(/^list price \(\w+ [\d.]+\): \$[\d.]+ \/ \$[\d.]+$/.test(t), slot + ": " + t);
+    }
+    assert.ok(
+      !text("researcher").includes("list price") || models.researcher,
+      "unset row is plain"
+    );
+  }
   RP.apply("cursor");
 });

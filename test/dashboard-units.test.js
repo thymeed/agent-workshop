@@ -345,7 +345,7 @@ async function main() {
     ]);
     assert.deepStrictEqual(
       rp.priceEmpty,
-      Array(5).fill("model not set <strong>list price</strong>"),
+      Array(5).fill("<strong>model not set</strong>"),
       "claude-code price rows say model not set while no model is known"
     );
     assert.ok(rp.modelsOk);
