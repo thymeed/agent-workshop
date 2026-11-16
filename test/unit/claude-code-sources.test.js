@@ -1122,6 +1122,51 @@ test("loadOrCreateSalt: creates a 0600 16-byte file, reuses it, replaces a corru
   }
 });
 
+test("loadOrCreateSalt: a present file that cannot be read right now is never overwritten", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const base = nodePath.join(__dirname, "..", "..", ".scratch");
+  nodeFs.mkdirSync(base, { recursive: true });
+  const dir = nodeFs.mkdtempSync(nodePath.join(base, "salt-busy-"));
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    const first = S.loadOrCreateSalt({ dir, fs: nodeFs });
+    for (const code of ["EBUSY", "EACCES", "EPERM", "EIO"]) {
+      const writes = [];
+      const flaky = {
+        ...nodeFs,
+        readFileSync: () => {
+          throw Object.assign(new Error(code), { code });
+        },
+        writeFileSync: (...a) => (writes.push(a[0]), nodeFs.writeFileSync(...a)),
+        renameSync: (...a) => (writes.push("rename"), nodeFs.renameSync(...a))
+      };
+      const r = S.loadOrCreateSalt({ dir, fs: flaky });
+      assert.equal(r.salt.length, 16, code);
+      assert.deepEqual(r.note, { code: "labels-unstable", text: "Labels change after restart" });
+      assert.deepEqual(writes, [], code + ": nothing written");
+      assert.deepEqual(
+        nodeFs.readFileSync(file),
+        first.salt,
+        code + ": the file on disk is intact"
+      );
+    }
+    // a restart that can read it again gets the original salt
+    assert.deepEqual(S.loadOrCreateSalt({ dir, fs: nodeFs }).salt, first.salt);
+    // a valid file is never rewritten
+    const writes = [];
+    const spy = {
+      ...nodeFs,
+      writeFileSync: (...a) => (writes.push(a[0]), nodeFs.writeFileSync(...a)),
+      renameSync: (...a) => (writes.push("rename"), nodeFs.renameSync(...a))
+    };
+    S.loadOrCreateSalt({ dir, fs: spy });
+    assert.deepEqual(writes, [], "a valid salt file is read, not rewritten");
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("loadOrCreateSalt: unreadable or unwritable gives a random in-memory salt and a note", () => {
   const boom = () => {
     throw Object.assign(new Error("EACCES"), { code: "EACCES" });
@@ -1143,7 +1188,9 @@ test("loadOrCreateSalt: unreadable or unwritable gives a random in-memory salt a
   // a rename that fails after the write also falls back, and the write went to a temp name
   const written = [];
   const renameFails = {
-    readFileSync: boom,
+    readFileSync: () => {
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    },
     mkdirSync: () => {},
     writeFileSync: (p) => written.push(p),
     renameSync: boom,

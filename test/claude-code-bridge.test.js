@@ -293,6 +293,30 @@ async function testSwitching() {
     assert.strictEqual((await post(port, "/api/snooze", { snoozed: false }, true)).status, 200);
     await testGuards(port, "claude-code mode");
 
+    // history clear must not wipe the Cursor log from Claude Code mode
+    const { recordHistoryEvent, clearHistory } = require("../live-bridge.js");
+    const kept = recordHistoryEvent({
+      ts: new Date().toISOString(),
+      sessionId: "keep-session",
+      agentId: "keep-agent",
+      name: "Worker",
+      model: "sonnet",
+      type: "spawn",
+      inputTokens: 1,
+      outputTokens: 1,
+      files: []
+    });
+    assert.ok(kept, "the seeded event was recorded");
+    const refused = await post(port, "/api/history/clear", {});
+    assert.strictEqual(refused.status, 409);
+    assert.strictEqual(refused.json.ok, false);
+    assert.deepStrictEqual(clearHistory(), { ok: false, cleared: false });
+    const onDisk = fs
+      .readdirSync(LOG_DIR)
+      .map((f) => fs.readFileSync(path.join(LOG_DIR, f), "utf8"))
+      .join(String.fromCharCode(10));
+    assert.ok(onDisk.includes("keep-agent"), "the Cursor event log survived the refused clear");
+
     // a second stream connecting now sees a path-free hello and backlog
     const late = openStream(port);
     await late.waitFor("watching proj-demo");

@@ -1709,6 +1709,11 @@ function createServer() {
         });
         return;
       }
+      if (source !== "cursor") {
+        // History is off in Claude Code mode, and the log on disk is the Cursor one
+        sendJson(res, 409, { ok: false, error: "History is off in this mode" });
+        return;
+      }
       if (eventLog) eventLog.clear();
       agentWatch.clear();
       sendJson(res, 200, { ok: true });
@@ -2019,6 +2024,10 @@ function stopBridge() {
 function clearHistory() {
   if (!eventLog) {
     return { ok: true, cleared: false };
+  }
+  if (source !== "cursor") {
+    // the log on disk is the Cursor one; History is off in Claude Code mode
+    return { ok: false, cleared: false };
   }
   agentWatch.clear();
   const result = eventLog.clear();
