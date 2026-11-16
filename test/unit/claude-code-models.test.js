@@ -107,6 +107,27 @@ test("path-like values with a .. segment are refused", () => {
   assert.equal(resolveModelAlias("claude:..:x"), "", ".. between : separators refused");
 });
 
+test("a [1m] suffix on a full id is dropped after the rest is validated", () => {
+  assert.equal(resolveModelAlias("claude-opus-4-1[1m]"), "claude-opus-4-1");
+  assert.equal(resolveModelAlias("anthropic/claude-sonnet-4[1M]"), "anthropic/claude-sonnet-4");
+  assert.equal(resolveModelAlias(" claude-opus-4-1@20250805[1m] "), "claude-opus-4-1@20250805");
+  assert.equal(resolveModelAlias("inherit", "claude-opus-4-1[1m]"), "claude-opus-4-1");
+  assert.equal(resolveModelAlias("a/../b[1m]"), "", "still refused");
+  assert.equal(resolveModelAlias("claude/../b[1m]"), "");
+  assert.equal(resolveModelAlias("[1m]"), "");
+  assert.equal(resolveModelAlias("claude-opus-4[1m][1m]"), "", "only one suffix is dropped");
+  assert.equal(resolveModelAlias("claude-opus-4[2m]"), "");
+});
+
+test("empty and . segments in a full id are refused", () => {
+  assert.equal(resolveModelAlias("claude//x"), "");
+  assert.equal(resolveModelAlias("claude/./x"), "");
+  assert.equal(resolveModelAlias("claude/x/"), "");
+  assert.equal(resolveModelAlias("claude@@x"), "");
+  assert.equal(resolveModelAlias("claude::x"), "");
+  assert.equal(resolveModelAlias("claude/x"), "claude/x", "a normal two-segment id still passes");
+});
+
 test("a dot run inside a segment is not a .. segment", () => {
   // Decision: the rule is segment-based, so "x.." (no empty or ".." segment) is accepted.
   assert.equal(resolveModelAlias("claude-opus-4.."), "claude-opus-4..");
