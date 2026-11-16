@@ -17,15 +17,14 @@ const CR = String.fromCharCode(13);
 const PLANTED = "zqplanted";
 const PRIVATE = buildForbidden([PLANTED]);
 const NOW = 2e12;
+const WSL_DEFAULT = "C:" + BS + "Windows" + BS + "System32" + BS + "wsl.exe";
 const T1 = 1700000000000;
 const T2 = 1700000100000;
 const norm = (p) => p.split(BS).join("/");
-const hash6 = (p) =>
-  crypto
-    .createHash("sha256")
-    .update(p + "cc-label-v1")
-    .digest("hex")
-    .slice(0, 6);
+const SALT = Buffer.alloc(16, 7);
+const SALT2 = Buffer.alloc(16, 9);
+const hmacHex = (salt, text) => crypto.createHmac("sha256", salt).update(text).digest("hex");
+const hash6 = (p, salt = SALT) => hmacHex(salt, p).slice(0, 6);
 
 /** In-memory fs that records every path it is asked about and every read size. */
 function makeFs(entries = {}) {
@@ -141,7 +140,13 @@ const RUNNING = "-l --running -q";
 const ok = (text) => ({ status: 0, stdout: utf16(text.split(NL).join(CR + NL)) });
 
 const discover = (over) =>
-  S.discoverClaudeProjects({ platform: "win32", homedir: WIN_HOME, now: () => NOW, ...over });
+  S.discoverClaudeProjects({
+    platform: "win32",
+    homedir: WIN_HOME,
+    now: () => NOW,
+    salt: SALT,
+    ...over
+  });
 
 test("Windows projects: label is the last cwd folder, mtime is the newest transcript", async () => {
   const fs = makeFs();
@@ -401,7 +406,7 @@ test("home-folder names get a stable 6-hex hash label (Windows, WSL, macOS forms
   forms.forEach((c, i) => {
     const label = byPath.get(WIN_ROOT + BS + "h" + i);
     assert.match(label, /^[0-9a-f]{6}$/, c);
-    assert.equal(label, hash6(c), "hash of the full cwd plus the fixed salt: " + c);
+    assert.equal(label, hash6(c), "HMAC of the full cwd with the salt: " + c);
     assert.notEqual(label, "user");
   });
   // the raw rarer forms are what the shared privacy patterns exist to catch
@@ -776,11 +781,14 @@ test("default wsl.exe runner: wsl.exe, no shell, hidden window, 3s timeout, allo
     calls.push({ file, args, opts });
     reply(cb);
   };
-  const run = S.makeRunWsl(fake((cb) => cb(null, Buffer.from("x"))));
+  const run = S.makeRunWsl(
+    fake((cb) => cb(null, Buffer.from("x"))),
+    { env: {} }
+  );
   const res = await run(["-l", "-q"]);
   assert.equal(res.status, 0);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].file, "wsl.exe");
+  assert.equal(calls[0].file, WSL_DEFAULT);
   assert.deepEqual(calls[0].args, ["-l", "-q"]);
   assert.equal(calls[0].opts.windowsHide, true);
   assert.equal(calls[0].opts.timeout, 3000);
@@ -854,14 +862,10 @@ test("ids are opaque and stable; hash labels are 6 hex", async () => {
   const fs = makeFs();
   addProject(fs, WIN_ROOT, "p", "/s/app");
   const a = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
-  const id =
-    "cc-" +
-    crypto
-      .createHash("sha256")
-      .update("windows" + String.fromCharCode(0) + a.projects[0].path)
-      .digest("hex")
-      .slice(0, 12);
-  assert.equal(a.projects[0].id, id);
+  const id = "cc-" + hmacHex(SALT, "windows" + String.fromCharCode(0) + a.projects[0].path);
+  assert.equal(a.projects[0].id, id.slice(0, 15));
+  assert.match(a.projects[0].id, /^cc-[0-9a-f]{12}$/);
+  assert.match(S.hashLabel("anything", SALT), /^[0-9a-f]{6}$/);
   assert.match(S.hashLabel("anything"), /^[0-9a-f]{6}$/);
 });
 
@@ -897,4 +901,265 @@ test("paths test: every Claude Code mode response body passes the shared privacy
   // the matcher really catches a path, so the check above is not vacuous
   assert.ok(PRIVATE.test(JSON.stringify({ path: WIN_HOME })));
   assert.ok(PRIVATE.test("x " + PLANTED));
+});
+
+/** Same fs, but every directory listing comes back in reverse order. */
+const reversed = (fs) => ({ ...fs, readdirSync: (p) => fs.readdirSync(p).reverse() });
+
+test("overall sort: equal mtimes from different sources order by id, whatever the listing order", async () => {
+  const build = () => {
+    const fs = makeFs();
+    for (let i = 0; i < 4; i++) addProject(fs, WIN_ROOT, "w" + i, "/s/w" + i, T1);
+    const base = wslRoot("distro-a") + BS + "user" + BS + ".claude" + BS + "projects";
+    for (let i = 0; i < 4; i++) addProject(fs, base, "l" + i, "/s/l" + i, T1);
+    return fs;
+  };
+  const replies = { [LIST]: ok("distro-a"), [RUNNING]: ok("distro-a") };
+  const a = await discover({ fs: build(), runWsl: makeRunner(replies) });
+  const b = await discover({ fs: reversed(build()), runWsl: makeRunner(replies) });
+  assert.equal(a.projects.length, 8);
+  assert.deepEqual(
+    a.projects.map((p) => [p.id, p.label, p.sourceTag]),
+    b.projects.map((p) => [p.id, p.label, p.sourceTag])
+  );
+  const ids = a.projects.map((p) => p.id);
+  assert.deepEqual(ids, ids.slice().sort());
+  assert.ok(new Set(a.projects.map((p) => p.sourceTag)).size === 2);
+});
+
+test("a symlinked .jsonl is skipped: a project with only a link is not listed", async () => {
+  const fs = makeFs();
+  fs.put(WIN_ROOT + BS + "only-link" + BS + "s1.jsonl", {
+    file: true,
+    link: true,
+    text: "{}",
+    mtimeMs: T2
+  });
+  addProject(fs, WIN_ROOT, "both", "/s/real-demo", T1);
+  fs.put(WIN_ROOT + BS + "both" + BS + "s0.jsonl", {
+    file: true,
+    link: true,
+    text: "{}",
+    mtimeMs: T2
+  });
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  assert.equal(r.projects.length, 1);
+  assert.equal(r.projects[0].label, "real-demo");
+  assert.equal(r.projects[0].mtime, T1, "the newer link does not set the mtime");
+  assert.ok(
+    fs.calls.every(([k, p]) => k !== "open" || !p.endsWith("s0.jsonl")),
+    "link not opened"
+  );
+});
+
+test("unreadable notes carry no path, no home, no drive and no distro-qualified path", async () => {
+  const fs = makeFs();
+  fs.put(WIN_ROOT, { dir: true, denied: true });
+  fs.put(wslRoot("distro-a") + BS + "user", { dir: true, deniedStat: true });
+  const runWsl = makeRunner({
+    [LIST]: ok("distro-a" + NL + "distro-b"),
+    [RUNNING]: ok("distro-a")
+  });
+  const r = await discover({ fs, runWsl });
+  const codes = r.notes.map((n) => n.code);
+  assert.ok(codes.filter((c) => c === "home-unreadable").length >= 2, JSON.stringify(r.notes));
+  const text = JSON.stringify(r.notes) + JSON.stringify(S.publicView(r));
+  assert.ok(!text.includes(BS), "no backslash at all, so no UNC or drive path");
+  for (const bad of ["/home", "C:", "wsl$", "wsl.localhost", "distro-a/", "Users", ".claude"]) {
+    assert.ok(!text.includes(bad), bad + " in " + text);
+  }
+  // distro whose home root cannot be listed at all
+  const r2 = await discover({ fs: makeFs(), runWsl });
+  const t2 = JSON.stringify(r2.notes) + JSON.stringify(S.publicView(r2));
+  assert.ok(r2.notes.some((n) => n.distro === "distro-a" && n.code === "home-unreadable"));
+  assert.ok(!t2.includes(BS) && !t2.includes("/home") && !t2.includes("C:"), t2);
+});
+
+test("home forms (item list) get the hashed label; a plain folder keeps its name", async () => {
+  const forms = [
+    "/export/home/user",
+    "/usr/home/user",
+    "/mnt/wsl/home/user",
+    BS + BS + "server" + BS + "c$" + BS + "Users" + BS + "user",
+    "C:" + BS + "Users" + BS + "user",
+    "/home/user",
+    "/var/home/user",
+    "a/b/../home/user",
+    "/HOME/user",
+    "/home/user/proj-demo/..",
+    "/home/user/x/../.",
+    "/root",
+    "D:" + BS + "x" + BS + "home" + BS + "app" // accepted false positive
+  ];
+  const fs = makeFs();
+  forms.forEach((c, i) => addProject(fs, WIN_ROOT, "h" + i, c));
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const byPath = new Map(r.projects.map((p) => [p.path, p.label]));
+  forms.forEach((c, i) => {
+    const label = byPath.get(WIN_ROOT + BS + "h" + i);
+    assert.equal(label, hash6(c), c);
+    assert.match(label, /^[0-9a-f]{6}$/);
+  });
+  const fs2 = makeFs();
+  addProject(fs2, WIN_ROOT, "a", "/srv/proj-demo");
+  addProject(fs2, WIN_ROOT, "b", "/p/x/..");
+  addProject(fs2, WIN_ROOT, "c", "/home/../etc/proj2-demo");
+  addProject(fs2, WIN_ROOT, "d", "/p/..");
+  const r2 = await discover({ fs: fs2, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const lab = (n) => r2.projects.find((p) => p.path === WIN_ROOT + BS + n).label;
+  assert.equal(lab("a"), "proj-demo");
+  assert.equal(lab("b"), "p", "a trailing .. is resolved, never used as a label");
+  assert.equal(lab("c"), "proj2-demo");
+  assert.match(lab("d"), /^[0-9a-f]{6}$/, "resolves to the root: no name, hash label");
+  assert.ok(r2.projects.every((p) => p.label !== ".."));
+});
+
+test("HMAC labels and ids: stable per salt, different across salts, not the old fixed hash", async () => {
+  const build = () => {
+    const fs = makeFs();
+    addProject(fs, WIN_ROOT, "h", "/home/user");
+    addProject(fs, WIN_ROOT, "n", null);
+    return fs;
+  };
+  const run = (salt) => discover({ fs: build(), salt, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const a = await run(SALT);
+  const b = await run(SALT);
+  const c = await run(SALT2);
+  const view = (r) => r.projects.map((p) => [p.path, p.id, p.label]);
+  assert.deepEqual(view(a), view(b));
+  const other = view(c);
+  view(a).forEach(([path, id, label], i) => {
+    assert.equal(other[i][0], path);
+    assert.notEqual(other[i][1], id, "id differs with another salt");
+    assert.notEqual(other[i][2], label, "label differs with another salt");
+  });
+  const old = crypto
+    .createHash("sha256")
+    .update("/home/user" + "cc-label-v1")
+    .digest("hex")
+    .slice(0, 6);
+  assert.notEqual(a.projects.find((p) => p.path.endsWith(BS + "h")).label, old);
+  assert.equal(S.hashLabel("/home/user", SALT), hash6("/home/user"));
+  // an invalid salt is ignored (process salt used), not used as given
+  const bad = await run(Buffer.alloc(5, 1));
+  assert.deepEqual(view(bad), view(await run(undefined)));
+  assert.notDeepEqual(view(bad), view(a));
+});
+
+test("no salt given: a random per-process salt, never a fixed one", () => {
+  const { execFileSync } = require("child_process");
+  const code =
+    "const S=require(process.argv[1]);process.stdout.write(S.hashLabel('/home/user')+S.hashLabel('/home/user'))";
+  const lib = require.resolve("../../lib/claude-code-sources.js");
+  const seen = new Set();
+  for (let i = 0; i < 3; i++) {
+    const out = execFileSync(process.execPath, ["-e", code, lib]).toString();
+    assert.equal(out.slice(0, 6), out.slice(6), "stable inside one process");
+    seen.add(out.slice(0, 6));
+  }
+  assert.ok(seen.size > 1, "labels differ across processes: " + [...seen]);
+});
+
+test("loadOrCreateSalt: creates a 0600 16-byte file, reuses it, replaces a corrupt one", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const base = nodePath.join(__dirname, "..", "..", ".scratch");
+  nodeFs.mkdirSync(base, { recursive: true });
+  const dir = nodeFs.mkdtempSync(nodePath.join(base, "salt-test-"));
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    const a = S.loadOrCreateSalt({ dir, fs: nodeFs });
+    assert.equal(a.note, undefined);
+    assert.equal(a.salt.length, 16);
+    assert.deepEqual(nodeFs.readFileSync(file), a.salt);
+    if (process.platform !== "win32") assert.equal(nodeFs.statSync(file).mode & 0o777, 0o600);
+    assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"], "no temp file left behind");
+    const b = S.loadOrCreateSalt({ dir, fs: nodeFs });
+    assert.deepEqual(b.salt, a.salt, "second call reuses the file");
+    nodeFs.writeFileSync(file, Buffer.alloc(5, 1));
+    const c = S.loadOrCreateSalt({ dir, fs: nodeFs });
+    assert.equal(c.salt.length, 16);
+    assert.equal(c.note, undefined);
+    assert.notDeepEqual(c.salt, a.salt);
+    assert.deepEqual(nodeFs.readFileSync(file), c.salt, "the corrupt file was replaced");
+    nodeFs.writeFileSync(file, Buffer.alloc(40, 1));
+    assert.equal(S.loadOrCreateSalt({ dir, fs: nodeFs }).salt.length, 16);
+    assert.equal(nodeFs.readFileSync(file).length, 16);
+    // a folder that does not exist yet is created
+    const sub = nodePath.join(dir, "new", "cfg");
+    assert.equal(S.loadOrCreateSalt({ dir: sub, fs: nodeFs }).salt.length, 16);
+    assert.ok(nodeFs.existsSync(nodePath.join(sub, "label-salt.bin")));
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadOrCreateSalt: unreadable or unwritable gives a random in-memory salt and a note", () => {
+  const boom = () => {
+    throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+  };
+  const failing = {
+    readFileSync: boom,
+    mkdirSync: boom,
+    writeFileSync: boom,
+    renameSync: boom,
+    unlinkSync: boom
+  };
+  const a = S.loadOrCreateSalt({ dir: "x", fs: failing });
+  const b = S.loadOrCreateSalt({ dir: "x", fs: failing });
+  for (const r of [a, b]) {
+    assert.equal(r.salt.length, 16);
+    assert.deepEqual(r.note, { code: "labels-unstable", text: "Labels change after restart" });
+  }
+  assert.notDeepEqual(a.salt, b.salt, "two sessions never share a fallback salt");
+  // a rename that fails after the write also falls back, and the write went to a temp name
+  const written = [];
+  const renameFails = {
+    readFileSync: boom,
+    mkdirSync: () => {},
+    writeFileSync: (p) => written.push(p),
+    renameSync: boom,
+    unlinkSync: () => {}
+  };
+  assert.equal(S.loadOrCreateSalt({ dir: "x", fs: renameFails }).note.code, "labels-unstable");
+  assert.equal(written.length, 1);
+  assert.notEqual(written[0], require("path").join("x", "label-salt.bin"));
+});
+
+test("wsl.exe runs by its System32 path, read at call time; other argument lists still fail", async () => {
+  const calls = [];
+  const exec = (file, args, opts, cb) => {
+    calls.push(file);
+    cb(null, Buffer.from("x"));
+  };
+  const env = { SystemRoot: "D:" + BS + "Win" };
+  const run = S.makeRunWsl(exec, { env });
+  await run(["-l", "-q"]);
+  assert.equal(calls[0], "D:" + BS + "Win" + BS + "System32" + BS + "wsl.exe");
+  delete env.SystemRoot;
+  await run(["-l", "--running", "-q"]);
+  assert.equal(calls[1], "C:" + BS + "Windows" + BS + "System32" + BS + "wsl.exe");
+  await assert.rejects(run(["-d", "x"]), /not allowed/);
+  await assert.rejects(run(["-l", "-q", "--exec", "ls"]), /not allowed/);
+  assert.equal(calls.length, 2);
+});
+
+test("homes are sorted before the 64 cap: the first 64 in code-unit order are kept", async () => {
+  const fs = makeFs();
+  const lo = wslRoot("distro-a");
+  for (let i = 69; i >= 0; i--) {
+    const h = "h" + String(i).padStart(2, "0");
+    addProject(fs, lo + BS + h + BS + ".claude" + BS + "projects", "p", "/s/" + h);
+  }
+  const runWsl = makeRunner({ [LIST]: ok("distro-a"), [RUNNING]: ok("distro-a") });
+  for (const f of [fs, reversed(fs)]) {
+    const r = await discover({ fs: f, runWsl });
+    const labels = r.projects.map((p) => p.label).sort();
+    assert.equal(labels.length, 64);
+    assert.deepEqual(
+      labels,
+      Array.from({ length: 64 }, (_, i) => "h" + String(i).padStart(2, "0"))
+    );
+    assert.ok(r.notes.some((n) => n.text === "distro-a: list truncated"));
+  }
 });
