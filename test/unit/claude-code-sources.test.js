@@ -1807,6 +1807,42 @@ test(
 );
 
 test(
+  "loadOrCreateSalt: no hard links plus a brief EPERM on rename is waited out",
+  { timeout: 30000 },
+  () => {
+    const nodeFs = require("fs");
+    const nodePath = require("path");
+    const dir = saltScratch("salt-nolink-transient-");
+    try {
+      const file = nodePath.join(dir, "label-salt.bin"); // missing, so the link path runs
+      let renameThrown = 0;
+      const flaky = {
+        ...nodeFs,
+        linkSync: () => {
+          throw Object.assign(new Error("EPERM"), { code: "EPERM" }); // no hard links here
+        },
+        renameSync: (a, b) => {
+          if (!renameThrown++) throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+          return nodeFs.renameSync(a, b);
+        }
+      };
+      let clock = 0;
+      const r = S.loadOrCreateSalt({
+        dir,
+        fs: flaky,
+        mono: () => clock,
+        sleep: (ms) => (clock += ms)
+      });
+      assert.equal(renameThrown, 2, "the rename failed once, then succeeded");
+      assert.equal(r.note, undefined, "no throwaway salt");
+      assert.deepEqual(r.salt, nodeFs.readFileSync(file), "the salt on disk is used");
+    } finally {
+      nodeFs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
   "loadOrCreateSalt: six real processes on a corrupt file (and a dead process's lock) all end on the same salt",
   { timeout: 30000 },
   async () => {
