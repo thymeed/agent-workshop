@@ -1473,6 +1473,22 @@ test("makeDiscoverer: concurrent calls share a scan; a result is reused for the 
   assert.equal(a.projects.length, 1);
 });
 
+test("makeDiscoverer: a clock that goes backwards does not keep reusing a result", async () => {
+  const fs = makeFs();
+  addProject(fs, WIN_ROOT, "p", "/s/win-demo");
+  const base = { platform: "win32", homedir: WIN_HOME, now: () => NOW, salt: SALT, fs };
+  base.runWsl = noWsl();
+  const clock = { v: 100000 };
+  const d = S.makeDiscoverer(base, { ttlMs: 5000, now: () => clock.v });
+  const a = await d.discover();
+  clock.v = 1; // jumped far back: the age is negative
+  const b = await d.discover();
+  assert.notEqual(b, a, "a negative age is a miss");
+  assert.equal(readdirCount(fs, WIN_ROOT), 2);
+  assert.equal(await d.discover(), b, "and the new result is reused again");
+  assert.equal(readdirCount(fs, WIN_ROOT), 2);
+});
+
 test("makeDiscoverer: a timed-out or rejected scan is not reused", async () => {
   const fs = makeFs();
   addProject(fs, WIN_ROOT, "p", "/s/win-demo");
