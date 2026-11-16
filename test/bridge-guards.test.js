@@ -51,7 +51,7 @@ function request(port, opts) {
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const SAME_ORIGIN = { "Sec-Fetch-Site": "same-origin" };
 const BRIDGE_HEADER = { "X-Cursor-Bridge": "1" };
-const GUARDED_POSTS = ["/api/select", "/api/snooze", "/api/history/clear"];
+const GUARDED_POSTS = ["/api/select", "/api/source", "/api/snooze", "/api/history/clear"];
 
 async function testLoopbackGuard(port) {
   const cases = [
@@ -71,6 +71,7 @@ async function testLoopbackGuard(port) {
 async function testMethodGuards(port) {
   const cases = [
     ["/api/select", "GET"],
+    ["/api/source", "GET"],
     ["/api/snooze", "GET"],
     ["/api/snooze", "DELETE"],
     ["/api/history/clear", "GET"],
@@ -140,6 +141,16 @@ async function testBodyValidation(port) {
   const off = await post("/api/snooze", '{"snoozed":false}');
   assert.strictEqual(off.status, 200, `snooze false: expected 200, got ${off.status}`);
   assert.strictEqual(JSON.parse(off.body).snoozed, false, "snooze false must echo snoozed:false");
+
+  const sourceCases = [
+    ["unknown source", '{"source":"nope"}'],
+    ["empty object", "{}"],
+    ["invalid JSON", "{"]
+  ];
+  for (const [label, body] of sourceCases) {
+    const res = await post("/api/source", body);
+    assert.strictEqual(res.status, 400, `source ${label}: expected 400, got ${res.status}`);
+  }
 
   const selectCases = [
     ["missing id", '{"nope":1}'],

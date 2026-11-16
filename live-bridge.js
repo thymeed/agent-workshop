@@ -22,7 +22,9 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { createEventLog } = require("./lib/event-log");
+const { createEventLog, resolveLogDir } = require("./lib/event-log");
+const { loadOrCreateSalt } = require("./lib/claude-code-sources");
+const { createClaudeCodeMode } = require("./lib/claude-code-bridge");
 const { subagentUuidFromTranscriptPath } = require("./lib/path-segments");
 const {
   sendJson,
@@ -140,10 +142,18 @@ let TRANSCRIPTS = emptyTranscripts();
 let currentProjectId = null;
 /** @type {string|null} */
 let currentProjectLabel = null;
+/**
+ * Data source: "cursor" (default) or "claude-code". In memory only. The Claude Code side keeps
+ * its own selection inside `claudeCode`, so switching never clobbers the Cursor project above.
+ * @type {"cursor"|"claude-code"}
+ */
+let source = "cursor";
+/** @type {ReturnType<typeof createClaudeCodeMode>|null} */
+let claudeCode = null;
 
 /** @type {Array<object>} */
 const events = [];
-/** @type {Array<{id:number,ts:string,name:string,status:string,agentId?:string}>} */
+/** @type {Array<{alert:{id:number,ts:string,name:string,status:string,agentId?:string}, source:string}>} */
 const alerts = [];
 /** @type {Set<http.ServerResponse>} */
 const sseClients = new Set();
@@ -370,7 +380,9 @@ function emitAgentAlert(name, status, agentId) {
   const id = agentId != null && String(agentId) ? String(agentId) : "";
   if (id) alert.agentId = id;
 
-  alerts.push(alert);
+  /* The ring keeps an internal source tag so GET /api/alerts can serve only the current
+     source's alerts. The tag never leaves the process: SSE and the response use `alert`. */
+  alerts.push({ alert, source });
   if (alerts.length > MAX_ALERTS) alerts.splice(0, alerts.length - MAX_ALERTS);
 
   broadcastSse("alert", alert);
@@ -437,6 +449,7 @@ function touchAgentWatch(agentId, name, terminalStatus, opts) {
 }
 
 function checkStalledAgents() {
+  if (source !== "cursor") return; // stall watch belongs to the Cursor tree only
   const now = Date.now();
   for (const [id, state] of agentWatch) {
     if (!state || state.terminal || state.stallAlerted) continue;
@@ -541,7 +554,7 @@ function recordHistoryFromTranscript(partial, meta) {
   return ev;
 }
 
-function resetWatchState() {
+function clearWatchState() {
   events.length = 0;
   fileState.clear();
   subagentRoles.clear();
@@ -554,6 +567,34 @@ function resetWatchState() {
   driftReported = false;
   // Keep eventSeq monotonic so client after= / seenLiveIds stay valid across project switches
   lastScanError = null;
+}
+
+/**
+ * Enter (or refresh) Claude Code mode: no Cursor event, stall watch or alert is shown or sent
+ * (Cursor alerts stay in the ring tagged "cursor" and are served again after switching back).
+ */
+function resetClaudeWatch() {
+  clearWatchState();
+  agentWatch.clear();
+  const sel = claudeCode.selection();
+  broadcastSse("reset", { ok: true, source, projectId: sel.id, projectLabel: sel.label });
+  pushEvent({
+    role: "parent",
+    kind: "status",
+    message: sel.label
+      ? "bridge online · watching " + sel.label
+      : "bridge online · choose a Claude Code project",
+    active: [],
+    source: "bridge"
+  });
+}
+
+function resetWatchState() {
+  if (source === "claude-code") {
+    resetClaudeWatch();
+    return;
+  }
+  clearWatchState();
   snapshotTranscriptInventory();
   broadcastSse("reset", {
     ok: true,
@@ -575,6 +616,7 @@ function resetWatchState() {
 }
 
 function selectProject(id) {
+  if (source !== "cursor") return { ok: false, error: "Unknown or disallowed project id" };
   const proj = projectById(id);
   if (!proj) {
     return { ok: false, error: "Unknown or disallowed project id" };
@@ -600,6 +642,7 @@ function statusPayload() {
   return {
     ok: true,
     bridgeId: BRIDGE_ID,
+    source,
     port: PORT,
     transcripts: TRANSCRIPTS,
     projectId: currentProjectId,
@@ -624,6 +667,66 @@ function statusPayload() {
     pollMs: POLL_MS,
     time: nowIso()
   };
+}
+
+/** /api/status in Claude Code mode: no transcripts path, no `exists`, no drift sample text. */
+async function claudeStatusPayload(cc) {
+  const sel = cc.selection();
+  const pub = await cc.statusBody();
+  return {
+    ok: true,
+    bridgeId: BRIDGE_ID,
+    port: PORT,
+    ...pub,
+    projectId: sel.id,
+    projectLabel: sel.label,
+    events: events.length,
+    sseClients: sseClients.size,
+    watching: 0,
+    lastScanError: null,
+    drift: {
+      unparsed: drift.unparsed,
+      unknownShape: drift.unknownShape,
+      unknownStatus: drift.unknownStatus,
+      lastAt: drift.lastAt,
+      lastSample: ""
+    },
+    snoozed: snoozeIndefinite,
+    lastScanAt,
+    pollMs: POLL_MS,
+    time: nowIso()
+  };
+}
+
+/** POST /api/select in Claude Code mode: the id must come from the last discovery. */
+async function selectClaudeProject(cc, id) {
+  /* The guard runs inside select(), right before the selection is stored, so a select that
+     raced a source switch or a stop is refused without changing the stored selection. */
+  const r = await cc.select(id, () => source === "claude-code" && claudeCode === cc);
+  if (!r.ok || source !== "claude-code" || claudeCode !== cc) {
+    return { status: 400, body: { ok: false, error: "Unknown or disallowed project id" } };
+  }
+  resetClaudeWatch();
+  const sel = cc.selection();
+  return {
+    status: 200,
+    body: { ok: true, projectId: sel.id, projectLabel: sel.label, source }
+  };
+}
+
+/** Switch source. Cursor selection and watch state are restored by a normal reset. */
+function setSource(next) {
+  if (next === source) {
+    if (source === "claude-code") claudeCode.invalidate();
+    return;
+  }
+  source = next;
+  if (next === "claude-code") {
+    claudeCode.invalidate();
+    resetClaudeWatch();
+  } else {
+    resetWatchState();
+  }
 }
 
 /**
@@ -1286,6 +1389,11 @@ function ingestNewBytes(filePath) {
 }
 
 function scan() {
+  if (source !== "cursor") {
+    // Claude Code transcripts are not tailed yet: only keep the HUD's sync age fresh
+    lastScanAt = nowIso();
+    return;
+  }
   try {
     const files = listJsonlFiles(TRANSCRIPTS).slice(0, TRANSCRIPT_SCAN_LIMIT);
     if (warmScanAfterInventory) {
@@ -1302,6 +1410,19 @@ function scan() {
     lastScanError = String(e.message || e);
   }
   lastScanAt = nowIso();
+}
+
+/** Fixed-text 500 for a failed async Claude Code route; never the error message. */
+function sendInternalError(res) {
+  if (res.headersSent || res.writableEnded || res.destroyed) {
+    try {
+      res.end();
+    } catch (_e) {
+      /* already gone */
+    }
+    return;
+  }
+  sendJson(res, 500, { ok: false, error: "Internal error" });
 }
 
 function createServer() {
@@ -1334,11 +1455,28 @@ function createServer() {
     }
 
     if (url.pathname === "/api/status") {
+      if (source === "claude-code") {
+        const cc = claudeCode;
+        claudeStatusPayload(cc)
+          .then((body) => sendJson(res, 200, body))
+          .catch(() => sendInternalError(res));
+        return;
+      }
       sendJson(res, 200, statusPayload());
       return;
     }
 
     if (url.pathname === "/api/projects") {
+      if (source === "claude-code") {
+        const cc = claudeCode;
+        cc.projectsBody()
+          .then((body) => {
+            const sel = cc.selection();
+            sendJson(res, 200, { ok: true, ...body, selectedId: sel.id, selectedLabel: sel.label });
+          })
+          .catch(() => sendInternalError(res));
+        return;
+      }
       const projects = discoverProjects();
       sendJson(res, 200, {
         ok: true,
@@ -1347,6 +1485,51 @@ function createServer() {
         selectedLabel: currentProjectLabel,
         transcripts: TRANSCRIPTS
       });
+      return;
+    }
+
+    /** POST /api/source · switch between "cursor" and "claude-code". Same guards as select. */
+    if (url.pathname === "/api/source") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { ok: false, error: "POST required" });
+        return;
+      }
+      if (!allowProjectSelect(req, PORT)) {
+        sendJson(res, 403, {
+          ok: false,
+          error: "Forbidden · same-origin required for source switch"
+        });
+        return;
+      }
+      if (String(req.headers["x-cursor-bridge"] || "") !== "1") {
+        sendJson(res, 403, {
+          ok: false,
+          error: "Forbidden · missing X-Cursor-Bridge header"
+        });
+        return;
+      }
+      readRequestBody(req)
+        .then((raw) => {
+          let value = url.searchParams.get("source");
+          if (raw && String(raw).trim()) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed && typeof parsed.source === "string") value = parsed.source;
+            } catch (_e) {
+              sendJson(res, 400, { ok: false, error: "Invalid JSON body" });
+              return;
+            }
+          }
+          if (value !== "cursor" && value !== "claude-code") {
+            sendJson(res, 400, { ok: false, error: "Unknown source" });
+            return;
+          }
+          setSource(value);
+          sendJson(res, 200, { ok: true, source });
+        })
+        .catch(() => {
+          sendJson(res, 400, { ok: false, error: "Bad request body" });
+        });
       return;
     }
 
@@ -1387,6 +1570,12 @@ function createServer() {
             sendJson(res, 400, { ok: false, error: "Missing id" });
             return;
           }
+          if (source === "claude-code") {
+            const cc = claudeCode;
+            return selectClaudeProject(cc, id)
+              .then((r) => sendJson(res, r.status, r.body))
+              .catch(() => sendInternalError(res));
+          }
           const result = selectProject(id);
           sendJson(res, result.ok ? 200 : 400, result);
         })
@@ -1398,6 +1587,16 @@ function createServer() {
 
     if (url.pathname === "/api/events") {
       const after = Number(url.searchParams.get("after") || 0);
+      if (source === "claude-code") {
+        const cc = claudeCode;
+        cc.eventsBody(events.filter((e) => e.id > after))
+          .then((body) => {
+            const sel = cc.selection();
+            sendJson(res, 200, { ...body, projectId: sel.id, projectLabel: sel.label });
+          })
+          .catch(() => sendInternalError(res));
+        return;
+      }
       sendJson(res, 200, {
         events: events.filter((e) => e.id > after),
         transcripts: TRANSCRIPTS,
@@ -1412,7 +1611,7 @@ function createServer() {
         sendJson(res, 405, { ok: false, error: "GET required" });
         return;
       }
-      sendJson(res, 200, { alerts: alerts.slice() });
+      sendJson(res, 200, { alerts: alerts.filter((a) => a.source === source).map((a) => a.alert) });
       return;
     }
 
@@ -1471,6 +1670,14 @@ function createServer() {
         sendJson(res, 405, { ok: false, error: "GET required" });
         return;
       }
+      if (source === "claude-code") {
+        sendJson(res, 200, {
+          events: [],
+          latestSessionId: null,
+          notes: [{ code: "history-off", text: "History is not available for Claude Code yet" }]
+        });
+        return;
+      }
       const since = url.searchParams.get("since") || undefined;
       const session = url.searchParams.get("session") || undefined;
       const list = filterHistoryToCurrentProject(
@@ -1502,6 +1709,11 @@ function createServer() {
         });
         return;
       }
+      if (source !== "cursor") {
+        // History is off in Claude Code mode, and the log on disk is the Cursor one
+        sendJson(res, 409, { ok: false, error: "History is off in this mode" });
+        return;
+      }
       if (eventLog) eventLog.clear();
       agentWatch.clear();
       sendJson(res, 200, { ok: true });
@@ -1514,16 +1726,22 @@ function createServer() {
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive"
       });
-      res.write(
-        `event: hello\ndata: ${JSON.stringify({
-          ok: true,
-          transcripts: TRANSCRIPTS,
-          projectId: currentProjectId,
-          projectLabel: currentProjectLabel,
-          lastScanAt,
-          pollMs: POLL_MS
-        })}\n\n`
-      );
+      const hello = {
+        ok: true,
+        transcripts: TRANSCRIPTS,
+        projectId: currentProjectId,
+        projectLabel: currentProjectLabel,
+        lastScanAt,
+        pollMs: POLL_MS
+      };
+      if (source === "claude-code") {
+        const sel = claudeCode.selection();
+        delete hello.transcripts;
+        hello.source = source;
+        hello.projectId = sel.id;
+        hello.projectLabel = sel.label;
+      }
+      res.write(`event: hello\ndata: ${JSON.stringify(hello)}\n\n`);
       const backlog = events.slice(-40);
       for (const ev of backlog) {
         /* Mark connect-time replay so the dashboard skips card timing even if JS
@@ -1573,8 +1791,33 @@ function probeExistingBridge(port) {
 }
 
 /**
+ * Claude Code mode for this run. The salt lives in the same app-data folder as the event log.
+ * Under BRIDGE_TEST=1 an omitted opts.claudeCode becomes an inert bag (no real home, no wsl.exe).
+ */
+function makeClaudeCodeMode(opts) {
+  const dir = resolveLogDir({ logDir: opts.eventLogDir });
+  const { salt, note } = loadOrCreateSalt({ dir });
+  let bag = opts.claudeCode || {};
+  if (process.env.BRIDGE_TEST === "1") {
+    /* Each missing key gets an inert default, so a partial bag never reaches the real home
+       or wsl.exe. A bag that names a homedir keeps the real fs unless it passes its own. */
+    const blocked = () => Promise.reject(new Error("blocked"));
+    const inertFs = new Proxy({}, { get: () => blocked });
+    bag = {
+      ...bag,
+      platform: bag.platform || "linux",
+      homedir: bag.homedir === undefined ? "" : bag.homedir,
+      runWsl: bag.runWsl || blocked
+    };
+    if (!bag.fs && !opts.claudeCode?.homedir) bag.fs = inertFs;
+  }
+  const { ttlMs, ...discover } = bag;
+  return createClaudeCodeMode({ salt, saltNote: note || null, discover, ttlMs });
+}
+
+/**
  * Start the bridge HTTP server + transcript poller.
- * @param {{port?:number, dir?:string, quiet?:boolean, reuseExisting?:boolean, onAgentAlert?:Function, eventLogDir?:string, eventLogPath?:string, projectsRoot?:string}} [opts]
+ * @param {{port?:number, dir?:string, quiet?:boolean, reuseExisting?:boolean, onAgentAlert?:Function, eventLogDir?:string, eventLogPath?:string, projectsRoot?:string, claudeCode?:{platform?:string, homedir?:string, fs?:any, runWsl?:Function, now?:()=>number, timeoutMs?:number, ttlMs?:number}}} [opts]
  * @returns {Promise<{port:number, reused:boolean, transcripts:string}>}
  */
 function startBridge(opts) {
@@ -1597,6 +1840,8 @@ function startBridge(opts) {
   }
   PORT = Number(opts.port || flag("--port") || 3847);
   resolveDefaultTranscripts(opts);
+  source = "cursor";
+  claudeCode = makeClaudeCodeMode(opts);
 
   const eventLogCreateOpts = {
     logDir: opts.eventLogDir,
@@ -1751,6 +1996,8 @@ function stopBridge() {
     agentWatch.clear();
     onAgentAlert = null;
     snoozeIndefinite = false;
+    source = "cursor";
+    claudeCode = null;
     for (const res of sseClients) {
       try {
         res.end();
@@ -1777,6 +2024,10 @@ function stopBridge() {
 function clearHistory() {
   if (!eventLog) {
     return { ok: true, cleared: false };
+  }
+  if (source !== "cursor") {
+    // the log on disk is the Cursor one; History is off in Claude Code mode
+    return { ok: false, cleared: false };
   }
   agentWatch.clear();
   const result = eventLog.clear();

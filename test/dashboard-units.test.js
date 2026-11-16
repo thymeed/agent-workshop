@@ -395,7 +395,7 @@ async function main() {
       rp.original.prices,
       [
         "$4.00 / $20.00 <strong>per 1M in/out</strong>",
-        "$10.00 / $50.00 <strong>per 1M in/out</strong>",
+        "$8.00 / $40.00 <strong>per 1M in/out</strong>",
         "$2.00 / $10.00 <strong>per 1M in/out</strong>",
         "$0.10 / $0.50 <strong>per 1M in/out</strong>",
         "$0.10 / $0.50 <strong>per 1M in/out</strong>"
