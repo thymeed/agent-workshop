@@ -627,6 +627,21 @@ test("labels lose control and bidi characters and are capped", async () => {
   assert.ok(labels.includes("z".repeat(60)));
 });
 
+test("labels lose a zero-width space (U+200B) and a left-to-right mark (U+200E)", async () => {
+  const zws = String.fromCharCode(0x200b);
+  const lrm = String.fromCharCode(0x200e);
+  const fs = makeFs();
+  addProject(fs, WIN_ROOT, "a", "/x/ab" + zws + "cd");
+  addProject(fs, WIN_ROOT, "b", "/x/wx" + lrm + "yz");
+  addProject(fs, WIN_ROOT, "c", "/x/" + zws + "pq" + lrm + "rs" + lrm);
+  const r = await discover({ fs, runWsl: makeRunner({ [LIST]: ok("") }) });
+  const labels = r.projects.map((p) => p.label).sort();
+  assert.deepEqual(labels, ["abcd", "pqrs", "wxyz"]);
+  for (const l of labels) {
+    assert.ok(!l.includes(zws) && !l.includes(lrm), "no invisible character left in " + l);
+  }
+});
+
 test("running distro: first root, then the other spelling; unreadable homes are counted", async () => {
   const fs = makeFs();
   const second = wslRoot("Ubuntu", "wsl$");
@@ -1633,6 +1648,108 @@ test("loadOrCreateSalt: an empty stale lock never takes down a fresh lock that i
         label + ": no .stale- file left"
       );
     }
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadOrCreateSalt: a lock swapped for a different token with the same time is not removed", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const dir = saltScratch("salt-sametime-");
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    const lock = file + ".lock";
+    for (const noHardLinks of [false, true]) {
+      const label = noHardLinks ? "no hard links" : "hard links";
+      nodeFs.rmSync(lock, { force: true });
+      nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
+      nodeFs.writeFileSync(lock, "old-token");
+      const long = new Date(Math.floor(Date.now() / 1000) * 1000 - 60000); // whole milliseconds
+      nodeFs.utimesSync(lock, long, long);
+      const staleMtime = nodeFs.statSync(lock).mtimeMs;
+      let swapped = 0;
+      let sameTime = null;
+      let touched = false;
+      const racing = {
+        ...nodeFs,
+        // its owner is alive: once we have made our decision, it keeps the lock fresh
+        openSync: (p, ...a) => {
+          if (swapped && !touched && String(p).endsWith(".lock")) {
+            touched = true;
+            const now = new Date();
+            nodeFs.utimesSync(p, now, now);
+          }
+          return nodeFs.openSync(p, ...a);
+        },
+        linkSync: (from, to) => {
+          if (!swapped && String(from).endsWith(".lock")) {
+            swapped += 1;
+            // another process's lock: different token, but the very same modification time
+            nodeFs.writeFileSync(from, "other-token");
+            nodeFs.utimesSync(from, long, long);
+            sameTime = nodeFs.statSync(from).mtimeMs === staleMtime;
+            if (noHardLinks) throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+          }
+          return nodeFs.linkSync(from, to);
+        }
+      };
+      let clock = Date.now();
+      const r = S.loadOrCreateSalt({
+        dir,
+        fs: racing,
+        now: () => clock,
+        mono: () => clock,
+        sleep: (ms) => (clock += ms),
+        lockWaitMs: 200
+      });
+      assert.equal(swapped, 1, label);
+      assert.equal(sameTime, true, label + ": the swapped lock really has the same mtime");
+      assert.equal(nodeFs.readFileSync(lock, "utf8"), "other-token", label + ": lock kept");
+      assert.equal(r.note.code, "labels-unstable", label + ": we wait for it, then give up");
+      assert.deepEqual(nodeFs.readFileSync(file), Buffer.alloc(3, 1), label + ": file untouched");
+      assert.deepEqual(
+        nodeFs.readdirSync(dir).sort(),
+        ["label-salt.bin", "label-salt.bin.lock"],
+        label + ": no .stale- file left"
+      );
+    }
+  } finally {
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadOrCreateSalt: a failed token write removes the lock, so the next start gets it", () => {
+  const nodeFs = require("fs");
+  const nodePath = require("path");
+  const dir = saltScratch("salt-tokenfail-");
+  try {
+    const file = nodePath.join(dir, "label-salt.bin");
+    const lock = file + ".lock";
+    nodeFs.writeFileSync(file, Buffer.alloc(3, 1)); // corrupt, so the lock is needed
+    let opens = 0;
+    let closes = 0;
+    let writes = 0;
+    const flaky = {
+      ...nodeFs,
+      openSync: (...a) => (opens++, nodeFs.openSync(...a)),
+      closeSync: (...a) => (closes++, nodeFs.closeSync(...a)),
+      writeFileSync: (...a) => {
+        // the first write is the token into the new lock file
+        if (++writes === 1) throw Object.assign(new Error("EIO"), { code: "EIO" });
+        return nodeFs.writeFileSync(...a);
+      }
+    };
+    const first = S.loadOrCreateSalt({ dir, fs: flaky, lockWaitMs: 100 });
+    assert.equal(first.note.code, "labels-unstable");
+    assert.ok(!nodeFs.existsSync(lock), "the empty lock file was removed");
+    assert.equal(opens, closes, "the descriptor was closed");
+    assert.deepEqual(nodeFs.readFileSync(file), Buffer.alloc(3, 1), "nothing was replaced");
+    // an immediate retry gets the lock and fixes the file
+    const second = S.loadOrCreateSalt({ dir, fs: flaky, lockWaitMs: 100 });
+    assert.equal(second.note, undefined);
+    assert.deepEqual(second.salt, nodeFs.readFileSync(file));
+    assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"], "no lock or temp left");
   } finally {
     nodeFs.rmSync(dir, { recursive: true, force: true });
   }
