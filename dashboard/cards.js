@@ -10,22 +10,14 @@
 
   var ROLE_KEYS = ["opus", "advisor", "worker", "explorer", "researcher"];
 
-  var ROLE_LABEL = {
-    opus: "Opus",
-    advisor: "Fable",
-    worker: "Sonnet",
-    explorer: "Explore",
-    researcher: "Research"
-  };
+  /** Role names and tips come from role-profiles.js. Read per call so apply() takes effect. */
+  function roleTables() {
+    return global.RoleProfiles.tables();
+  }
 
-  /** Short model name for avatar tips (TipLayer). */
-  var MODEL_LABEL = {
-    opus: "Opus",
-    advisor: "Fable",
-    worker: "Sonnet",
-    explorer: "Haiku",
-    researcher: "Haiku"
-  };
+  function roleLabel(role) {
+    return roleTables().labels[role] || role;
+  }
 
   var STATE_TIP = {
     idle: "Idle",
@@ -46,82 +38,6 @@
   };
 
   var STATUS_MAX_CHARS = 68;
-
-  var ROLE_CARD_TIPS = {
-    opus: {
-      name: "Opus",
-      nameDetail: "Main session lead (Cursor Agents parent)",
-      role: "Main session",
-      roleDetail: "Parent agent that routes work and delegates to subagents",
-      effort: "Effort · high",
-      effortDetail: "Opus usually runs a high-effort band",
-      price: "Opus rates",
-      priceDetail: "Illustrative $ per 1M tokens in/out · not a bill"
-    },
-    advisor: {
-      name: "Fable",
-      nameDetail: "Advisor subagent (Fable)",
-      role: "Advisor",
-      roleDetail: "Review at plan, repeated errors, and before done",
-      effort: "Effort · high",
-      effortDetail: "Advisor reviews run a high-effort band",
-      price: "Fable rates",
-      priceDetail: "Illustrative $ per 1M tokens in/out · not a bill",
-      calls: "Advisor calls",
-      callsDetail: "How many times Fable has been asked this session",
-      last: "Last advice",
-      lastDetail: "Most recent tip from Fable"
-    },
-    worker: {
-      name: "Worker",
-      nameDetail: "Worker subagent (Sonnet)",
-      role: "Sonnet · edits",
-      roleDetail: "Edits, tests, and fixes in the repo",
-      effort: "Effort · medium",
-      effortDetail: "Worker usually runs a medium-effort band",
-      price: "Sonnet rates",
-      priceDetail: "Illustrative $ per 1M tokens in/out · not a bill"
-    },
-    explorer: {
-      name: "Explorer",
-      nameDetail: "Explorer subagent (Haiku)",
-      role: "Haiku · search",
-      roleDetail: "Read-only search and repo mapping",
-      effort: "Effort · low",
-      effortDetail: "Explorer keeps it light and fast",
-      price: "Haiku rates",
-      priceDetail: "Illustrative $ per 1M tokens in/out · not a bill",
-      scout: "Scout mode",
-      scoutDetail: "Read-only explore. No edits from this station."
-    },
-    researcher: {
-      name: "Researcher",
-      nameDetail: "Researcher subagent (Haiku)",
-      role: "Haiku · docs",
-      roleDetail: "Read-only research and doc lookup",
-      effort: "Effort · low",
-      effortDetail: "Researcher keeps it light and fast",
-      price: "Haiku rates",
-      priceDetail: "Illustrative $ per 1M tokens in/out · not a bill",
-      scout: "Scout mode",
-      scoutDetail: "Read-only research. No edits from this station."
-    }
-  };
-
-  var CHIP_TIPS = [
-    {
-      tip: "Before plan",
-      detail: "Fable reviews the approach before the big plan"
-    },
-    {
-      tip: "Same error ×2",
-      detail: "Fable jumps in when the same failure loops"
-    },
-    {
-      tip: "Before done",
-      detail: "Fable does a final pass before ship"
-    }
-  ];
 
   /**
    * Demo fixtures for privacy + daily-stats without a live bridge.
@@ -344,7 +260,7 @@
   }
 
   function avatarTipText(role, state) {
-    var label = ROLE_LABEL[role] || role;
+    var label = roleLabel(role);
     var st = STATE_TIP[state] || state || "hanging out";
     return label + " is " + st;
   }
@@ -354,9 +270,9 @@
     if (!el) return;
     var state = avatarState[role] || "idle";
     var tip = avatarTipText(role, state);
-    var model = MODEL_LABEL[role] || "";
+    var model = roleTables().models[role] || "";
     var detail =
-      (ROLE_LABEL[role] || role) +
+      roleLabel(role) +
       (model ? " · " + model : "") +
       " · Cursor Agents station · " +
       (STATE_TIP[state] || state);
@@ -367,7 +283,7 @@
   function syncStatusTip(role, plain) {
     var el = statusEls[role];
     if (!el) return;
-    var label = ROLE_LABEL[role] || role;
+    var label = roleLabel(role);
     var text = String(plain || "").trim() || "Quiet for now";
     var tip = text.length > 44 ? text.slice(0, 42).replace(/[\s·,;:]+$/, "") + "…" : text;
     setTip(el, label + " · " + tip, text);
@@ -375,7 +291,7 @@
 
   function decorateCardTips(role) {
     var card = cards[role];
-    var tips = ROLE_CARD_TIPS[role];
+    var tips = roleTables().cardTips[role];
     if (!card || !tips) return;
 
     var nameEl = card.querySelector(".card-name");
@@ -396,7 +312,7 @@
     if (lastEl && tips.last) setTip(lastEl, tips.last, tips.lastDetail);
 
     for (var i = 0; i < chips.length; i++) {
-      var chipTip = CHIP_TIPS[i] || {
+      var chipTip = roleTables().chipTips[i] || {
         tip: chips[i].textContent || "Trigger",
         detail: "Advisor trigger chip"
       };
@@ -499,6 +415,21 @@
     var name = String(hint.name || hint.role || "").toLowerCase();
     var agentId = String(hint.agentId || "").toLowerCase();
     var model = String(hint.model || "").toLowerCase();
+    var hintRoles = roleTables().hintRoles;
+    if (hintRoles.length) {
+      /* Claude Code rule only: whole words, split on non-letters and on camelCase
+         boundaries ("ResearcherAgent" -> researcher + agent). No Cursor substring logic. */
+      var NON_LETTERS = new RegExp("[^a-z]+");
+      var CAMEL = new RegExp("([a-z])([A-Z])", "g");
+      var splitWords = function (raw) {
+        return String(raw).replace(CAMEL, "$1 $2").toLowerCase().split(NON_LETTERS);
+      };
+      var words = splitWords(hint.name || hint.role || "").concat(splitWords(hint.agentId || ""));
+      for (var h = 0; h < hintRoles.length; h++) {
+        if (words.indexOf(hintRoles[h][0]) >= 0) return hintRoles[h][1];
+      }
+      return "";
+    }
     if (
       name.indexOf("advisor") >= 0 ||
       name.indexOf("fable") >= 0 ||
@@ -810,9 +741,7 @@
     if (runsEl) runsEl.textContent = String(dayStats.runs);
     if (tokensEl) tokensEl.textContent = formatTokens(dayStats.tokens);
     if (fastestEl) {
-      fastestEl.textContent = dayStats.fastestAgent
-        ? ROLE_LABEL[dayStats.fastestAgent] || dayStats.fastestAgent
-        : "n/a";
+      fastestEl.textContent = dayStats.fastestAgent ? roleLabel(dayStats.fastestAgent) : "n/a";
     }
   }
 
@@ -904,6 +833,15 @@
     if (opts.mode === "demo" && dailyMode === "demo") applyDemoFixtures();
   }
 
+  /** Re-decorate role-dependent tips after RoleProfiles.apply(). Same output as init. */
+  function refreshRoleTips() {
+    decorateAllTips();
+    ROLE_KEYS.forEach(function (role) {
+      syncAvatarTip(role);
+      if (statusEls[role]) syncStatusTip(role, (statusEls[role].textContent || "").trim());
+    });
+  }
+
   function init(_containerEl, opts) {
     opts = opts || {};
     reducedMotion = prefersReducedMotion();
@@ -938,6 +876,7 @@
     faceMarkup: faceMarkup,
     blockAgentSvgInner: blockAgentSvgInner,
     roleFromAgentHint: roleFromAgentHint,
+    refreshRoleTips: refreshRoleTips,
     setAvatarState: setAvatarState,
     celebrateShip: celebrateShip,
     getRoleActiveStarted: getRoleActiveStarted,

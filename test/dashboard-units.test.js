@@ -165,6 +165,118 @@ async function main() {
             csv: T.summaryToCsv(s),
             disclaimer: s.disclaimer
           };
+        })(),
+        roleProfiles: (() => {
+          const RP = window.RoleProfiles;
+          const AC = window.AgentCards;
+          const SLOTS = ["opus", "advisor", "worker", "explorer", "researcher"];
+          const text = (sel) => document.querySelector(sel).textContent;
+          const all = (sel, attr) =>
+            Array.from(document.querySelectorAll(sel)).map((e) => e.getAttribute(attr));
+          const snap = () => ({
+            names: SLOTS.map((r) => text("#card-" + r + " .card-name")),
+            roles: SLOTS.map((r) => text("#card-" + r + " .card-role")),
+            stations: SLOTS.map((r) => text("#char-" + r + " .char-label")),
+            aria: SLOTS.map((r) => document.getElementById("char-" + r).getAttribute("aria-label")),
+            nameTip: document.querySelector("#card-opus .card-name").getAttribute("data-tip"),
+            avatarTip: SLOTS.map((r) =>
+              document.querySelector("#card-" + r + " .agent-avatar").getAttribute("data-tip")
+            ),
+            statusTip: SLOTS.map((r) =>
+              document.getElementById("status-" + r).getAttribute("data-tip")
+            ),
+            pills: Array.from(document.querySelectorAll(".role-pill")).map((p) => p.textContent),
+            /* Every tip and aria-label in the static markup (stations, pills, flow labels,
+               cards): apply(cursor) must restore each string exactly. */
+            tips: Array.from(document.querySelectorAll("[data-tip],[aria-label]")).map((e) => [
+              e.id || e.className,
+              e.getAttribute("data-tip"),
+              e.getAttribute("data-tip-detail"),
+              e.getAttribute("aria-label")
+            ]),
+            prices: SLOTS.map((r) => document.querySelector("#card-" + r + " .price").innerHTML),
+            dataRole: all("[data-role]", "data-role"),
+            dataAvatar: all("[data-avatar]", "data-avatar")
+          });
+          const original = snap();
+          const applied = RP.apply("claude-code");
+          const claude = snap();
+          const hintClaude = AC.roleFromAgentHint("reviewer");
+          const restored = RP.apply("cursor");
+          const back = snap();
+          const priceEmpty = (RP.apply("claude-code"), snap().prices);
+          const modelsOk = RP.setModels({
+            opus: "claude-opus-4-5",
+            advisor: "claude-fable-5-2",
+            worker: "claude-sonnet-4-5",
+            explorer: "claude-haiku-4-5",
+            researcher: "octopus-1"
+          });
+          const priceFilled = snap().prices;
+          const priceShape = SLOTS.map((r) => {
+            const el = document.querySelector("#card-" + r + " .price");
+            return {
+              nodes: Array.from(el.childNodes).map((n) => n.nodeType),
+              kids: Array.from(el.children).map((c) => c.tagName),
+              strongKids: el.children[0] ? el.children[0].children.length : -1,
+              text: el.textContent
+            };
+          });
+          const priceTipHaiku = document
+            .querySelector("#card-explorer .price")
+            .getAttribute("data-tip-detail");
+          /* Stale-reference check: ROLE_LABEL is grabbed before apply() and read after. */
+          const RL = T.ROLE_LABEL;
+          RP.apply("cursor");
+          const staleBefore = RL.opus;
+          RP.apply("claude-code");
+          const staleAfter = SLOTS.map((r) => RL[r]);
+          RL.opus = "x";
+          let strictThrew = false;
+          try {
+            new Function("o", "'use strict'; o.opus = 'x';")(RL);
+          } catch (e) {
+            strictThrew = e instanceof TypeError;
+          }
+          const staleAfterWrite = RL.opus;
+          const hudLabel = (() => {
+            return document.querySelector("#char-opus .char-label").textContent;
+          })();
+          const rlFrozen = Object.isFrozen(RL);
+          RP.apply("cursor");
+          const staleRestored = RL.opus;
+          RP.apply("claude-code");
+          const priceTip = document
+            .querySelector("#card-opus .price")
+            .getAttribute("data-tip-detail");
+          RP.apply("cursor");
+          const priceBack = snap().prices;
+          return {
+            original,
+            applied,
+            claude,
+            hintClaude,
+            restored,
+            back,
+            priceEmpty,
+            modelsOk,
+            priceFilled,
+            priceShape,
+            priceTipHaiku,
+            stale: {
+              staleBefore,
+              staleAfter,
+              strictThrew,
+              staleAfterWrite,
+              hudLabel,
+              rlFrozen,
+              staleRestored
+            },
+            priceTip,
+            priceBack,
+            refused: RP.apply("nope"),
+            current: RP.current().id
+          };
         })()
       };
     });
@@ -197,6 +309,134 @@ async function main() {
     assert.strictEqual(data.hints.parent, "opus");
     assert.strictEqual(data.hints.unknown, "", "unmapped hint must return empty");
     assert.strictEqual(data.hints.absent, "", "absent hint must return empty");
+
+    const rp = data.roleProfiles;
+    assert.deepStrictEqual(
+      rp.original.names,
+      ["Opus", "Fable", "Worker", "Explorer", "Researcher"],
+      "cursor card names must be the static HTML names before any apply"
+    );
+    assert.ok(rp.applied && rp.restored, "apply must accept both known sources");
+    assert.deepStrictEqual(
+      rp.claude.names,
+      ["Lead", "Planner", "Worker", "Researcher", "Reviewer"],
+      "claude-code card names must follow the owner slot map"
+    );
+    assert.deepStrictEqual(rp.claude.stations, [
+      "Lead",
+      "Planner",
+      "Worker",
+      "Researcher",
+      "Reviewer"
+    ]);
+    assert.deepStrictEqual(rp.claude.aria, [
+      "Lead station",
+      "Planner station",
+      "Worker station",
+      "Researcher station",
+      "Reviewer station"
+    ]);
+    assert.deepStrictEqual(rp.claude.roles, [
+      "Main session",
+      "Plan review",
+      "Edits",
+      "Search",
+      "Reviewer"
+    ]);
+    assert.deepStrictEqual(
+      rp.priceEmpty,
+      Array(5).fill("<strong>model not set</strong>"),
+      "claude-code price rows say model not set while no model is known"
+    );
+    assert.ok(rp.modelsOk);
+    assert.deepStrictEqual(rp.priceFilled, [
+      "list price (Opus 5.5): <strong>$4 / $20</strong>",
+      "list price (Fable 5.2): <strong>$8 / $40</strong>",
+      "list price (Sonnet 5.5): <strong>$2 / $10</strong>",
+      "list price (Haiku 5.5): <strong>$0.10 / $0.50</strong>",
+      "no <strong>list price</strong>"
+    ]);
+    assert.deepStrictEqual(
+      data.roleProfiles.priceShape.map((p) => [p.nodes, p.kids, p.strongKids]),
+      Array(5).fill([[3, 1], ["STRONG"], 0]),
+      "each price row is one text node plus one strong holding text only"
+    );
+    assert.deepStrictEqual(
+      data.roleProfiles.priceShape.map((p) => p.text),
+      [
+        "list price (Opus 5.5): $4 / $20",
+        "list price (Fable 5.2): $8 / $40",
+        "list price (Sonnet 5.5): $2 / $10",
+        "list price (Haiku 5.5): $0.10 / $0.50",
+        "no list price"
+      ]
+    );
+    assert.ok(data.roleProfiles.priceTipHaiku.includes("List price of Haiku 5.5,"));
+    assert.ok(data.roleProfiles.priceTipHaiku.includes("$0.50 / $2.50 over 100k"));
+    const st = data.roleProfiles.stale;
+    assert.strictEqual(st.staleBefore, "Opus", "ROLE_LABEL read under cursor");
+    assert.deepStrictEqual(
+      st.staleAfter,
+      ["Lead", "Planner", "Worker", "Researcher", "Reviewer"],
+      "a ROLE_LABEL reference taken before apply() sees the claude-code labels"
+    );
+    assert.ok(st.strictThrew, "a strict write to ROLE_LABEL throws");
+    assert.strictEqual(st.staleAfterWrite, "Lead", "a write to ROLE_LABEL changes nothing");
+    assert.strictEqual(st.hudLabel, "Lead", "the stage label is unaffected by the write");
+    assert.ok(st.rlFrozen, "ROLE_LABEL is frozen");
+    assert.strictEqual(st.staleRestored, "Opus", "apply(cursor) restores ROLE_LABEL");
+    assert.match(rp.priceTip, /List price/, "price tip says list price under claude-code");
+    assert.deepStrictEqual(
+      rp.priceBack,
+      rp.original.prices,
+      "cursor price rows are restored to the static HTML"
+    );
+    assert.deepStrictEqual(
+      rp.original.prices,
+      [
+        "$4.00 / $20.00 <strong>per 1M in/out</strong>",
+        "$10.00 / $50.00 <strong>per 1M in/out</strong>",
+        "$2.00 / $10.00 <strong>per 1M in/out</strong>",
+        "$0.10 / $0.50 <strong>per 1M in/out</strong>",
+        "$0.10 / $0.50 <strong>per 1M in/out</strong>"
+      ],
+      "cursor price rows are the HEAD strings"
+    );
+    assert.strictEqual(rp.claude.nameTip, "Lead", "card tips must re-decorate on apply");
+    assert.deepStrictEqual(
+      rp.claude.avatarTip.map((t) => t.split(" is ")[0]),
+      rp.claude.names,
+      "avatar tips must use the claude-code names"
+    );
+    assert.deepStrictEqual(
+      rp.claude.statusTip.map((t) => t.split(" · ")[0]),
+      rp.claude.names,
+      "status tips must use the claude-code names"
+    );
+    assert.deepStrictEqual(rp.claude.pills, [
+      "lead plans",
+      "worker edits",
+      "scouts read",
+      "planner reviews"
+    ]);
+    assert.strictEqual(
+      rp.hintClaude,
+      "researcher",
+      "claude-code reviewer hint maps to the researcher slot"
+    );
+    assert.strictEqual(rp.refused, false, "unknown source must be refused");
+    assert.strictEqual(rp.current, "cursor", "refused apply must leave cursor active");
+    assert.deepStrictEqual(rp.claude.dataRole, rp.original.dataRole, "data-role must not change");
+    assert.deepStrictEqual(
+      rp.claude.dataAvatar,
+      rp.original.dataAvatar,
+      "data-avatar must not change"
+    );
+    assert.deepStrictEqual(
+      rp.back,
+      rp.original,
+      "apply(cursor) must restore the original static text and tips"
+    );
 
     assert.ok(
       Number.isFinite(data.invariants.usageTotal) && data.invariants.usageTotal >= 0,
