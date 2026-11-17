@@ -1087,8 +1087,11 @@
       alreadySeen = hasSeenLiveEvent(ev);
       if (!alreadySeen) markSeenLiveEvent(ev);
     }
-    var usageOpts = { skipDaily: alreadySeen || isReplay };
-    var skipTiming = !!opts.skipTiming || alreadySeen || liveSseBacklogReplay || !!ev.sseBacklog;
+    /* Claude Code replay rows (`replay: true` from the bridge) never count toward today's stats. */
+    var bridgeReplay = ev.replay === true;
+    var usageOpts = { skipDaily: alreadySeen || isReplay || bridgeReplay };
+    var skipTiming =
+      !!opts.skipTiming || alreadySeen || liveSseBacklogReplay || !!ev.sseBacklog || bridgeReplay;
     var skipMotion = !!opts.skipMotion || (isReplay && prefersReducedMotion());
 
     var role = ev.role || "parent";
@@ -1186,6 +1189,7 @@
       !isReplay &&
       !alreadySeen &&
       !skipMotion &&
+      !bridgeReplay &&
       !liveSseBacklogReplay &&
       looksLikeShipEvent(ev, role, cardRole)
     ) {
@@ -1358,6 +1362,7 @@
     startSyncAgePoll();
 
     function onOk(meta) {
+      applyBridgeModels(meta);
       if (!liveConnectedSince) liveConnectedSince = Date.now();
       if (meta && meta.projectLabel) {
         currentProjectLabel = meta.projectLabel;
@@ -1388,6 +1393,18 @@
       }
       if (window.AlertCenter && typeof window.AlertCenter.hydrate === "function") {
         window.AlertCenter.hydrate(BRIDGE);
+      }
+    }
+
+    /* Claude Code mode: the bridge sends full model ids per slot; RoleProfiles checks them. */
+    function applyBridgeModels(body) {
+      if (
+        body &&
+        body.models &&
+        window.RoleProfiles &&
+        typeof window.RoleProfiles.setModels === "function"
+      ) {
+        window.RoleProfiles.setModels(body.models);
       }
     }
 
@@ -1438,6 +1455,11 @@
       } catch (_) {
         onOk();
       }
+    });
+    es.addEventListener("models", function (msg) {
+      try {
+        applyBridgeModels(JSON.parse(msg.data));
+      } catch (_) {}
     });
     es.addEventListener("reset", function (msg) {
       try {

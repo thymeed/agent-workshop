@@ -249,6 +249,132 @@ async function smokeLiveDailyEventDedupe(browser) {
   return errors;
 }
 
+async function smokeBridgeReplayRowsSkipDaily(browser) {
+  const { port } = await startBridgeForSmoke();
+  const page = await browser.newPage();
+  const errors = [];
+  try {
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded", timeout: 15000 });
+    await page.waitForFunction(
+      () => document.getElementById("demoBtn")?.classList.contains("live-connected"),
+      undefined,
+      { timeout: 12000 }
+    );
+    const r = await page.evaluate(() => {
+      const h = window.__cursorAgentsDashTest;
+      if (!h) return null;
+      const usage = { model: "claude-opus-5-5", in: 100, out: 50 };
+      const base = h.getDailyStats().tokens;
+      // a Claude Code replay row (replay: true), sent twice with new ids as a re-select does
+      h.applyLiveEvent({ id: 91001, role: "parent", message: "replayed", usage, replay: true });
+      h.applyLiveEvent({
+        id: 91002,
+        role: "parent",
+        message: "replayed again",
+        usage,
+        replay: true
+      });
+      const afterReplay = h.getDailyStats().tokens;
+      h.applyLiveEvent({ id: 91003, role: "parent", message: "live row", usage });
+      return { base, afterReplay, afterLive: h.getDailyStats().tokens };
+    });
+    if (!r) errors.push("missing hooks");
+    else {
+      if (r.afterReplay !== r.base)
+        errors.push("replay rows counted toward daily tokens: " + r.afterReplay);
+      if (r.afterLive !== r.base + 150) errors.push("a live row must count: " + r.afterLive);
+    }
+  } finally {
+    await page.close();
+    await stopBridgeForSmoke();
+  }
+  return errors;
+}
+
+async function smokeBridgeReplayRowsSkipShipAndTiming(browser) {
+  const { port } = await startBridgeForSmoke();
+  const page = await browser.newPage();
+  const errors = [];
+  try {
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded", timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const h = window.__cursorAgentsDashTest;
+        return (
+          document.getElementById("demoBtn")?.classList.contains("live-connected") &&
+          h &&
+          typeof h.isLiveBacklogReplay === "function" &&
+          !h.isLiveBacklogReplay()
+        );
+      },
+      undefined,
+      { timeout: 15000 }
+    );
+    const r = await page.evaluate(async () => {
+      const h = window.__cursorAgentsDashTest;
+      const ac = window.AgentCards;
+      const toast = () => document.getElementById("stageToast");
+      const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+      // a Claude Code replay of a finished worker: active, then done (replay: true)
+      h.applyLiveEvent({
+        id: 92001,
+        role: "worker",
+        message: "go",
+        active: ["worker"],
+        replay: true
+      });
+      await wait(250);
+      // the worker goes off (a parent row naming only the Lead), then it finishes
+      h.applyLiveEvent({
+        id: 92005,
+        role: "parent",
+        message: "off",
+        active: ["opus"],
+        replay: true
+      });
+      h.applyLiveEvent({
+        id: 92002,
+        role: "worker",
+        type: "done",
+        message: "worker finished",
+        active: [],
+        replay: true
+      });
+      const replay = {
+        shipToast: toast().classList.contains("show") || /shipped/.test(toast().textContent),
+        fastest: ac.getDailyStats().fastestMs
+      };
+      // the same two rows live: the control, so the checks above can fail
+      h.applyLiveEvent({ id: 92003, role: "worker", message: "go", active: ["worker"] });
+      await wait(250);
+      h.applyLiveEvent({ id: 92006, role: "parent", message: "off", active: ["opus"] });
+      h.applyLiveEvent({
+        id: 92004,
+        role: "worker",
+        type: "done",
+        message: "worker finished",
+        active: []
+      });
+      return {
+        replay,
+        live: {
+          shipToast: toast().classList.contains("show") && /shipped/.test(toast().textContent),
+          fastest: ac.getDailyStats().fastestMs
+        }
+      };
+    });
+    if (r.replay.shipToast) errors.push("a replay row ran the ship celebration");
+    if (r.replay.fastest != null)
+      errors.push("a replay row set the fastest time: " + r.replay.fastest);
+    if (!r.live.shipToast) errors.push("control: a live done row must run the ship celebration");
+    if (r.live.fastest == null) errors.push("control: a live row must time: " + r.live.fastest);
+  } finally {
+    await page.close();
+    await stopBridgeForSmoke();
+  }
+  return errors;
+}
+
 async function smokeLiveReplaySkipsFastestTiming(browser) {
   const { port, transcriptsDir } = await startBridgeForSmoke();
   const liveWaitTimeout = process.platform === "win32" ? 20000 : 15000;
@@ -983,6 +1109,14 @@ async function main() {
     all.push(...(await smokeDisallowedApiErrorFails(browser)).map((e) => "[api error] " + e));
     all.push(...(await smokeLiveReconnectDedupe(browser)).map((e) => "[live dedupe] " + e));
     all.push(...(await smokeLiveDailyEventDedupe(browser)).map((e) => "[daily dedupe] " + e));
+    all.push(
+      ...(await smokeBridgeReplayRowsSkipDaily(browser)).map((e) => "[bridge replay daily] " + e)
+    );
+    all.push(
+      ...(await smokeBridgeReplayRowsSkipShipAndTiming(browser)).map(
+        (e) => "[bridge replay ship/timing] " + e
+      )
+    );
     all.push(
       ...(await smokeLiveReplaySkipsFastestTiming(browser)).map((e) => "[fastest replay] " + e)
     );
