@@ -231,3 +231,20 @@ test("selectProject ignores an empty id and a re-entrant call", async () => {
   resolveFetch({ ok: true, json: () => Promise.resolve({ ok: true, projectId: "a" }) });
   await first;
 });
+
+test("Claude Code mode words the empty list and the footer for Claude Code", () => {
+  const t = load({ getSource: () => "claude-code" });
+  t.mod.fillProjectPicker({ projects: [], selectedId: null });
+  assert.match(t.projectPicker.children[0].textContent, /No Claude Code projects/);
+  t.mod.updateFooterProject();
+  assert.equal(t.footerProject.textContent, "claude code", "no project label in live");
+  t.state.label = "Some Project";
+  t.mod.updateFooterProject();
+  assert.equal(t.footerProject.textContent, "Some Project", "a project label wins");
+});
+
+test("the demo footer stays the Cursor command even when Claude Code is chosen", () => {
+  const demo = load({ getSource: () => "claude-code", getMode: () => "demo" });
+  demo.mod.updateFooterProject();
+  assert.match(demo.footerProject.textContent, /cursor --model opus/);
+});

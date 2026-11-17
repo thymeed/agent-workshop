@@ -14,10 +14,16 @@
     d = deps || {};
   }
 
+  function isClaudeCode() {
+    return !!d.getSource && d.getSource() === "claude-code";
+  }
+
   function updateFooterProject() {
     if (!d.footerProject) return;
     if (d.getMode() === "live" && d.getProjectLabel()) {
       d.footerProject.textContent = d.getProjectLabel();
+    } else if (d.getMode() === "live" && isClaudeCode()) {
+      d.footerProject.textContent = "claude code";
     } else {
       d.footerProject.textContent = "cursor --model opus --advisor fable";
     }
@@ -38,7 +44,9 @@
     if (!projects.length) {
       var opt = document.createElement("option");
       opt.value = "";
-      opt.textContent = "No Cursor projects found";
+      opt.textContent = isClaudeCode()
+        ? "No Claude Code projects found"
+        : "No Cursor projects found";
       d.projectPicker.appendChild(opt);
       d.projectPicker.disabled = true;
       updateFooterProject();

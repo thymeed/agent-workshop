@@ -236,3 +236,64 @@ test("updateHistoryHint toggles its copy", () => {
   t.mod.updateHistoryHint(false);
   assert.match(t.el.historyHint.textContent, /Play or scrub/);
 });
+
+test("History off: every way in lands on Stage and the header button is hidden", () => {
+  const t = load();
+  t.init();
+  t.mod.setHistoryAllowed(false);
+  assert.equal(t.el.viewHistoryBtn.hidden, true, "History button is hidden");
+  t.mod.setViewMode("history"); // what a project pick does
+  assert.equal(t.mod.getMode(), "stage");
+  assert.equal(t.el.appEl.getAttribute("data-view-mode"), "stage");
+  assert.equal(t.session["cursorAgents.viewMode"], "stage", "the blocked view is not stored");
+  t.mod.bindViewModeButton(t.el.viewHistoryBtn, "history");
+  t.el.viewHistoryBtn.listeners.click[0]();
+  assert.equal(t.mod.getMode(), "stage", "the header button cannot open History either");
+  t.mod.setViewMode("insights");
+  assert.equal(t.mod.getMode(), "insights", "other views still work");
+});
+
+test("History on again: the button returns and a pick opens History", () => {
+  const t = load();
+  t.init();
+  t.mod.setHistoryAllowed(false);
+  t.mod.setHistoryAllowed(true);
+  assert.equal(t.el.viewHistoryBtn.hidden, false);
+  t.mod.setViewMode("history");
+  assert.equal(t.mod.getMode(), "history", "a Cursor pick may open History");
+});
+
+test("turning History off while it is open returns to Stage", () => {
+  const t = load();
+  t.init();
+  t.mod.setViewMode("history");
+  assert.equal(t.mod.getMode(), "history");
+  t.mod.setHistoryAllowed(false);
+  assert.equal(t.mod.getMode(), "stage");
+  assert.equal(t.el.appEl.getAttribute("data-view-mode"), "stage");
+});
+
+test("a stored History view is dropped once History turns off", () => {
+  const t = load({ "cursorAgents.viewMode": "history" });
+  t.init();
+  assert.equal(t.mod.getMode(), "history", "Demo and Cursor restore it");
+  t.mod.setHistoryAllowed(false);
+  assert.equal(t.mod.getMode(), "stage");
+  const u = load({ "cursorAgents.viewMode": "history" });
+  u.mod.setHistoryAllowed(false); // before init, like a stored Claude Code choice
+  u.init();
+  assert.equal(u.mod.getMode(), "stage", "init cannot restore History while it is off");
+});
+
+test("hiding the History button while it has focus moves focus to the Stage button", () => {
+  const t = load();
+  t.init();
+  t.sandbox.document.activeElement = t.el.viewHistoryBtn;
+  t.mod.setHistoryAllowed(false);
+  assert.equal(t.el.viewStageBtn.focused, true, "focus lands on Stage, not the page top");
+  const u = load();
+  u.init();
+  u.sandbox.document.activeElement = u.el.viewInsightsBtn;
+  u.mod.setHistoryAllowed(false);
+  assert.equal(u.el.viewStageBtn.focused, false, "focus elsewhere is left alone");
+});

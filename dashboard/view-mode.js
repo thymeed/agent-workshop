@@ -8,6 +8,7 @@
 
   var d = null;
   var viewMode = "stage";
+  var historyAllowed = true;
   var VIEW_MODE_KEY = "cursorAgents.viewMode";
 
   function init(deps) {
@@ -133,6 +134,9 @@
   function setViewMode(mode, opts) {
     opts = opts || {};
     viewMode = normalizeViewMode(mode);
+    // History is off in Claude Code mode: every way in (header button, project pick, the
+    // stored session view) lands on Stage.
+    if (viewMode === "history" && !historyAllowed) viewMode = "stage";
     var panel = d.getInsightsPanel();
     var reclaimFocus = focusIsInsideHiddenSheet(
       viewMode === "insights"
@@ -194,6 +198,23 @@
     if (viewMode !== "history" && panel && typeof panel.pause === "function") panel.pause();
   }
 
+  /** Show or hide History. Turning it off while History is open returns to Stage. */
+  function setHistoryAllowed(allowed) {
+    historyAllowed = !!allowed;
+    var hadFocus =
+      !!d && !!d.viewHistoryBtn && !historyAllowed && document.activeElement === d.viewHistoryBtn;
+    if (d && d.viewHistoryBtn) d.viewHistoryBtn.hidden = !historyAllowed;
+    if (d && !historyAllowed && viewMode === "history") setViewMode("stage");
+    // A hidden button cannot keep focus: hand it to the Stage button, not the page top.
+    if (hadFocus && d.viewStageBtn && typeof d.viewStageBtn.focus === "function") {
+      try {
+        d.viewStageBtn.focus({ preventScroll: true });
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+  }
+
   function openPanels() {
     if (d.drawerBill) d.drawerBill.open = true;
     if (d.drawerLog) d.drawerLog.open = true;
@@ -230,6 +251,7 @@
   window.WorkshopViewMode = {
     init: init,
     setViewMode: setViewMode,
+    setHistoryAllowed: setHistoryAllowed,
     getMode: getMode,
     normalizeViewMode: normalizeViewMode,
     syncViewModeButtons: syncViewModeButtons,

@@ -1361,16 +1361,26 @@
     projects.loadProjects();
     startSyncAgePoll();
 
+    /* The label the bridge sends after a hello or reset; see WorkshopSource.projectLabelsFrom. */
+    function takeBridgeLabels(meta) {
+      if (!window.WorkshopSource) return;
+      var next = window.WorkshopSource.projectLabelsFrom(
+        meta,
+        currentProjectLabel,
+        currentProjectId
+      );
+      currentProjectLabel = next.label;
+      currentProjectId = next.id;
+    }
+
     function onOk(meta) {
       applyBridgeModels(meta);
+      if (window.WorkshopSource && meta) window.WorkshopSource.reconcile(meta.source);
       if (!liveConnectedSince) liveConnectedSince = Date.now();
-      if (meta && meta.projectLabel) {
-        currentProjectLabel = meta.projectLabel;
-        currentProjectId = meta.projectId || currentProjectId;
-        projects.updateFooterProject();
-        if (projectPicker && currentProjectId) {
-          projectPicker.value = currentProjectId;
-        }
+      if (meta) takeBridgeLabels(meta);
+      projects.updateFooterProject();
+      if (projectPicker && currentProjectId) {
+        projectPicker.value = currentProjectId;
       }
       applyBridgeSyncMeta(meta);
       demoBtn.classList.add("live-connected");
@@ -1418,8 +1428,8 @@
     function onReset(meta) {
       armLiveSseBacklogReplay();
       if (meta) {
-        if (meta.projectLabel) currentProjectLabel = meta.projectLabel;
-        if (meta.projectId) currentProjectId = meta.projectId;
+        takeBridgeLabels(meta);
+        if (window.WorkshopSource) window.WorkshopSource.applySource(meta.source);
       }
       resetUI({ keepActive: false });
       demoBtn.classList.add("live-connected");
@@ -1525,12 +1535,23 @@
     stageDirector.reset();
   }
 
+  /** History is off only while Live reads Claude Code; Demo and Cursor keep it. */
+  function syncHistoryAllowed() {
+    var claude =
+      mode === "live" &&
+      window.WorkshopSource &&
+      window.WorkshopSource.getSource() === "claude-code";
+    view.setHistoryAllowed(!claude);
+  }
+
   function setMode(next) {
     if (next === mode && next === "live" && es) return;
     mode = next;
     modeDemo.classList.toggle("on", mode === "demo");
     modeLive.classList.toggle("on", mode === "live");
     modeLive.classList.toggle("live-on", mode === "live");
+    if (window.WorkshopSource) window.WorkshopSource.setVisible(mode === "live");
+    syncHistoryAllowed();
     bill.resetDemoTotal();
     if (next === "demo") clearLiveSeenEvents();
     if (AgentCards && typeof AgentCards.onModeChange === "function") {
@@ -1576,6 +1597,7 @@
         projects.updateFooterProject();
         // Restart Live stream; SSE "reset" may be missed if the old EventSource closes first
         startLive();
+        // In Claude Code mode the view layer keeps History off and this lands on Stage.
         setViewMode("history");
         projects.onScopeChange(data, { navigateHistory: false });
       });
@@ -1696,8 +1718,35 @@
     },
     setViewMode: function (m) {
       setViewMode(m);
+    },
+    getSource: function () {
+      return window.WorkshopSource ? window.WorkshopSource.getSource() : "cursor";
     }
   });
+
+  if (window.WorkshopSource) {
+    window.WorkshopSource.init({
+      cursorButton: document.getElementById("sourceCursor"),
+      claudeButton: document.getElementById("sourceClaude"),
+      group: document.getElementById("sourceSeg"),
+      chip: document.getElementById("hudSource"),
+      chipValue: document.getElementById("hudSourceValue"),
+      liveHint: liveHint,
+      bridgeUrl: BRIDGE,
+      onSourceShown: syncHistoryAllowed,
+      onChanged: function () {
+        // Same follow-up as a project pick: restart the stream on the new source.
+        // History is not opened: it is off in Claude Code mode. Only in Live: a switch that
+        // finishes after the user went to Demo must not open a stream.
+        if (mode === "live") {
+          currentProjectLabel = null;
+          currentProjectId = null;
+          startLive();
+        }
+        projects.updateFooterProject();
+      }
+    });
+  }
 
   view.init({
     appEl: appEl,

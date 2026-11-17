@@ -366,6 +366,57 @@ async function testTimeout() {
   });
 }
 
+/** The SSE hello names the source in both modes; the dashboard reconciles on it. */
+async function helloOf(port) {
+  const stream = openStream(port);
+  try {
+    await stream.waitFor("event: hello\ndata: ");
+    await stream.waitFor("}\n\n");
+    const m = /event: hello\ndata: (.*)\n\n/.exec(stream.text());
+    if (!m) throw new Error("no hello in stream: " + stream.text());
+    return { json: JSON.parse(m[1]), text: m[1] };
+  } finally {
+    stream.close();
+  }
+}
+
+async function testHelloSource() {
+  await withBridge({ claudeCode: claudeBag() }, async (port) => {
+    const cursorHello = (await helloOf(port)).json;
+    assert.strictEqual(cursorHello.source, "cursor", "cursor mode hello names its source");
+    assert.strictEqual((await post(port, "/api/source", { source: "claude-code" })).status, 200);
+    const ccHello = await helloOf(port);
+    assert.strictEqual(ccHello.json.source, "claude-code", "claude-code hello names its source");
+    assert.strictEqual(ccHello.json.transcripts, undefined, "claude-code hello has no transcripts");
+    record("SSE hello (claude-code)", ccHello.text);
+  });
+}
+
+async function testCursorResetNamesSource() {
+  await withBridge({ claudeCode: claudeBag() }, async (port) => {
+    const stream = openStream(port);
+    try {
+      await stream.waitFor("event: hello\ndata: ");
+      assert.strictEqual((await post(port, "/api/source", { source: "claude-code" })).status, 200);
+      await stream.waitFor('"source":"claude-code"');
+      assert.strictEqual((await post(port, "/api/source", { source: "cursor" })).status, 200);
+      const resets = [];
+      for (let i = 0; i < 100 && resets.length < 2; i++) {
+        resets.length = 0;
+        for (const m of stream.text().matchAll(/event: reset\ndata: (.*)\n\n/g)) {
+          resets.push(JSON.parse(m[1]));
+        }
+        if (resets.length < 2) await new Promise((r) => setTimeout(r, 30));
+      }
+      assert.strictEqual(resets.length, 2, "one reset per switch");
+      assert.strictEqual(resets[0].source, "claude-code", "claude-code reset names its source");
+      assert.strictEqual(resets[1].source, "cursor", "cursor reset names its source");
+    } finally {
+      stream.close();
+    }
+  });
+}
+
 async function testSalt() {
   // unreadable app-data folder (a file stands where the folder should be)
   const badDir = path.join(SCRATCH, "not-a-folder");
@@ -838,6 +889,8 @@ async function main() {
   buildTrees();
   try {
     await testSwitching();
+    await testHelloSource();
+    await testCursorResetNamesSource();
     await testTimeout();
     await testSalt();
     await testCursorIsolation();
@@ -857,7 +910,7 @@ async function main() {
       assert.ok(!text.includes(PLANTED), label + " carries the planted name");
     }
     console.log(
-      "claude-code-bridge OK · switch, select, guards, privacy, salt, timeout, isolation, alerts, restart, stop race"
+      "claude-code-bridge OK · switch, hello source, select, guards, privacy, salt, timeout, isolation, alerts, restart, stop race"
     );
   } finally {
     fs.rmSync(SCRATCH, { recursive: true, force: true });
