@@ -377,6 +377,7 @@ test("a parent past the per-poll cap is fully read before any child is fed", () 
   const ing = I.createClaudeCodeIngest({ projectDir: dir });
   const first = ing.poll();
   assert.equal(ing.stats().more, true);
+  assert.equal(ing.stats().capped, true, "capped unread bytes are reported as capped");
   assert.ok(!first.some((r) => /^subagent/.test(r.source)), "no child fed in a capped poll");
   assert.equal(ing.stats().files, 1);
   const rest = drain(ing);
@@ -405,6 +406,7 @@ test("more stays true when a later file's oversize skip finishes that file", () 
   ing.poll();
   assert.equal(ing.stats().drift.oversize, 1);
   assert.equal(ing.stats().more, true, "agent-a still has capped bytes");
+  assert.equal(ing.stats().capped, true);
   drain(ing);
 });
 
@@ -847,6 +849,7 @@ test("child hold: a child waits for its parent's Agent result, then gets the rig
     early.push(...ing.poll());
     assert.equal(ing.stats().heldChildren, 1, "held on poll " + (i + 1));
     assert.equal(ing.stats().more, true, "a held child keeps more true");
+    assert.equal(ing.stats().capped, false, "a hold is a wait, not capped bytes");
   }
   assert.ok(!early.some(isChildRow), "no child line fed while held");
   assert.ok(early.length > 0, "the parent itself is not blocked");
@@ -1436,4 +1439,482 @@ test("the module does not load event-log.js and ingest writes no event-log file"
   );
   assert.deepEqual(loaded, []);
   assert.deepEqual(fs.readdirSync(EVENT_DIR), []);
+});
+
+// ---- per-poll facts and catch-up polls (the bridge reads these instead of guessing) ----
+
+const busyOn = (match, count, calls) =>
+  function (orig) {
+    let left = count;
+    return function (p, ...a) {
+      if (match(p, a) && left > 0) {
+        left -= 1;
+        if (calls) calls.n += 1;
+        throw EBUSY();
+      }
+      return orig.call(this, p, ...a);
+    };
+  };
+
+test("facts: parentRead is true only when this poll read the current parent to its end", () => {
+  const dir = newProject();
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  ing.poll();
+  assert.equal(ing.stats().parentRead, false, "an empty folder has no session to read");
+  copyFixture(dir);
+  ing.poll();
+  const st = ing.stats();
+  assert.equal(st.parentRead, true);
+  assert.equal(st.capped, false);
+  assert.equal(st.more, false);
+  assert.equal(st.waiting, false);
+  ing.poll();
+  assert.equal(ing.stats().parentRead, true, "nothing new to read still counts as read");
+  assert.ok(!JSON.stringify(ing.stats()).includes(dir), "path-free");
+});
+
+test("facts: a failed parent lstat or open leaves parentRead false, even on the first poll", () => {
+  for (const kind of ["openSync", "lstatSync"]) {
+    const dir = newProject();
+    copyFixture(dir);
+    const parentFile = path.join(dir, "s1.jsonl");
+    const ing = I.createClaudeCodeIngest({ projectDir: dir });
+    const calls = { n: 0 };
+    const first = withStub(
+      kind,
+      busyOn(
+        (p, a) => p === parentFile && (kind === "openSync" || (a[0] && a[0].bigint)),
+        1,
+        calls
+      ),
+      () => ing.poll()
+    );
+    assert.equal(calls.n, 1, kind + " fault applied");
+    assert.deepEqual(first, []);
+    const st = ing.stats();
+    assert.equal(st.sessions, 1, "the session was adopted all the same");
+    assert.equal(st.parentRead, false, kind + ": a failed read is not a read");
+    ing.poll();
+    assert.equal(ing.stats().parentRead, true, "the next poll reads it");
+  }
+});
+
+test("facts: a capped parent is not read to its end until drained", () => {
+  const dir = newProject();
+  const filler = JSON.stringify({ type: "system", pad: "x".repeat(900) });
+  const lines = [];
+  for (let n = 0; n < Math.ceil((T.TRANSCRIPT_READ_MAX_PER_POLL * 2) / 900); n++)
+    lines.push(filler);
+  fs.writeFileSync(path.join(dir, "s1.jsonl"), lines.join("\n") + "\n");
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  ing.poll();
+  assert.equal(ing.stats().capped, true);
+  assert.equal(ing.stats().parentRead, false);
+  for (let i = 0; i < 5 && ing.stats().capped; i++) ing.poll({ catchUp: true });
+  assert.equal(ing.stats().capped, false);
+  assert.equal(ing.stats().parentRead, true);
+});
+
+test("facts: a reset (shrink) whose read fails is not a read; the next poll is", () => {
+  const dir = newProject();
+  const L = parentLines();
+  const parentFile = path.join(dir, "s1.jsonl");
+  fs.writeFileSync(parentFile, L.slice(0, 6).join("\n") + "\n");
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  ing.poll();
+  assert.equal(ing.stats().parentRead, true);
+  fs.writeFileSync(parentFile, L.slice(0, 2).join("\n") + "\n"); // shrunk
+  withStub(
+    "openSync",
+    busyOn((p) => p === parentFile, 1),
+    () => ing.poll()
+  );
+  assert.equal(ing.stats().sessions, 2, "the shrink reset the session");
+  assert.equal(ing.stats().parentRead, false);
+  ing.poll();
+  assert.equal(ing.stats().parentRead, true);
+});
+
+test("facts: a vanished parent is not a read", () => {
+  const dir = newProject();
+  copyFixture(dir);
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  ing.poll();
+  fs.rmSync(path.join(dir, "s1.jsonl"));
+  ing.poll();
+  assert.equal(ing.stats().parentRead, false);
+});
+
+test("facts: waiting covers a child hold, a meta wait and a session hold", () => {
+  // child hold
+  const h = holdProject(34, false);
+  const ing = I.createClaudeCodeIngest({ projectDir: h.dir });
+  ing.poll();
+  let st = ing.stats();
+  assert.equal(st.parentRead, true, "the parent itself was read");
+  assert.deepEqual([st.waiting, st.more, st.heldChildren, st.metaWaiting], [true, true, 1, 0]);
+  fs.appendFileSync(h.parentFile, h.L[34] + "\n");
+  ing.poll();
+  assert.equal(ing.stats().waiting, false);
+  // meta wait
+  const dir = newProject();
+  const sub = copyFixture(dir);
+  fs.rmSync(path.join(sub, "agent-a1.meta.json"));
+  const m = I.createClaudeCodeIngest({ projectDir: dir });
+  m.poll();
+  st = m.stats();
+  assert.deepEqual([st.waiting, st.more, st.metaWaiting], [true, true, 1]);
+  m.poll();
+  m.poll();
+  assert.deepEqual([m.stats().waiting, m.stats().metaWaiting], [false, 0]);
+  // session hold
+  const d3 = newProject();
+  const a = path.join(d3, "a.jsonl");
+  const b = path.join(d3, "b.jsonl");
+  fs.writeFileSync(a, parentLines().slice(0, 3).join("\n") + "\n");
+  fs.writeFileSync(b, parentLines().slice(0, 4).join("\n") + "\n");
+  fs.utimesSync(a, new Date(2026, 3, 1), new Date(2026, 3, 1));
+  fs.utimesSync(b, new Date(2026, 3, 1), new Date(2026, 3, 1));
+  const clock = mkClock();
+  const s = I.createClaudeCodeIngest({ projectDir: d3, now: clock });
+  s.poll();
+  assert.equal(s.stats().waiting, false);
+  fs.utimesSync(b, new Date(2026, 3, 5), new Date(2026, 3, 5));
+  clock.advance();
+  s.poll();
+  assert.deepEqual([s.stats().waiting, s.stats().more], [true, false], "a session hold is a wait");
+});
+
+test("catch-up polls do not advance the child hold: only regular polls count", () => {
+  const { dir } = holdProject(34, false);
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  ing.poll();
+  for (let i = 0; i < 30; i++) {
+    assert.ok(!ing.poll({ catchUp: true }).some(isChildRow));
+    assert.equal(ing.stats().heldChildren, 1);
+  }
+  // the hold still lasts HOLD_CHILD_POLLS regular polls in total (one is already spent)
+  for (let i = 2; i <= I.HOLD_CHILD_POLLS; i++) {
+    assert.ok(!ing.poll().some(isChildRow), "still held on regular poll " + i);
+  }
+  assert.ok(
+    ing.poll().some((r) => isChildRow(r) && r.type === "spawn"),
+    "released after that"
+  );
+});
+
+test("catch-up polls do not advance the meta wait", () => {
+  const dir = newProject();
+  const sub = copyFixture(dir);
+  fs.rmSync(path.join(sub, "agent-a2.meta.json"));
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  const isA2 = (r) => /^subagent/.test(r.source) && r.agentId === "a2";
+  assert.ok(!ing.poll().some(isA2));
+  for (let i = 0; i < 30; i++) {
+    assert.ok(!ing.poll({ catchUp: true }).some(isA2), "catch-up poll " + i);
+    assert.equal(ing.stats().metaWaiting, 1);
+  }
+  assert.ok(!ing.poll().some(isA2), "second regular poll still waits");
+  assert.ok(ing.poll().some(isA2), "third regular poll runs without the meta, as before");
+});
+
+test("catch-up polls do not advance the session hold", () => {
+  const dir = newProject();
+  const a = path.join(dir, "a.jsonl");
+  const b = path.join(dir, "b.jsonl");
+  fs.writeFileSync(a, parentLines().slice(0, 3).join("\n") + "\n");
+  fs.writeFileSync(b, parentLines().slice(0, 4).join("\n") + "\n");
+  fs.utimesSync(a, new Date(2026, 3, 1), new Date(2026, 3, 1));
+  fs.utimesSync(b, new Date(2026, 3, 1), new Date(2026, 3, 1));
+  const clock = mkClock();
+  const ing = I.createClaudeCodeIngest({ projectDir: dir, now: clock });
+  ing.poll();
+  fs.utimesSync(b, new Date(2026, 3, 5), new Date(2026, 3, 5));
+  for (let i = 0; i < 20; i++) {
+    clock.advance();
+    ing.poll({ catchUp: true });
+  }
+  assert.equal(ing.stats().sessions, 1, "twenty catch-up polls never switch");
+  for (let i = 1; i <= I.HOLD_POLLS; i++) {
+    assert.equal(ing.stats().sessions, 1, "not yet switched before regular poll " + i);
+    clock.advance();
+    ing.poll();
+  }
+  assert.equal(ing.stats().sessions, 2, "the switch needs HOLD_POLLS regular polls");
+});
+
+test("catch-up polls do not advance the idle counters", () => {
+  const dir = newProject();
+  const sub = copyFixture(dir);
+  const a1 = path.join(sub, "agent-a1.jsonl");
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  drain(ing);
+  for (let i = 0; i < 5 * I.IDLE_AFTER; i++) ing.poll({ catchUp: true });
+  let calls = 0;
+  withStub(
+    "lstatSync",
+    (orig) =>
+      function (p, ...a) {
+        if (String(p) === a1) calls += 1;
+        return orig.call(this, p, ...a);
+      },
+    () => ing.poll()
+  );
+  assert.equal(calls, 1, "the child is not idle yet: a regular poll still stats it");
+});
+
+test("catch-up polls still read capped bytes", () => {
+  const dir = newProject();
+  const filler = JSON.stringify({ type: "system", pad: "x".repeat(900) });
+  const lines = [];
+  for (let n = 0; n < Math.ceil((T.TRANSCRIPT_READ_MAX_PER_POLL * 3) / 900); n++)
+    lines.push(filler);
+  fs.writeFileSync(path.join(dir, "s1.jsonl"), lines.join("\n") + "\n");
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  ing.poll();
+  let n = 0;
+  while (ing.stats().capped && n++ < 10) ing.poll({ catchUp: true });
+  assert.equal(ing.stats().capped, false);
+  assert.equal(ing.stats().parentRead, true);
+  assert.ok(ing.stats().lines >= lines.length, "every line was read");
+});
+
+test("facts: a transient failure on a child never read holds the live phase, then lets go", () => {
+  for (const kind of ["openSync", "lstatSync"]) {
+    const dir = newProject();
+    const sub = copyFixture(dir);
+    const child = path.join(sub, "agent-a1.jsonl");
+    const ing = I.createClaudeCodeIngest({ projectDir: dir });
+    const calls = { n: 0 };
+    withStub(
+      kind,
+      busyOn((p, a) => p === child && (kind === "openSync" || (a[0] && a[0].bigint)), 1, calls),
+      () => ing.poll()
+    );
+    assert.equal(calls.n, 1, kind + " fault applied");
+    let st = ing.stats();
+    assert.equal(st.parentRead, true, "the parent itself was read");
+    assert.equal(st.waiting, true, kind + ": an unread child that failed is a pending wait");
+    assert.equal(st.more, false, "more keeps its meaning");
+    ing.poll();
+    st = ing.stats();
+    assert.equal(st.waiting, false, kind + ": the next regular poll read it");
+    assert.ok(ing.poll().length === 0 && ing.stats().lines > 0);
+  }
+});
+
+test("facts: a child that keeps failing holds the live phase for a bounded number of polls", () => {
+  const dir = newProject();
+  const sub = copyFixture(dir);
+  const child = path.join(sub, "agent-a1.jsonl");
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  const flags = withStub(
+    "lstatSync",
+    busyOn((p, a) => p === child && a[0] && a[0].bigint, 100),
+    () => {
+      const out = [];
+      for (let i = 0; i < 5; i++) ing.poll({ catchUp: true }); // re-polls never use the wait up
+      for (let i = 0; i < I.FAULT_WAIT_POLLS + 2; i++) {
+        ing.poll();
+        out.push(ing.stats().waiting);
+      }
+      return out;
+    }
+  );
+  assert.deepEqual(
+    flags,
+    [...Array(I.FAULT_WAIT_POLLS).fill(true), false, false],
+    "waits FAULT_WAIT_POLLS regular polls, then stops waiting"
+  );
+  assert.ok(ing.stats().drift.unreadable >= I.FAULT_WAIT_POLLS, "every failure is counted");
+});
+
+test("facts: a failed subagents listing holds the live phase, a missing folder does not", () => {
+  const dir = newProject();
+  const sub = copyFixture(dir);
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  const calls = { n: 0 };
+  withStub(
+    "readdirSync",
+    busyOn((p) => String(p) === sub, 1, calls),
+    () => ing.poll()
+  );
+  assert.equal(calls.n, 1, "listing fault applied");
+  assert.equal(ing.stats().waiting, true);
+  ing.poll();
+  assert.equal(ing.stats().waiting, false);
+  const plain = newProject();
+  fs.copyFileSync(path.join(dir, "s1.jsonl"), path.join(plain, "s1.jsonl"));
+  const none = I.createClaudeCodeIngest({ projectDir: plain });
+  none.poll();
+  assert.equal(none.stats().waiting, false, "no subagents folder at all is not a fault");
+});
+
+test("facts: a child bigger than one read that fails on its second chunk still holds the live phase", () => {
+  for (const kind of ["openSync", "lstatSync"]) {
+    const dir = newProject();
+    const sub = copyFixture(dir);
+    const child = path.join(sub, "agent-a1.jsonl");
+    const filler = JSON.stringify({ type: "x", pad: "y".repeat(900) }) + String.fromCharCode(10);
+    fs.writeFileSync(child, filler.repeat(400) + fs.readFileSync(child, "utf8"));
+    assert.ok(fs.statSync(child).size > 300 * 1024, "larger than one read");
+    const ing = I.createClaudeCodeIngest({ projectDir: dir });
+    ing.poll();
+    assert.equal(ing.stats().capped, true, "the first chunk was capped");
+    const calls = { n: 0 };
+    withStub(
+      kind,
+      busyOn((p, a) => p === child && (kind === "openSync" || (a[0] && a[0].bigint)), 1, calls),
+      () => ing.poll({ catchUp: true })
+    );
+    assert.equal(calls.n, 1, kind + " fault applied");
+    const st = ing.stats();
+    assert.equal(st.waiting, true, kind + ": a failure part-way through the first read waits");
+    for (let i = 0; i < 6 && ing.stats().capped; i++) ing.poll({ catchUp: true });
+    ing.poll();
+    assert.deepEqual([ing.stats().capped, ing.stats().waiting], [false, false], "then it drains");
+  }
+});
+
+test("facts: a failed subagents folder check holds the live phase", () => {
+  const dir = newProject();
+  const sub = copyFixture(dir);
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  const calls = { n: 0 };
+  withStub(
+    "lstatSync",
+    busyOn((p) => String(p) === sub, 1, calls),
+    () => ing.poll()
+  );
+  assert.equal(calls.n, 1, "folder fault applied");
+  assert.equal(ing.stats().waiting, true);
+  ing.poll();
+  assert.equal(ing.stats().waiting, false);
+});
+
+test("facts: a child that vanishes (missing, not busy) is not a fault", () => {
+  const dir = newProject();
+  const sub = copyFixture(dir);
+  const child = path.join(sub, "agent-a1.jsonl");
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  withStub(
+    "lstatSync",
+    (orig) =>
+      function (p, ...a) {
+        if (String(p) === child) throw Object.assign(new Error("gone"), { code: "ENOENT" });
+        return orig.call(this, p, ...a);
+      },
+    () => ing.poll()
+  );
+  assert.equal(ing.stats().waiting, false, "a missing child holds nothing");
+});
+
+test("facts: a child already read to its end that then fails does NOT hold the live phase", () => {
+  for (const kind of ["openSync", "lstatSync"]) {
+    const dir = newProject();
+    const sub = copyFixture(dir);
+    const child = path.join(sub, "agent-a1.jsonl");
+    const ing = I.createClaudeCodeIngest({ projectDir: dir });
+    drain(ing);
+    assert.equal(ing.stats().waiting, false, "read to its end");
+    // new data to read, so openSync is reached; the failure is on a file that was fully read once
+    fs.appendFileSync(
+      child,
+      JSON.stringify({ type: "system", note: "more" }) + String.fromCharCode(10)
+    );
+    const calls = { n: 0 };
+    withStub(
+      kind,
+      busyOn((p, a) => p === child && (kind === "openSync" || (a[0] && a[0].bigint)), 1, calls),
+      () => ing.poll()
+    );
+    assert.equal(calls.n, 1, kind + " fault applied");
+    assert.equal(ing.stats().waiting, false, kind + ": new data is live data, no wait");
+  }
+});
+
+test("facts: a child with nothing to read counts as read to its end (the size <= offset branch)", () => {
+  const dir = newProject();
+  const sub = copyFixture(dir);
+  const child = path.join(sub, "agent-empty.jsonl");
+  fs.writeFileSync(child, "");
+  fs.writeFileSync(
+    path.join(sub, "agent-empty.meta.json"),
+    JSON.stringify({ agentType: "worker" })
+  );
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  drain(ing);
+  const calls = { n: 0 };
+  withStub(
+    "lstatSync",
+    busyOn((p, a) => p === child && a[0] && a[0].bigint, 1, calls),
+    () => ing.poll()
+  );
+  assert.equal(calls.n, 1, "lstat fault applied");
+  assert.equal(
+    ing.stats().waiting,
+    false,
+    "an empty child was read to its end: a failure is not a wait"
+  );
+});
+
+test("catch-up polls do not advance the idle skipped counter: the next real lstat comes at the same regular poll", () => {
+  const regularPollsUntilLstat = (extraCatchUps) => {
+    const dir = newProject();
+    const sub = copyFixture(dir);
+    const a1 = path.join(sub, "agent-a1.jsonl");
+    const ing = I.createClaudeCodeIngest({ projectDir: dir });
+    drain(ing);
+    for (let i = 0; i < I.IDLE_AFTER + 2; i++) ing.poll(); // settle into idle
+    for (let i = 0; i < extraCatchUps; i++) ing.poll({ catchUp: true });
+    let calls = 0;
+    return withStub(
+      "lstatSync",
+      (orig) =>
+        function (p, ...a) {
+          if (String(p) === a1) calls += 1;
+          return orig.call(this, p, ...a);
+        },
+      () => {
+        for (let n = 1; n <= 3 * I.IDLE_EVERY; n++) {
+          ing.poll();
+          if (calls > 0) return n;
+        }
+        return -1;
+      }
+    );
+  };
+  const plain = regularPollsUntilLstat(0);
+  assert.ok(plain > 0, "an idle child is stat'ed again within a few periods");
+  assert.equal(
+    regularPollsUntilLstat(3 * I.IDLE_EVERY),
+    plain,
+    "catch-up polls left skipped alone"
+  );
+});
+
+test("with no session known, a new top-level session is found even when the folder mtime does not change", () => {
+  const dir = newProject();
+  const frozen = fs.statSync(dir);
+  const ing = I.createClaudeCodeIngest({ projectDir: dir });
+  const found = withStub(
+    "statSync",
+    (orig) =>
+      function (p, ...a) {
+        const st = orig.call(this, p, ...a);
+        // the folder reports the same (pre-create) mtime on every call
+        return String(p) === dir
+          ? Object.assign(Object.create(st), { mtimeMs: frozen.mtimeMs })
+          : st;
+      },
+    () => {
+      ing.poll();
+      assert.equal(ing.stats().sessions, 0, "empty folder, no session");
+      copyFixture(dir);
+      ing.poll();
+      return ing.stats().sessions;
+    }
+  );
+  assert.equal(found, 1, "the new session is listed on the next poll, no sleep, no mtime change");
+  assert.equal(ing.stats().parentRead, true);
 });

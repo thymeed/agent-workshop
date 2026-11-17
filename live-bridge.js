@@ -25,6 +25,8 @@ const os = require("os");
 const { createEventLog, resolveLogDir } = require("./lib/event-log");
 const { loadOrCreateSalt } = require("./lib/claude-code-sources");
 const { createClaudeCodeMode } = require("./lib/claude-code-bridge");
+const { createClaudeCodeIngest } = require("./lib/claude-code-ingest");
+const wire = require("./lib/claude-code-wire");
 const { subagentUuidFromTranscriptPath } = require("./lib/path-segments");
 const {
   sendJson,
@@ -150,6 +152,16 @@ let currentProjectLabel = null;
 let source = "cursor";
 /** @type {ReturnType<typeof createClaudeCodeMode>|null} */
 let claudeCode = null;
+/** Claude Code tail for the selected project (one per selection), or null. Never serialised.
+ * @type {null|{ingest:ReturnType<typeof createClaudeCodeIngest>, sessions:number, caughtUp:boolean, models:string, driftTotal:number, unknownStatus:number}} */
+let claudeTail = null;
+/** Latest slot -> model id map sent to the dashboard (Claude Code mode), '{}' until known. */
+let claudeModels = {};
+/** Ingest polls per scan while capped unread bytes remain (keeps catch-up fast, bounded). Waits
+ * the ingest counts in polls (meta wait, child hold, session hold) are never spun through. */
+const MAX_CATCHUP_POLLS = 20;
+/** ISO time the Claude Code drift counters last grew. */
+let claudeDriftAt = null;
 
 /** @type {Array<object>} */
 const events = [];
@@ -355,6 +367,25 @@ function pushEvent(partial) {
     modelLabel: partial.modelLabel || null,
     activity: partial.activity != null ? partial.activity : null,
     source: partial.source || "transcript"
+  };
+  events.push(ev);
+  if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+  broadcastSse(null, ev);
+  return ev;
+}
+
+/**
+ * Push one Claude Code event (fields from lib/claude-code-wire.js). Separate from pushEvent so
+ * Cursor events stay byte for byte as they were. Never touches the event log or History.
+ * @param {Record<string, any>} fields
+ */
+function pushClaudeEvent(fields, replay) {
+  const ev = {
+    id: ++eventSeq,
+    ...fields,
+    ...(replay ? { replay: true } : {}),
+    ts: fields.ts || clock(),
+    iso: fields.iso || nowIso()
   };
   events.push(ev);
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
@@ -589,6 +620,81 @@ function resetClaudeWatch() {
   });
 }
 
+/** Start tailing the selected project (drops any earlier tail). No selection: no tail. */
+function beginClaudeTail() {
+  claudeTail = null;
+  claudeModels = {};
+  claudeDriftAt = null;
+  const dir = claudeCode && claudeCode.projectDir();
+  if (!dir) return;
+  claudeTail = {
+    ingest: createClaudeCodeIngest({ projectDir: dir }),
+    sessions: 0,
+    caughtUp: false,
+    models: "",
+    driftTotal: 0,
+    unknownStatus: 0
+  };
+}
+
+/** Send the slot -> model map when it changed (the dashboard feeds it to RoleProfiles.setModels). */
+function publishClaudeModels(t) {
+  const map = wire.resolveSlotModels(t.ingest.models());
+  const text = JSON.stringify(map);
+  if (text === t.models) return;
+  t.models = text;
+  claudeModels = map;
+  broadcastSse("models", { models: map });
+}
+
+/** One row of a Claude Code session: event always, alert only when live. */
+function ingestClaudeRow(t, row, live) {
+  const fields = wire.eventFromRow(row);
+  if (fields.statusKnown === false) t.unknownStatus += 1;
+  pushClaudeEvent(fields, !live);
+  const alert = live ? wire.alertFromRow(row) : null;
+  if (alert) emitAgentAlert(alert.name, alert.status, alert.agentId);
+}
+
+/**
+ * Poll the Claude Code tail: one regular poll per scan, then catch-up polls (which advance no
+ * poll-counted wait) while capped unread bytes remain, bounded. Rows before the live phase, and
+ * rows of a newer session, are a replay: they fill the stage (marked `replay`) but never alert.
+ * The live phase starts only after a poll whose ingest facts say the current session's parent
+ * was read to its end without error, nothing is capped, and no wait is pending. A failed read,
+ * a vanished parent or an empty folder therefore never starts it, and a new session or reset
+ * restarts the replay.
+ */
+function scanClaudeCode() {
+  const t = claudeTail;
+  if (!t) return;
+  for (let i = 0; i < MAX_CATCHUP_POLLS; i++) {
+    const rows = t.ingest.poll({ catchUp: i > 0 });
+    const st = t.ingest.stats();
+    const d = st.drift;
+    const driftSum = d.unparsed + d.oversize + d.metaBad + d.unreadable + d.dirCut;
+    if (t.sessions > 0 && st.sessions !== t.sessions) {
+      // a newer session (or a rewritten file) replays from its start: clear first
+      resetClaudeWatch();
+      t.caughtUp = false;
+      t.models = "";
+      t.unknownStatus = 0;
+      t.driftTotal = driftSum;
+      claudeDriftAt = null;
+    }
+    t.sessions = st.sessions;
+    for (const row of rows) ingestClaudeRow(t, row, t.caughtUp);
+    publishClaudeModels(t);
+    const total = driftSum + t.unknownStatus;
+    if (total !== t.driftTotal) {
+      t.driftTotal = total;
+      claudeDriftAt = nowIso();
+    }
+    if (st.parentRead && !st.capped && !st.more && !st.waiting) t.caughtUp = true;
+    if (!st.capped) break;
+  }
+}
+
 function resetWatchState() {
   if (source === "claude-code") {
     resetClaudeWatch();
@@ -673,6 +779,7 @@ function statusPayload() {
 async function claudeStatusPayload(cc) {
   const sel = cc.selection();
   const pub = await cc.statusBody();
+  const ing = claudeTail ? claudeTail.ingest.stats() : null;
   return {
     ok: true,
     bridgeId: BRIDGE_ID,
@@ -682,15 +789,31 @@ async function claudeStatusPayload(cc) {
     projectLabel: sel.label,
     events: events.length,
     sseClients: sseClients.size,
-    watching: 0,
-    lastScanError: null,
+    watching: ing ? ing.files : 0,
+    lastScanError: ing && ing.projectMissing ? "project folder missing" : null,
+    /* Counts only, never samples: the ingest's own drift is folded in. */
     drift: {
-      unparsed: drift.unparsed,
+      unparsed: drift.unparsed + (ing ? ing.drift.unparsed : 0),
       unknownShape: drift.unknownShape,
-      unknownStatus: drift.unknownStatus,
-      lastAt: drift.lastAt,
+      unknownStatus: drift.unknownStatus + (claudeTail ? claudeTail.unknownStatus : 0),
+      oversize: ing ? ing.drift.oversize : 0,
+      metaBad: ing ? ing.drift.metaBad : 0,
+      unreadable: ing ? ing.drift.unreadable : 0,
+      dirCut: ing ? ing.drift.dirCut : 0,
+      lastAt: claudeDriftAt || drift.lastAt,
       lastSample: ""
     },
+    models: claudeModels,
+    ingest: ing
+      ? {
+          files: ing.files,
+          lines: ing.lines,
+          rows: ing.rows,
+          sessions: ing.sessions,
+          more: ing.more,
+          heldChildren: ing.heldChildren
+        }
+      : null,
     snoozed: snoozeIndefinite,
     lastScanAt,
     pollMs: POLL_MS,
@@ -707,6 +830,7 @@ async function selectClaudeProject(cc, id) {
     return { status: 400, body: { ok: false, error: "Unknown or disallowed project id" } };
   }
   resetClaudeWatch();
+  beginClaudeTail();
   const sel = cc.selection();
   return {
     status: 200,
@@ -724,7 +848,10 @@ function setSource(next) {
   if (next === "claude-code") {
     claudeCode.invalidate();
     resetClaudeWatch();
+    beginClaudeTail();
   } else {
+    claudeTail = null;
+    claudeModels = {};
     resetWatchState();
   }
 }
@@ -1390,7 +1517,11 @@ function ingestNewBytes(filePath) {
 
 function scan() {
   if (source !== "cursor") {
-    // Claude Code transcripts are not tailed yet: only keep the HUD's sync age fresh
+    try {
+      scanClaudeCode();
+    } catch (_e) {
+      /* a failed poll is retried on the next scan; the ingest counts its own drift */
+    }
     lastScanAt = nowIso();
     return;
   }
@@ -1740,6 +1871,7 @@ function createServer() {
         hello.source = source;
         hello.projectId = sel.id;
         hello.projectLabel = sel.label;
+        hello.models = claudeModels;
       }
       res.write(`event: hello\ndata: ${JSON.stringify(hello)}\n\n`);
       const backlog = events.slice(-40);
@@ -1998,6 +2130,9 @@ function stopBridge() {
     snoozeIndefinite = false;
     source = "cursor";
     claudeCode = null;
+    claudeTail = null;
+    claudeModels = {};
+    claudeDriftAt = null;
     for (const res of sseClients) {
       try {
         res.end();
