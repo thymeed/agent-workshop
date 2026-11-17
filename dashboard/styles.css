@@ -141,6 +141,25 @@ body::after {
   border-color: rgba(62, 207, 255, 0.22);
 }
 
+/* Data source (Cursor | Claude Code): Live only; same Live colours as the Demo/Live seg */
+.source-seg {
+  border-color: rgba(62, 207, 255, 0.22);
+}
+
+.source-seg[hidden] {
+  display: none;
+}
+
+.source-seg button.on {
+  background: rgba(62, 207, 255, 0.16);
+  color: var(--sonnet);
+}
+
+.source-seg button[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
 /* View modes: Stage | Insights | History. hooks for sheet focus (drawers land later) */
 #app[data-view-mode="stage"] .view-mode-seg #viewStage.on,
 #app[data-view-mode="insights"] .view-mode-seg #viewInsights.on,

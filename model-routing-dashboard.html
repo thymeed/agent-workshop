@@ -67,6 +67,27 @@
                 Live
               </button>
             </div>
+            <div class="seg source-seg" id="sourceSeg" role="group" aria-label="Data source" hidden>
+              <button
+                type="button"
+                id="sourceCursor"
+                class="on"
+                aria-pressed="true"
+                data-tip="Cursor source"
+                data-tip-detail="Read Cursor agent transcripts (the default)"
+              >
+                Cursor
+              </button>
+              <button
+                type="button"
+                id="sourceClaude"
+                aria-pressed="false"
+                data-tip="Claude Code source"
+                data-tip-detail="Read the selected project's newest Claude Code session, Windows and WSL"
+              >
+                Claude Code
+              </button>
+            </div>
             <div class="seg view-mode-seg" id="viewMode" role="group" aria-label="View">
               <button
                 type="button"
@@ -256,7 +277,10 @@
           <div class="live-coach-inner">
             <h2 class="live-coach-title">Live workshop</h2>
             <ul class="live-coach-list">
-              <li>Pick a Cursor project. The bridge tails that project's agent-transcripts.</li>
+              <li>
+                Choose Cursor or Claude Code, then pick a project. The bridge tails that project's
+                transcripts.
+              </li>
               <li>
                 Live sees near-real file activity, not hook-level realtime. Idle stations can mean
                 healthy quiet.
@@ -645,6 +669,14 @@
                 data-tip="Haiku tokens"
                 data-tip-detail="Illustrative Haiku in+out · scout fuel from transcripts"
                 >haiku <strong id="hudTokens">0</strong></span
+              >
+              <span
+                class="hud-chip source-chip"
+                id="hudSource"
+                hidden
+                data-tip="Data source"
+                data-tip-detail="Which tree the workshop is reading right now: Cursor transcripts or a Claude Code project"
+                >source <strong id="hudSourceValue">Cursor</strong></span
               >
             </div>
           </div>
@@ -1054,6 +1086,7 @@
     <script src="dashboard/activity.js"></script>
     <script src="dashboard/view-mode.js"></script>
     <script src="dashboard/projects.js"></script>
+    <script src="dashboard/source-switch.js"></script>
     <script src="dashboard/presence.js"></script>
     <script src="dashboard/app.js"></script>
   </body>

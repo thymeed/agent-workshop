@@ -704,6 +704,7 @@ function resetWatchState() {
   snapshotTranscriptInventory();
   broadcastSse("reset", {
     ok: true,
+    source,
     transcripts: TRANSCRIPTS,
     projectId: currentProjectId,
     projectLabel: currentProjectLabel,
@@ -1859,6 +1860,7 @@ function createServer() {
       });
       const hello = {
         ok: true,
+        source,
         transcripts: TRANSCRIPTS,
         projectId: currentProjectId,
         projectLabel: currentProjectLabel,
@@ -1868,7 +1870,6 @@ function createServer() {
       if (source === "claude-code") {
         const sel = claudeCode.selection();
         delete hello.transcripts;
-        hello.source = source;
         hello.projectId = sel.id;
         hello.projectLabel = sel.label;
         hello.models = claudeModels;
