@@ -1053,6 +1053,76 @@ async function smokeSnoozeSoundSuppression(browser) {
 }
 
 /**
+ * Claude Code failed rows play the error sound at the real call site (applyLiveEvent): once per
+ * id, never for replay, backlog, stopped or Cursor-shaped rows; the status line turns "err".
+ */
+async function smokeClaudeErrorSound(browser) {
+  const { port } = await startBridgeForSmoke();
+  const page = await newCursorPage(browser);
+  const errors = [];
+  try {
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded", timeout: 15000 });
+    await page.waitForFunction(
+      () => document.getElementById("demoBtn")?.classList.contains("live-connected"),
+      undefined,
+      { timeout: 12000 }
+    );
+    await page.waitForTimeout(800); // let the connect backlog window close
+    const r = await page.evaluate(() => {
+      const h = window.__cursorAgentsDashTest;
+      let plays = 0;
+      const realPlay = window.WorkshopSound.play;
+      window.WorkshopSound.play = function (name) {
+        if (name === "error") plays += 1;
+        return realPlay.apply(this, arguments);
+      };
+      const row = (id, extra) =>
+        Object.assign(
+          { id, role: "worker", type: "error", kind: "status", message: "Worker finished · x" },
+          extra
+        );
+      const out = {};
+      const step = (name, ev) => {
+        const before = plays;
+        h.applyLiveEvent(ev);
+        out[name] = plays - before;
+      };
+      step("failed", row(93001, { failed: true }));
+      out.errLine = !!document.querySelector(".status .err");
+      step("failedAgain", row(93001, { failed: true }));
+      step("replay", row(93002, { failed: true, replay: true }));
+      step("backlog", row(93003, { failed: true, sseBacklog: true }));
+      const beforeHist = plays;
+      h.applyLiveEvent(row(93007, { failed: true }), { replay: true });
+      out.historyReplay = plays - beforeHist;
+      step("stopped", row(93004, {}));
+      step("cursor", row(93005, { replayError: true }));
+      step("child", row(93006, { failed: true, role: "explorer" }));
+      window.WorkshopSound.play = realPlay;
+      return out;
+    });
+    const want = {
+      failed: 1,
+      failedAgain: 0,
+      replay: 0,
+      historyReplay: 0,
+      backlog: 0,
+      stopped: 0,
+      cursor: 0,
+      child: 1
+    };
+    for (const k of Object.keys(want)) {
+      if (r[k] !== want[k]) errors.push(k + ": played " + r[k] + " time(s), want " + want[k]);
+    }
+    if (!r.errLine) errors.push("a failed row did not paint an err status line");
+  } finally {
+    await page.close();
+    await stopBridgeForSmoke();
+  }
+  return errors;
+}
+
+/**
  * Finding 1: a stale bridge must be re-synced from the renderer's persisted snooze
  * on load. A fresh bridge starts unsnoozed; the renderer holds snooze in localStorage
  * and must push it back so desktop toasts stay gated after an app/bridge restart.
@@ -1127,6 +1197,7 @@ async function main() {
     all.push(...(await smokeDemoUsageGrandTotal(browser)).map((e) => "[demo usage total] " + e));
     all.push(...(await smokeSnoozeSoundSuppression(browser)).map((e) => "[snooze sound] " + e));
     all.push(...(await smokeSnoozeResyncOnLoad(browser)).map((e) => "[snooze resync] " + e));
+    all.push(...(await smokeClaudeErrorSound(browser)).map((e) => "[claude error sound] " + e));
   } finally {
     await browser.close();
   }

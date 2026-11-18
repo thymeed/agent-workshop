@@ -185,7 +185,7 @@ Claude Code source (known limits, found while building it; none of them is a cra
 
 15. **Replayed delegate rows still run route animations.** A replayed delegation plays its route animation, though the replay skips the counters and the ship celebration.
 
-16. **Claude error rows play no error sound.** The wire never sets `replayError`, so the row is styled as an ordinary live status line and the error sound does not play.
+16. **Claude error rows play the error sound only for failed, error and killed.** A finished subagent whose notification status is `failed`, `error` or `killed` is marked `failed` by the wire, shows as an error line and plays the error sound once, live only (never during the silent catch-up, a History replay or the SSE backlog). `stopped`, `cancelled` and `canceled` rows are still error rows and alerts but stay silent. Cursor live rows are unchanged: they never play it. The notification is the only source of Claude error rows, so a failure of the parent session itself has no row and no sound.
 
 17. **Cache tokens are ignored by the usage read in `dashboard/app.js`.** The Bill prices input and output only.
 

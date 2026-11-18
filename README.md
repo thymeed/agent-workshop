@@ -324,7 +324,7 @@ The in-app alert center (header bell) lists the same alerts: mark read, snooze, 
 - Files are polled about every 900 ms: near-real, not hook-level realtime.
 - The subagent list holds about 1000 children per session (the first 2000 directory entries are read, and each child has a `.meta.json` beside it).
 - A finish in the first ~4.5 seconds of a brand-new session never alerts: the switch waits 5 polls, then the catch-up replays silently.
-- Replay rows never count toward today's stats. Claude error rows play no error sound.
+- Replay rows never count toward today's stats. A subagent that ends `failed`, `error` or `killed` plays the error sound once when it arrives live (not during the catch-up); `stopped` and `cancelled` stay silent.
 - Only tokens from `usage` are billed; cache tokens are not. The Bill view is the Cursor one, unchanged.
 - The Cursor event log and History are not used in this mode.
 - On a first start, two processes can race to create the salt on a disk without hard links (FAT, exFAT, most network shares). See `docs/known-issues.md`.
