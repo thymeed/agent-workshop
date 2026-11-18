@@ -223,6 +223,8 @@ Claude Code source (known limits, found while building it; none of them is a cra
 
 34. **Claude Code role labels are not applied, and the Bill's Fable rate is old.** Nothing in production calls `RoleProfiles.apply`, so the active profile stays "cursor" and the stations keep the Cursor labels (Opus, Fable, Worker, Explorer, Researcher) in Claude Code mode; `setModels` only updates the display when the Claude Code profile is active. The Bill prices by model family from `dashboard/bill-math.js` (resolved model ids never reach it), and its Fable rate is $10 / $50 per 1M tokens against the $8 / $40 list price. Both are planned as their own follow-up changes.
 
+35. **A WSL clock that disagrees with Windows weakens the racy-listing rule.** A folder mtime in the future (WSL clock ahead) keeps every listing racy, so the top-level scan runs on every poll over the share and `drift.dirCut` counts every poll on a capped folder. A WSL clock behind by more than 2.5 s (WSL2 drift after host sleep) stops the rule protecting a same-tick listing; the 30 s `RESCAN_MS` backstop still applies.
+
 ## Verified as non-issues
 
 - **Focus is not lost when a drawer sheet closes.** `setViewMode` checks whether the

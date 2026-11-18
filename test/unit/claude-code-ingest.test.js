@@ -86,7 +86,7 @@ function reference(parentText) {
 
 /** Injectable clock: advance() moves past the 30 s rescan backstop. */
 function mkClock() {
-  let t = 1000000;
+  let t = Date.now(); // after the old folder mtimes the cache tests set (a recent mtime is not trusted)
   const c = () => t;
   c.advance = (ms = 31000) => {
     t += ms;
@@ -617,6 +617,51 @@ test("source labels are unique, stable and appended; describeFile gives a base n
   assert.ok(!out.includes("s1.jsonl") && !out.includes("agent-a1") && !out.includes(dir));
 });
 
+test("a child added within the folder's mtime tick is still listed (coarse mtime, e.g. ext4)", () => {
+  const dir = newProject();
+  const sub = copyFixture(dir);
+  // Force the coarse-mtime condition on any host: the new child leaves the folder mtime unchanged
+  // (a whole-ms value just before now, so the listing is recent like a real same-tick write).
+  // The injected clock keeps the timing off the wall clock: the first listing is taken 50 ms
+  // after the folder mtime (racy), and the second poll runs 3 s later, still inside the 30 s
+  // backstop. The listing was racy when it was taken, so it must not be trusted, even though
+  // the folder mtime is now more than RACY_MS behind the clock.
+  const clock = mkClock();
+  const tick = new Date(clock() - 50);
+  fs.utimesSync(sub, tick, tick);
+  const pinned = fs.statSync(sub).mtimeMs; // what the disk stored (it may round the value)
+  const ing = I.createClaudeCodeIngest({ projectDir: dir, now: clock });
+  drain(ing);
+  fs.writeFileSync(path.join(sub, "agent-a0.jsonl"), parentLines()[0] + "\n");
+  fs.writeFileSync(path.join(sub, "agent-a0.meta.json"), '{"agentType":"worker"}');
+  fs.utimesSync(sub, tick, tick);
+  assert.equal(fs.statSync(sub).mtimeMs, pinned, "folder mtime pinned");
+  clock.advance(3000);
+  drain(ing);
+  assert.equal(ing.describeFile("subagent:3"), "agent-a0.jsonl");
+});
+
+test("a newer session added within the project folder's mtime tick is still found", () => {
+  const dir = newProject();
+  copyFixture(dir);
+  // Injected clock, as in the child test: racy at listing time, polled again 3 s later.
+  const clock = mkClock();
+  const tick = new Date(clock() - 50);
+  fs.utimesSync(dir, tick, tick);
+  const pinned = fs.statSync(dir).mtimeMs; // what the disk stored (it may round the value)
+  const ing = I.createClaudeCodeIngest({ projectDir: dir, now: clock });
+  drain(ing);
+  const next = path.join(dir, "s2.jsonl");
+  fs.writeFileSync(next, parentLines().slice(0, 2).join("\n") + "\n");
+  const future = new Date(Date.now() + 3600000);
+  fs.utimesSync(next, future, future);
+  fs.utimesSync(dir, tick, tick); // the folder mtime did not move
+  assert.equal(fs.statSync(dir).mtimeMs, pinned, "folder mtime pinned");
+  clock.advance(3000);
+  for (let i = 0; i < I.HOLD_POLLS + 1; i++) ing.poll();
+  assert.equal(ing.stats().sessions, 2);
+});
+
 test("open-handle checks: regular files are read; an identity or type change is refused", () => {
   const dir = newProject();
   copyFixture(dir);
@@ -1072,6 +1117,8 @@ test("replaced file with no usable ids anywhere: the shrink check still resets o
 test("subagent listing cache: re-listed only on a folder mtime change or the 30 s backstop", () => {
   const dir = newProject();
   const sub = copyFixture(dir);
+  const old = new Date(2026, 0, 1);
+  fs.utimesSync(sub, old, old); // an old folder mtime: the cached listing is trusted
   const clock = mkClock();
   const ing = I.createClaudeCodeIngest({ projectDir: dir, now: clock });
   let listings = 0;
@@ -1089,12 +1136,14 @@ test("subagent listing cache: re-listed only on a folder mtime change or the 30 
   assert.equal(listings, 1, "first poll lists the subagents folder once");
   run(() => ing.poll());
   assert.equal(listings, 1, "unchanged folder mtime: no listing");
-  const later = new Date(Date.now() + 60000);
+  const later = new Date(2026, 0, 2); // old, so the re-listed cache is trusted again
   fs.writeFileSync(path.join(sub, "agent-a3.jsonl"), "");
   fs.utimesSync(sub, later, later); // a new child changed the folder mtime
   run(() => ing.poll());
   assert.equal(listings, 2, "a changed mtime re-lists");
   assert.ok(ing.describeFile("subagent:3"), "the new child is found");
+  run(() => ing.poll());
+  assert.equal(listings, 2, "unchanged: no listing");
   clock.advance(31000);
   run(() => ing.poll());
   assert.equal(listings, 3, "the backstop re-lists");
