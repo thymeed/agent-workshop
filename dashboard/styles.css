@@ -1857,7 +1857,7 @@ h1.headline em {
 
 .activity-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 14px;
   height: 100%;
   max-height: 198px;
@@ -1887,6 +1887,9 @@ h1.headline em {
 }
 .activity-col.edit .activity-col-head {
   color: var(--sonnet);
+}
+.activity-col.run .activity-col-head {
+  color: var(--advisor);
 }
 
 .activity-list {

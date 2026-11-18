@@ -19,13 +19,13 @@
     }
   }
 
-  /** Bucket a transcript tool kind into the two drawer columns. */
+  /** Bucket a transcript tool kind into the three drawer columns (read, edit, run). */
   function activityKindBucket(kind) {
     var k = String(kind || "").toLowerCase();
     if (k === "edit" || k === "edited" || k === "write" || k === "strreplace") return "edit";
     if (k === "read" || k === "search" || k === "grep" || k === "glob" || k === "webfetch")
       return "read";
-    if (k === "run") return "edit";
+    if (k === "run") return "run";
     return "read";
   }
 
@@ -52,14 +52,16 @@
     items = [];
     emptyColumn(d.activityRead, "activityReadEmpty", "No reads yet…");
     emptyColumn(d.activityEdit, "activityEditEmpty", "No edits yet…");
+    emptyColumn(d.activityRun, "activityRunEmpty", "No commands yet…");
   }
 
   function append(item, timeStr) {
     if (!item) return;
     var role = item.role || "parent";
-    var path = item.path || "n/a";
+    var kind = activityKindBucket(item.kind);
+    var path = item.path || (kind === "run" ? "command" : "n/a");
     var entry = {
-      kind: activityKindBucket(item.kind),
+      kind: kind,
       role: role,
       path: path,
       detail: item.detail || "",
@@ -151,6 +153,13 @@
       }),
       d.activityEdit,
       "No edits yet…"
+    );
+    paintColumn(
+      visible.filter(function (a) {
+        return a.kind === "run";
+      }),
+      d.activityRun,
+      "No commands yet…"
     );
   }
 

@@ -52,6 +52,7 @@ function load(deps) {
   const sessionLog = makeEl("section");
   const activityRead = makeEl("div");
   const activityEdit = makeEl("div");
+  const activityRun = makeEl("div");
   const registry = { logEmpty: null };
 
   const sandbox = {
@@ -74,6 +75,7 @@ function load(deps) {
     sessionLog,
     activityRead,
     activityEdit,
+    activityRun,
     escapeHtml: (s) => String(s == null ? "" : s).replace(/[&<>"']/g, "~"),
     roleLabel: { opus: "Opus", advisor: "Fable", worker: "Sonnet" },
     stepMs: 1500,
@@ -84,14 +86,16 @@ function load(deps) {
     spawnCrate: null
   };
   mod.init(Object.assign(base, deps || {}));
-  return { mod, sessionLog, activityRead, activityEdit, registry };
+  return { mod, sessionLog, activityRead, activityEdit, activityRun, registry };
 }
 
-test("activityKindBucket maps tool kinds onto the two columns", () => {
+test("activityKindBucket maps tool kinds onto the read, edit and run columns", () => {
   const { mod } = load();
-  for (const k of ["edit", "edited", "write", "strReplace", "run"]) {
+  for (const k of ["edit", "edited", "write", "strReplace"]) {
     assert.equal(mod.activityKindBucket(k), "edit", `${k} should be an edit`);
   }
+  assert.equal(mod.activityKindBucket("run"), "run", "shell commands are not edits");
+  assert.equal(mod.activityKindBucket("RUN"), "run");
   for (const k of ["read", "search", "grep", "glob", "webfetch"]) {
     assert.equal(mod.activityKindBucket(k), "read", `${k} should be a read`);
   }
@@ -175,6 +179,38 @@ test("render splits rows into the read and edit columns", () => {
   assert.equal(editRows.length, 1, "one edit row");
   assert.ok(readRows[0].innerHTML.includes("r.js"), "read row carries its path");
   assert.ok(editRows[0].innerHTML.includes("e.js"), "edit row carries its path");
+});
+
+test("run rows land in the Commands column, never in Edited", () => {
+  const { mod, activityRead, activityEdit, activityRun } = load();
+  mod.append({ kind: "run", role: "worker", path: "work/proj" });
+  mod.append({ kind: "run", role: "parent", path: "" });
+  mod.append({ kind: "edit", role: "worker", path: "e.js" });
+  const rows = (el) => el.children.filter((c) => /activity-row/.test(c.className));
+  assert.equal(rows(activityEdit).length, 1, "only the real edit is in Edited");
+  assert.ok(rows(activityEdit)[0].innerHTML.includes("e.js"));
+  assert.equal(rows(activityRead).length, 0);
+  assert.equal(rows(activityRun).length, 2, "both commands are kept, path or not");
+  const html = rows(activityRun).map((r) => r.innerHTML);
+  assert.ok(
+    html.some((h) => h.includes("work/proj")),
+    "a Cursor row with a working directory keeps it"
+  );
+  assert.ok(
+    html.some((h) => h.includes("command")),
+    "a row with no path says command, not n/a"
+  );
+  assert.ok(!html.some((h) => h.includes("n/a")), "no n/a in the Commands column");
+});
+
+test("clear and the role filter cover the Commands column", () => {
+  const { mod, activityRun } = load();
+  mod.append({ kind: "run", role: "worker", path: "" });
+  mod.append({ kind: "run", role: "parent", path: "" });
+  mod.setFilter("worker");
+  assert.equal(activityRun.children.filter((c) => /activity-row/.test(c.className)).length, 1);
+  mod.clear();
+  assert.match(activityRun.children[0].textContent, /No commands yet/);
 });
 
 test("render escapes every interpolated field", () => {
