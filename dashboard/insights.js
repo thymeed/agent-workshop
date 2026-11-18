@@ -14,7 +14,7 @@
     /** USD per 1M tokens */
     prices: {
       opus: { in: 4.0, out: 20.0 },
-      fable: { in: 10.0, out: 50.0 },
+      fable: { in: 8.0, out: 40.0 },
       sonnet: { in: 2.0, out: 10.0 },
       haiku: { in: 0.1, out: 0.5 },
       auto: { in: 1.0, out: 5.0 }
