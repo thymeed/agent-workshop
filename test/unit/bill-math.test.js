@@ -112,7 +112,8 @@ test("modelCost applies published per-million rates", () => {
   assert.equal(M.modelCost("opus", 1000000, 0), 4);
   assert.equal(M.modelCost("opus", 0, 1000000), 20);
   assert.equal(M.modelCost("haiku", 1000000, 1000000), 0.1 + 0.5);
-  assert.equal(M.modelCost("fable", 1000000, 0), 10);
+  assert.equal(M.modelCost("fable", 1000000, 0), 8);
+  assert.equal(M.modelCost("fable", 0, 1000000), 40);
   assert.equal(M.modelCost("unknown-model", 1000000, 0), 4, "unknown model bills as opus");
   const half = M.modelCost("sonnet", 500000, 500000);
   assert.ok(Math.abs(half - (1 + 5)) < 1e-9, `expected 6, got ${half}`);
