@@ -11,6 +11,8 @@
  *  6. a held child and 7. a child awaiting its meta next to a sibling larger than four read
  *     caps: the catch-up polls do not burn their waits.
  *  8. the drift counters and their timestamp reset when a newer session replaces the old one.
+ *  9. a pending poll-counted wait (a child's failing first lstat, which leaves `more` false)
+ *     keeps rows marked replay with no alert; once the wait ends the live phase starts.
  */
 "use strict";
 
@@ -192,6 +194,19 @@ async function main() {
     L.assistant([L.agentCall("toolu_d", "worker", "sonnet")]),
     L.notification("toolu_d", "agent-d", "weirdstatus")
   ]);
+
+  const nine = plant("enc-nine", "proj-nine", [
+    L.assistant([L.agentCall("toolu_a", "worker", "sonnet")]),
+    L.agentResult("toolu_a", "a1"),
+    L.notification("toolu_a", "agent-a", "completed")
+  ]);
+  const sub9 = path.join(nine.dir, L.SESSION, "subagents");
+  fs.mkdirSync(sub9, { recursive: true });
+  fs.writeFileSync(path.join(sub9, "agent-a1.jsonl"), childFirst("a1") + "\n");
+  fs.writeFileSync(
+    path.join(sub9, "agent-a1.meta.json"),
+    JSON.stringify({ agentType: "worker", toolUseId: "toolu_a" })
+  );
 
   const { startBridge, stopBridge } = require("../live-bridge.js");
   const toasts = [];
@@ -416,6 +431,73 @@ async function main() {
     const after8 = (await get(port, "/api/status")).json;
     assert.strictEqual(after8.drift.unknownStatus, 0, "the session's unknown-status count reset");
     assert.strictEqual(after8.drift.lastAt, null, "and so did the drift time");
+
+    // ---- 9. a pending poll-counted wait keeps the replay: no live phase, no alert ----
+    // The child's first lstat keeps failing (EBUSY) for its 3-poll fault budget. The parent is
+    // read to its end, nothing is capped and `more` is false, so only `!st.waiting` holds the
+    // live phase back. A finish row appended inside the wait is still a replay row.
+    const p9 = await selectProject(port, "proj-nine");
+    const child9 = path.join(nine.dir, L.SESSION, "subagents", "agent-a1.jsonl");
+    const alertsBefore9 = (await alertsOf(port)).length;
+    const toastsBefore9 = toasts.length;
+    const origLstat = fs.lstatSync;
+    let faultHits = 0;
+    let faultOn = true;
+    fs.lstatSync = function (p, ...a) {
+      if (faultOn && String(p) === child9 && a[0] && a[0].bigint) {
+        faultHits += 1;
+        throw Object.assign(new Error("busy"), { code: "EBUSY" });
+      }
+      return origLstat.call(this, p, ...a);
+    };
+    try {
+      assert.strictEqual((await post(port, "/api/select", { id: p9.id })).status, 200);
+      await waitFor(
+        async () => (await events(port)).some((e) => e.type === "done"),
+        "the replayed finish row of the wait project"
+      );
+      assert.ok(faultHits >= 1, "the child's lstat failed while the parent was replayed");
+      fs.appendFileSync(
+        nine.file,
+        [
+          L.assistant([L.agentCall("toolu_w", "worker", "sonnet")]),
+          L.notification("toolu_w", "agent-w", "completed")
+        ].join("\n") + "\n"
+      );
+      const inWait = await waitFor(async () => {
+        const dones = (await events(port)).filter((e) => e.type === "done");
+        return dones.length === 2 ? dones : null;
+      }, "the finish row appended during the wait");
+      assert.deepStrictEqual(
+        inWait.map((e) => e.replay),
+        [true, true],
+        "rows read while a wait is pending stay marked replay"
+      );
+      assert.strictEqual(
+        (await alertsOf(port)).length,
+        alertsBefore9,
+        "no alert while a wait is pending"
+      );
+      assert.strictEqual(toasts.length, toastsBefore9, "and no toast");
+      // the fault budget (3 regular polls) runs out: the wait ends and the live phase starts
+      await sleep(4500);
+    } finally {
+      faultOn = false;
+      fs.lstatSync = origLstat;
+    }
+    fs.appendFileSync(
+      nine.file,
+      [
+        L.assistant([L.agentCall("toolu_x", "worker", "sonnet")]),
+        L.notification("toolu_x", "agent-x", "completed")
+      ].join("\n") + "\n"
+    );
+    await waitFor(
+      async () => (await alertsOf(port)).length === alertsBefore9 + 1,
+      "the alert after the wait"
+    );
+    const after9 = (await events(port)).find((e) => e.type === "done" && e.toolUseId === "toolu_x");
+    assert.ok(after9 && after9.replay === undefined, "the row after the wait is live");
 
     console.log(
       "claude-code-wire-edge OK · late session replays silently, hold and meta wait kept"
