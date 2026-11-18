@@ -84,6 +84,12 @@ async function runCase(port, name, seed, errors) {
       null,
       { timeout: 20000 }
     );
+    // the chip can flip from the SSE reset before the POST response writes the stored choice
+    await page
+      .waitForFunction((k) => window.localStorage.getItem(k) === "claude-code", KEY, {
+        timeout: 5000
+      })
+      .catch(() => {});
     if ((await stored()) !== "claude-code") errors.push(name + ": click did not store claude-code");
     const count = posts.filter((p) => p === "/api/source").length;
     if (count !== 1)
