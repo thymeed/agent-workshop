@@ -56,6 +56,7 @@
   var sessionLog = document.getElementById("sessionLog");
   var activityRead = document.getElementById("activityRead");
   var activityEdit = document.getElementById("activityEdit");
+  var activityRun = document.getElementById("activityRun");
   var currentProjectLabel = null;
   var currentProjectId = null;
   var advisorCallsEl = document.getElementById("advisorCalls");
@@ -401,9 +402,10 @@
       var narrow = window.matchMedia("(max-width: 900px)").matches;
 
       var el = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      el.setAttribute("class", "crate flying " + (kind === "edit" ? "code" : "page"));
-      el.setAttribute("width", kind === "edit" ? "14" : "11");
-      el.setAttribute("height", kind === "edit" ? "11" : "14");
+      var codeCrate = kind === "edit" || kind === "run";
+      el.setAttribute("class", "crate flying " + (codeCrate ? "code" : "page"));
+      el.setAttribute("width", codeCrate ? "14" : "11");
+      el.setAttribute("height", codeCrate ? "11" : "14");
       el.setAttribute("rx", "4");
       el.setAttribute("x", String(from.x - 6));
       el.setAttribute("y", String(from.y - 10));
@@ -415,7 +417,7 @@
         "data-tip-detail",
         (ROLE_LABEL[role] || role) +
           " · " +
-          (kind === "edit" ? "edit crate" : "read crate") +
+          (kind === "edit" ? "edit crate" : kind === "run" ? "run crate" : "read crate") +
           (activity.detail ? " · " + activity.detail : "") +
           " → merge"
       );
@@ -1790,6 +1792,7 @@
     sessionLog: sessionLog,
     activityRead: activityRead,
     activityEdit: activityEdit,
+    activityRun: activityRun,
     escapeHtml: escapeHtml,
     roleLabel: ROLE_LABEL,
     stepMs: STEP_MS,
