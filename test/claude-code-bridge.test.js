@@ -14,6 +14,7 @@ const fs = require("fs");
 const net = require("net");
 const path = require("path");
 const { buildForbidden } = require("./helpers/privacy-patterns");
+const L = require("./helpers/claude-lines");
 
 const PLANTED = "zqplanted";
 const SCRATCH = path.join(__dirname, "..", ".scratch", "u4-cc-bridge");
@@ -104,9 +105,9 @@ function openStream(port) {
   req.on("error", () => {});
   return {
     text: () => text,
-    async waitFor(needle) {
+    async waitFor(needle, from) {
       for (let i = 0; i < 100; i++) {
-        if (text.includes(needle)) return;
+        if (text.indexOf(needle, from || 0) !== -1) return;
         await new Promise((r) => setTimeout(r, 30));
       }
       throw new Error("stream never showed " + needle + ": " + text);
@@ -162,6 +163,8 @@ async function withBridge(opts, fn) {
     port,
     quiet: true,
     projectsRoot: CURSOR_ROOT,
+    // a named Cursor folder starts Cursor mode; the Claude Code default is pinned by testDefaultSource
+    dir: path.join(CURSOR_ROOT, "cur-b", "agent-transcripts"),
     eventLogDir: LOG_DIR,
     reuseExisting: false,
     ...opts
@@ -235,7 +238,7 @@ async function testSwitching() {
     assert.strictEqual(sw.status, 200);
     assert.deepStrictEqual(sw.json, { ok: true, source: "claude-code" });
     await stream.waitFor("event: reset");
-    assert.strictEqual(counted.counter.calls, 0, "switching alone does not scan");
+    assert.ok(counted.counter.calls > 0, "switching runs discovery to pick the newest project");
 
     const listed = await get(port, "/api/projects", true);
     assert.ok(counted.counter.calls > 0, "discovery runs in Claude Code mode");
@@ -380,6 +383,117 @@ async function helloOf(port) {
   }
 }
 
+/**
+ * A fresh bridge reads Claude Code. A named Cursor folder (opts.dir, CURSOR_TRANSCRIPTS or
+ * --dir) is an explicit ask for Cursor and starts Cursor mode instead.
+ */
+async function testDefaultSource() {
+  const cursorDir = path.join(CURSOR_ROOT, "cur-b", "agent-transcripts");
+  const savedEnv = process.env.CURSOR_TRANSCRIPTS;
+  const savedArgv = process.argv.slice();
+  delete process.env.CURSOR_TRANSCRIPTS;
+  try {
+    await withBridge({ dir: undefined, claudeCode: claudeBag() }, async (port) => {
+      const st = (await get(port, "/api/status", true)).json;
+      assert.strictEqual(st.source, "claude-code", "no options: status reads Claude Code");
+      assert.strictEqual(st.transcripts, undefined, "claude-code status has no Cursor folder");
+      const hello = (await helloOf(port)).json;
+      assert.strictEqual(hello.source, "claude-code", "no options: hello names Claude Code");
+      assert.strictEqual(hello.transcripts, undefined);
+      const projects = (await get(port, "/api/projects", true)).json;
+      assert.ok(
+        projects.projects.every((p) => p.id !== "cur-a" && p.id !== "cur-b"),
+        "the project list is Claude Code's, not the Cursor tree"
+      );
+      assert.ok(projects.projects.length >= 1, "Claude Code projects are listed at launch");
+    });
+
+    await withBridge({ dir: cursorDir, claudeCode: claudeBag() }, async (port) => {
+      assert.strictEqual((await get(port, "/api/status")).json.source, "cursor", "opts.dir");
+      assert.strictEqual((await helloOf(port)).json.source, "cursor", "opts.dir hello");
+    });
+
+    process.env.CURSOR_TRANSCRIPTS = cursorDir;
+    await withBridge({ dir: undefined, claudeCode: claudeBag() }, async (port) => {
+      assert.strictEqual(
+        (await get(port, "/api/status")).json.source,
+        "cursor",
+        "CURSOR_TRANSCRIPTS"
+      );
+    });
+    delete process.env.CURSOR_TRANSCRIPTS;
+
+    process.argv.push("--dir", cursorDir);
+    await withBridge({ dir: undefined, claudeCode: claudeBag() }, async (port) => {
+      assert.strictEqual((await get(port, "/api/status")).json.source, "cursor", "--dir");
+    });
+  } finally {
+    process.argv.length = 0;
+    process.argv.push(...savedArgv);
+    if (savedEnv === undefined) delete process.env.CURSOR_TRANSCRIPTS;
+    else process.env.CURSOR_TRANSCRIPTS = savedEnv;
+  }
+}
+
+/**
+ * explicitDir: true in /api/status and the SSE hello when the process started with a Cursor
+ * folder (opts.dir, CURSOR_TRANSCRIPTS or --dir), false otherwise. A boolean only (no folder),
+ * and it describes the start, so it stays true after a switch to Claude Code and back.
+ */
+async function testExplicitDirFlag() {
+  const cursorDir = path.join(CURSOR_ROOT, "cur-b", "agent-transcripts");
+  const savedEnv = process.env.CURSOR_TRANSCRIPTS;
+  const savedArgv = process.argv.slice();
+  delete process.env.CURSOR_TRANSCRIPTS;
+  const check = async (port, want, label) => {
+    const st = (await get(port, "/api/status", want === false)).json;
+    assert.strictEqual(st.explicitDir, want, label + ": status explicitDir");
+    const hello = await helloOf(port);
+    assert.strictEqual(hello.json.explicitDir, want, label + ": hello explicitDir");
+  };
+  try {
+    await withBridge({ dir: undefined, claudeCode: claudeBag() }, async (port) => {
+      await check(port, false, "no options");
+      const raw = (await request(port, { path: "/api/status" })).body;
+      record("status explicitDir (claude-code)", raw);
+    });
+    await withBridge({ dir: cursorDir, claudeCode: claudeBag() }, async (port) => {
+      await check(port, true, "opts.dir");
+      assert.strictEqual((await post(port, "/api/source", { source: "claude-code" })).status, 200);
+      const st = (await get(port, "/api/status", true)).json;
+      assert.strictEqual(st.source, "claude-code");
+      assert.strictEqual(st.explicitDir, true, "still true in Claude Code mode");
+      const hello = await helloOf(port);
+      assert.strictEqual(hello.json.explicitDir, true);
+      assert.strictEqual(hello.json.transcripts, undefined);
+      record("SSE hello explicitDir (claude-code)", hello.text);
+      record("status explicitDir (claude-code, switched)", JSON.stringify(st));
+      assert.strictEqual((await post(port, "/api/source", { source: "cursor" })).status, 200);
+      await check(port, true, "after switching back");
+    });
+    process.env.CURSOR_TRANSCRIPTS = cursorDir;
+    await withBridge({ dir: undefined, claudeCode: claudeBag() }, async (port) => {
+      await check(port, true, "CURSOR_TRANSCRIPTS");
+    });
+    delete process.env.CURSOR_TRANSCRIPTS;
+    process.argv.push("--dir", cursorDir);
+    await withBridge({ dir: undefined, claudeCode: claudeBag() }, async (port) => {
+      await check(port, true, "--dir");
+    });
+    process.argv.length = 0;
+    process.argv.push(...savedArgv);
+    // a restart without a folder forgets it
+    await withBridge({ dir: undefined, claudeCode: claudeBag() }, async (port) => {
+      await check(port, false, "restart without a folder");
+    });
+  } finally {
+    process.argv.length = 0;
+    process.argv.push(...savedArgv);
+    if (savedEnv === undefined) delete process.env.CURSOR_TRANSCRIPTS;
+    else process.env.CURSOR_TRANSCRIPTS = savedEnv;
+  }
+}
+
 async function testHelloSource() {
   await withBridge({ claudeCode: claudeBag() }, async (port) => {
     const cursorHello = (await helloOf(port)).json;
@@ -401,16 +515,23 @@ async function testCursorResetNamesSource() {
       await stream.waitFor('"source":"claude-code"');
       assert.strictEqual((await post(port, "/api/source", { source: "cursor" })).status, 200);
       const resets = [];
-      for (let i = 0; i < 100 && resets.length < 2; i++) {
+      const last = () => resets[resets.length - 1];
+      const done = () => resets.length >= 2 && last().source === "cursor";
+      for (let i = 0; i < 100 && !done(); i++) {
         resets.length = 0;
         for (const m of stream.text().matchAll(/event: reset\ndata: (.*)\n\n/g)) {
           resets.push(JSON.parse(m[1]));
         }
-        if (resets.length < 2) await new Promise((r) => setTimeout(r, 30));
+        if (!done()) await new Promise((r) => setTimeout(r, 30));
       }
-      assert.strictEqual(resets.length, 2, "one reset per switch");
+      // the switch to Claude Code resets once, and once more if it auto-selects a project
+      assert.ok(resets.length >= 2, "a reset per switch");
       assert.strictEqual(resets[0].source, "claude-code", "claude-code reset names its source");
-      assert.strictEqual(resets[1].source, "cursor", "cursor reset names its source");
+      assert.ok(
+        resets.slice(0, -1).every((r) => r.source === "claude-code"),
+        "only the last reset is Cursor's"
+      );
+      assert.strictEqual(last().source, "cursor", "cursor reset names its source");
     } finally {
       stream.close();
     }
@@ -885,11 +1006,423 @@ async function testRepeatedSwitchRediscovers() {
   });
 }
 
+async function waitForValue(fn, what, ms) {
+  const deadline = Date.now() + (ms || 8000);
+  for (;;) {
+    const v = await fn();
+    if (v) return v;
+    if (Date.now() > deadline) throw new Error("timed out waiting for " + what);
+    await sleep(40);
+  }
+}
+
+/** A second fake home: proj-new (newest, with a finished child) and proj-old. */
+function buildAutoHome() {
+  const home = path.join(SCRATCH, "auto-home");
+  const proj = path.join(home, ".claude", "projects");
+  const base = Math.floor(Date.now() / 1000) - 500;
+  const head = (cwd) => JSON.stringify({ type: "user", cwd, sessionId: L.SESSION });
+  const newFile = path.join(proj, "enc-new", L.SESSION + ".jsonl");
+  fs.mkdirSync(path.dirname(newFile), { recursive: true });
+  fs.writeFileSync(
+    newFile,
+    [
+      head("/home/" + PLANTED + "/proj-new"),
+      L.userTurn("do it"),
+      L.assistant([L.agentCall("toolu_1", "worker", "sonnet")]),
+      L.agentResult("toolu_1", "agent1"),
+      L.notification("toolu_1", "agent1", "completed")
+    ].join("\n") + "\n"
+  );
+  fs.utimesSync(newFile, base + 50, base + 50);
+  writeJsonl(path.join(proj, "enc-old", "o.jsonl"), "/home/" + PLANTED + "/proj-old", base + 40);
+  return home;
+}
+
+/** Claude Code mode with nothing selected picks the newest project, once, and never overrides. */
+async function testAutoSelectNewest() {
+  const home = buildAutoHome();
+  const savedEnv = process.env.CURSOR_TRANSCRIPTS;
+  delete process.env.CURSOR_TRANSCRIPTS;
+  const toasts = [];
+  try {
+    // (a) the bridge starts in Claude Code
+    await withBridge(
+      {
+        dir: undefined,
+        onAgentAlert: (a) => toasts.push(a),
+        claudeCode: claudeBag({ homedir: home })
+      },
+      async (port) => {
+        const listed = () => get(port, "/api/projects", true).then((r) => r.json);
+        const first = (await listed()).projects;
+        const newest = first.find((p) => p.label === "proj-new");
+        const older = first.find((p) => p.label === "proj-old");
+        assert.ok(newest && older, "both projects are listed");
+        assert.strictEqual(first[0].id, newest.id, "the picker's first entry is the newest");
+        await waitForValue(
+          async () => (await get(port, "/api/status", true)).json.projectId === newest.id,
+          "auto-selected newest project"
+        );
+        const st = (await get(port, "/api/status", true)).json;
+        assert.strictEqual(st.projectLabel, "proj-new");
+        const pl = await listed();
+        assert.strictEqual(pl.selectedId, newest.id, "the picker list reports the selection");
+        const hello = (await helloOf(port)).json;
+        assert.strictEqual(hello.projectId, newest.id, "hello reports the selection");
+        assert.strictEqual(hello.projectLabel, "proj-new");
+
+        // the session replays silently: rows marked replay, no alert, no toast
+        const done = await waitForValue(async () => {
+          const evs = (await get(port, "/api/events", true)).json.events;
+          return evs.find((e) => e.type === "done");
+        }, "replayed done row");
+        assert.strictEqual(done.replay, true, "the first session replays");
+        await sleep(300);
+        assert.deepStrictEqual((await get(port, "/api/alerts", true)).json.alerts, []);
+        assert.deepStrictEqual(toasts, [], "no desktop toast for replayed rows");
+
+        // a later user pick is kept, also across a switch away and back
+        const pick = await post(port, "/api/select", { id: older.id }, true);
+        assert.strictEqual(pick.status, 200);
+        assert.strictEqual((await post(port, "/api/source", { source: "cursor" })).status, 200);
+        assert.strictEqual(
+          (await post(port, "/api/source", { source: "claude-code" })).status,
+          200
+        );
+        await sleep(300);
+        const after = (await get(port, "/api/status", true)).json;
+        assert.strictEqual(after.projectId, older.id, "the user's pick is not overridden");
+      }
+    );
+
+    // (b) a bridge that starts in Cursor and is switched to Claude Code
+    await withBridge({ claudeCode: claudeBag({ homedir: home }) }, async (port) => {
+      assert.strictEqual((await get(port, "/api/status")).json.source, "cursor");
+      assert.strictEqual((await post(port, "/api/source", { source: "claude-code" })).status, 200);
+      const st = await waitForValue(async () => {
+        const j = (await get(port, "/api/status", true)).json;
+        return j.projectLabel === "proj-new" ? j : null;
+      }, "newest project after the switch");
+      const listed = (await get(port, "/api/projects", true)).json;
+      assert.strictEqual(listed.selectedId, st.projectId);
+      assert.strictEqual(listed.projects[0].id, st.projectId);
+    });
+
+    // (c) no projects, and (d) a discovery that fails: nothing selected, no error
+    const empty = path.join(SCRATCH, "empty-home");
+    fs.mkdirSync(path.join(empty, ".claude", "projects"), { recursive: true });
+    const failing = new Proxy({}, { get: () => () => Promise.reject(new Error("blocked")) });
+    for (const bag of [claudeBag({ homedir: empty }), claudeBag({ homedir: home, fs: failing })]) {
+      await withBridge({ dir: undefined, claudeCode: bag }, async (port) => {
+        await sleep(300);
+        const st = await get(port, "/api/status", true);
+        assert.strictEqual(st.status, 200);
+        assert.strictEqual(st.json.projectId, null);
+        assert.strictEqual(st.json.ingest, null, "nothing selected: no ingest runs");
+        const pl = await get(port, "/api/projects", true);
+        assert.strictEqual(pl.status, 200);
+        assert.strictEqual(pl.json.selectedId, null);
+      });
+    }
+  } finally {
+    if (savedEnv === undefined) delete process.env.CURSOR_TRANSCRIPTS;
+    else process.env.CURSOR_TRANSCRIPTS = savedEnv;
+  }
+}
+
+/** fs.promises whose FIRST call hangs until release(); every later call passes straight through. */
+function gatedFs() {
+  let release;
+  let onBlocked;
+  const hold = new Promise((r) => (release = r));
+  const blocked = new Promise((r) => (onBlocked = r));
+  let first = true;
+  const proxy = new Proxy(fs.promises, {
+    get(target, prop) {
+      const v = target[prop];
+      if (typeof v !== "function") return v;
+      return (...args) => {
+        if (first) {
+          first = false;
+          onBlocked();
+          return hold.then(() => v.apply(target, args));
+        }
+        return v.apply(target, args);
+      };
+    }
+  });
+  return { fs: proxy, blocked, release };
+}
+
+/** First "event: reset" payload in a stream text, or null. */
+function firstReset(text) {
+  const m = /event: reset\ndata: (.*)\n\n/.exec(text);
+  return m ? JSON.parse(m[1]) : null;
+}
+
+/**
+ * autoSelectNewestClaude re-checks that it still owns the selection after its (slow) discovery.
+ * The first discovery is held open while the world changes; it is then released and must change
+ * nothing. (The second re-check, after cc.select returns, cannot be reached: select stores its
+ * selection and returns within one microtask, and canApply already refuses a stale caller.)
+ */
+async function testAutoSelectStaleGuards() {
+  const savedEnv = process.env.CURSOR_TRANSCRIPTS;
+  delete process.env.CURSOR_TRANSCRIPTS;
+  try {
+    // (a) the source is switched to Cursor while discovery is pending
+    const a = gatedFs();
+    await withBridge(
+      { dir: undefined, claudeCode: claudeBag({ fs: a.fs, ttlMs: 1 }) },
+      async (port) => {
+        await a.blocked;
+        const stream = openStream(port);
+        try {
+          await stream.waitFor("event: hello");
+          assert.strictEqual((await post(port, "/api/source", { source: "cursor" })).status, 200);
+          await stream.waitFor("event: reset");
+          const mark = stream.text().length;
+          a.release();
+          await sleep(500);
+          assert.ok(
+            !stream.text().slice(mark).includes("event: reset"),
+            "a stale auto-select changed the watch after the switch to Cursor"
+          );
+          const back = stream.text().length;
+          assert.strictEqual(
+            (await post(port, "/api/source", { source: "claude-code" })).status,
+            200
+          );
+          await stream.waitFor("event: reset", back);
+          const reset = firstReset(stream.text().slice(back));
+          assert.strictEqual(reset.source, "claude-code");
+          assert.strictEqual(reset.projectId, null, "no selection was stored by the stale run");
+        } finally {
+          stream.close();
+        }
+      }
+    );
+
+    // (b) the user picks a project while discovery is pending: the pick stays
+    const b = gatedFs();
+    await withBridge(
+      { dir: undefined, claudeCode: claudeBag({ fs: b.fs, ttlMs: 1 }) },
+      async (port) => {
+        await b.blocked;
+        // same source: drops the pending discovery so the next request discovers afresh
+        assert.strictEqual(
+          (await post(port, "/api/source", { source: "claude-code" })).status,
+          200
+        );
+        const list = (await get(port, "/api/projects", true)).json.projects;
+        const newest = list[0];
+        const other = list.find((p) => p.label === "other-demo");
+        assert.ok(other && other.id !== newest.id, "a non-newest project to pick");
+        assert.strictEqual((await post(port, "/api/select", { id: other.id }, true)).status, 200);
+        b.release();
+        await sleep(500);
+        const st = (await get(port, "/api/status", true)).json;
+        assert.strictEqual(
+          st.projectId,
+          other.id,
+          "the pending auto-select must not replace a pick"
+        );
+      }
+    );
+
+    // (c) the bridge is stopped and a new one started while discovery is pending
+    const { startBridge, stopBridge } = require("../live-bridge.js");
+    const empty = path.join(SCRATCH, "empty-home");
+    fs.mkdirSync(path.join(empty, ".claude", "projects"), { recursive: true });
+    const c = gatedFs();
+    const first = await getFreePort();
+    await startBridge({
+      port: first,
+      quiet: true,
+      projectsRoot: CURSOR_ROOT,
+      eventLogDir: LOG_DIR,
+      reuseExisting: false,
+      claudeCode: claudeBag({ fs: c.fs, ttlMs: 1 })
+    });
+    await c.blocked;
+    await stopBridge();
+    await withBridge(
+      { dir: undefined, claudeCode: claudeBag({ homedir: empty }) },
+      async (port) => {
+        const stream = openStream(port);
+        try {
+          await stream.waitFor("event: hello");
+          await sleep(200);
+          const mark = stream.text().length;
+          c.release();
+          await sleep(500);
+          assert.ok(
+            !stream.text().slice(mark).includes("event: reset"),
+            "the old bridge's auto-select reached the new bridge"
+          );
+          assert.strictEqual((await get(port, "/api/status", true)).json.projectId, null);
+        } finally {
+          stream.close();
+        }
+      }
+    );
+  } finally {
+    if (savedEnv === undefined) delete process.env.CURSOR_TRANSCRIPTS;
+    else process.env.CURSOR_TRANSCRIPTS = savedEnv;
+  }
+}
+
+/** Claude Code mode watches no Cursor tree at startup: no inventory walk of the Cursor folder. */
+async function testNoCursorSnapshotInClaudeStart() {
+  const sub = path.join(CURSOR_ROOT, "cur-b", "agent-transcripts", "zz-snap-sub");
+  fs.mkdirSync(sub, { recursive: true });
+  const savedEnv = process.env.CURSOR_TRANSCRIPTS;
+  delete process.env.CURSOR_TRANSCRIPTS;
+  const realReaddir = fs.readdirSync;
+  let walked = 0;
+  fs.readdirSync = function (p, ...rest) {
+    if (String(p).endsWith("zz-snap-sub")) walked++;
+    return realReaddir.call(this, p, ...rest);
+  };
+  try {
+    await withBridge({ dir: undefined, claudeCode: claudeBag() }, async (port) => {
+      assert.strictEqual((await get(port, "/api/status")).json.source, "claude-code");
+      await sleep(200);
+    });
+    assert.strictEqual(walked, 0, "Claude Code start does not inventory the Cursor folder");
+    await withBridge(
+      { dir: path.join(CURSOR_ROOT, "cur-b", "agent-transcripts"), claudeCode: claudeBag() },
+      async (port) => {
+        assert.strictEqual((await get(port, "/api/status")).json.source, "cursor");
+      }
+    );
+    assert.ok(walked > 0, "control: a Cursor start does inventory it (the spy sees the walk)");
+  } finally {
+    fs.readdirSync = realReaddir;
+    if (savedEnv === undefined) delete process.env.CURSOR_TRANSCRIPTS;
+    else process.env.CURSOR_TRANSCRIPTS = savedEnv;
+    fs.rmSync(sub, { recursive: true, force: true });
+  }
+}
+
+/** A request already in flight on a kept-alive socket when the bridge stops. */
+async function testRequestAfterStop() {
+  const { startBridge, stopBridge } = require("../live-bridge.js");
+  const port = await getFreePort();
+  await startBridge({
+    port,
+    quiet: true,
+    projectsRoot: CURSOR_ROOT,
+    eventLogDir: LOG_DIR,
+    reuseExisting: false,
+    claudeCode: claudeBag()
+  });
+  const sock = net.connect(port, "127.0.0.1");
+  let reply = "";
+  sock.on("data", (d) => (reply += d));
+  sock.on("error", () => {});
+  await new Promise((r) => sock.once("connect", r));
+  sock.write("GET /api/status HTTP/1.1\r\nHost: 127.0.0.1:" + port + "\r\n");
+  await sleep(100);
+  const uncaught = [];
+  const onUncaught = (e) => uncaught.push(e);
+  process.on("uncaughtException", onUncaught);
+  try {
+    await stopBridge();
+    sock.write("\r\n");
+    await sleep(300);
+  } finally {
+    process.off("uncaughtException", onUncaught);
+    sock.destroy();
+  }
+  assert.deepStrictEqual(uncaught, [], "a late request must not throw inside the server");
+  assert.ok(reply.startsWith("HTTP/1.1 503"), "answered 503, got: " + reply.slice(0, 40));
+  assert.ok(reply.includes("Bridge stopped"), "body is Bridge stopped, got: " + reply.slice(-60));
+}
+
+/**
+ * autoSelectNewestClaude re-checks the bridge after `await cc.select(...)`. select stores its
+ * selection and returns in one step, so only a microtask can run between the store and the
+ * continuation, and an HTTP request cannot. stopBridge and startBridge both change their state
+ * before their first await, so a restart can land in that gap. Armed once discovery is held
+ * open, the spy on the stored project lookup queues the restart in that gap. The stale
+ * continuation must not reset or tail the new bridge: its event list never gains the "choose a
+ * Claude Code project" status that resetClaudeWatch would push. (A switch to Cursor cannot land
+ * in the gap: setSource only runs from an HTTP handler.)
+ */
+async function testAutoSelectRestartInSelectGap() {
+  const { startBridge, stopBridge } = require("../live-bridge.js");
+  const savedEnv = process.env.CURSOR_TRANSCRIPTS;
+  delete process.env.CURSOR_TRANSCRIPTS;
+  const empty = path.join(SCRATCH, "empty-home-gap");
+  fs.mkdirSync(path.join(empty, ".claude", "projects"), { recursive: true });
+  const held = gatedFs();
+  const second = await getFreePort();
+  const realGet = Map.prototype.get;
+  let armed = false;
+  let restarted = null;
+  Map.prototype.get = function (k) {
+    const v = realGet.call(this, k);
+    if (armed && !restarted && v && typeof v === "object" && v.path && v.label) {
+      restarted = true; // the lookup inside cc.select: the continuation is queued after this
+      queueMicrotask(() => {
+        void stopBridge();
+        restarted = startBridge({
+          port: second,
+          quiet: true,
+          projectsRoot: CURSOR_ROOT,
+          eventLogDir: LOG_DIR,
+          reuseExisting: false,
+          claudeCode: claudeBag({ homedir: empty })
+        });
+      });
+    }
+    return v;
+  };
+  const first = await getFreePort();
+  try {
+    await startBridge({
+      port: first,
+      quiet: true,
+      projectsRoot: CURSOR_ROOT,
+      eventLogDir: LOG_DIR,
+      reuseExisting: false,
+      claudeCode: claudeBag({ fs: held.fs, ttlMs: 1 })
+    });
+    await held.blocked;
+    armed = true;
+    held.release();
+    for (let i = 0; i < 100 && !(restarted && restarted.then); i++) await sleep(10);
+    assert.ok(restarted && restarted.then, "the restart did not land in the select gap");
+    await restarted;
+    await sleep(300);
+    const evs = JSON.stringify((await get(second, "/api/events")).json);
+    assert.ok(
+      !evs.includes("choose a Claude Code project"),
+      "the old auto-select reset the new bridge: " + evs.slice(0, 200)
+    );
+    assert.strictEqual((await get(second, "/api/status", true)).json.projectId, null);
+  } finally {
+    Map.prototype.get = realGet;
+    await stopBridge();
+    if (savedEnv === undefined) delete process.env.CURSOR_TRANSCRIPTS;
+    else process.env.CURSOR_TRANSCRIPTS = savedEnv;
+  }
+}
+
 async function main() {
   buildTrees();
   try {
+    await testDefaultSource();
+    await testAutoSelectNewest();
+    await testAutoSelectStaleGuards();
+    await testAutoSelectRestartInSelectGap();
+    await testNoCursorSnapshotInClaudeStart();
+    await testRequestAfterStop();
     await testSwitching();
     await testHelloSource();
+    await testExplicitDirFlag();
     await testCursorResetNamesSource();
     await testTimeout();
     await testSalt();

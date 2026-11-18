@@ -297,3 +297,26 @@ test("hiding the History button while it has focus moves focus to the Stage butt
   u.mod.setHistoryAllowed(false);
   assert.equal(u.el.viewStageBtn.focused, false, "focus elsewhere is left alone");
 });
+
+test("with no WorkshopSource the page source is claude-code, the default", () => {
+  const t = load();
+  assert.equal(t.sandbox.window.WorkshopSource, undefined);
+  assert.equal(t.mod.currentSource(), "claude-code");
+  t.sandbox.window.WorkshopSource = { getSource: () => "cursor" };
+  assert.equal(t.mod.currentSource(), "cursor", "a loaded switch is asked");
+});
+
+test("with no WorkshopSource, Live turns History off like Claude Code; Demo keeps it", () => {
+  const t = load();
+  t.init();
+  t.mod.syncHistoryAllowed("live");
+  assert.equal(t.el.viewHistoryBtn.hidden, true, "Live with the default source: History off");
+  t.mod.syncHistoryAllowed("demo");
+  assert.equal(t.el.viewHistoryBtn.hidden, false, "Demo: History on");
+  t.sandbox.window.WorkshopSource = { getSource: () => "cursor" };
+  t.mod.syncHistoryAllowed("live");
+  assert.equal(t.el.viewHistoryBtn.hidden, false, "Live reading Cursor: History on");
+  t.sandbox.window.WorkshopSource = { getSource: () => "claude-code" };
+  t.mod.syncHistoryAllowed("live");
+  assert.equal(t.el.viewHistoryBtn.hidden, true, "Live reading Claude Code: History off");
+});

@@ -171,6 +171,58 @@ Last reviewed: 2026-10-16 (post-audit of the Live transcript path).
    ever sits on "code quality" with no evident cause, drop that rule from
    `.github/rulesets/branch-master.json` first.
 
+Claude Code source (known limits, found while building it; none of them is a crash):
+
+10. **A finish in the first ~4.5 s of a brand-new session never alerts.** The switch waits 5 polls (5 x 900 ms) before the new session takes over, and its catch-up then replays silently.
+
+11. **Child lstat faults during a long parent catch-up can use up the fault budget.** During a parent catch-up longer than about 5 MB, a child's transient lstat faults can spend its 3-poll budget (`FAULT_WAIT_POLLS`) before the child is read.
+
+12. **Path cleaning decodes at most four rounds of percent-encoding.** A path encoded five or more times is not fully decoded, so it may not be judged an absolute path and can show a folder name that the check would otherwise hide.
+
+13. **8.3 short names other than `DOCUME~n` are not recognised as home folders.** A path such as `C:\USERS~1\user` shows `user`, because only `DOCUME~n` is mapped to "documents and settings" before the home check.
+
+14. **A `\\?\UNC\wsl...` or mapped-drive WSL folder would trust creation time.** Through a WSL share, creation time is the Linux modification time. Discovery never produces these forms, so this only matters if a typed folder ever reaches the ingest.
+
+15. **Replayed delegate rows still run route animations.** A replayed delegation plays its route animation, though the replay skips the counters and the ship celebration.
+
+16. **Claude error rows play no error sound.** The wire never sets `replayError`, so the row is styled as an ordinary live status line and the error sound does not play.
+
+17. **Cache tokens are ignored by the usage read in `dashboard/app.js`.** The Bill prices input and output only.
+
+18. **`GET /api/status` has no `replaying` flag.** A client cannot tell from status alone that a replay is in progress.
+
+19. **Stale Claude Code models stay in RoleProfiles after switching back to Cursor.** `applyBridgeModels` only sets models when the bridge sends them, and nothing clears them on the switch back.
+
+20. **A parse exception loses the rest of its read chunk.** The read offset advances before the chunk's lines are parsed, so an exception drops the chunk's remaining lines and counts one `drift.unreadable`.
+
+21. **An idle child can take up to 10 polls (about 9 s) to wake.** Idle children are lstat'ed only every 10th poll (`IDLE_EVERY`), at the 900 ms poll interval.
+
+22. **The subagent listing caps at 2000 entries before filtering.** Each child has a `.meta.json` beside it, so the real limit is about 1000 children per session.
+
+23. **A partial line longer than the per-poll read cap is rescanned on every poll.** The bridge rescans to the end of the file each poll until the line's newline arrives.
+
+24. **On a WSL share or POSIX, a larger replacement file that shows the same ids is not detected.** Creation time is not used there, and the shrink check only catches a smaller file.
+
+25. **A parent read failure leaves `more` false.** The next regular poll retries the parent.
+
+26. **The top-level scan cut at 20000 `.jsonl` candidates has no test.** `MAX_SCAN_CANDIDATES` is set, but nothing exercises it.
+
+27. **The label salt can still race on disks without hard links.** On FAT, exFAT and most SMB shares, two processes starting together on a first run can end with different salts. Separately, a salt lock holder paused for more than 10 s can be broken, so labels can differ for one run; the salt on disk stays valid.
+
+28. **A second client that switches the bridge leaves this page's stored choice different.** The difference lasts until the next connect, when the page reconciles once.
+
+29. **Two windows with different stored choices switch the bridge back and forth.** Each one reconciles the bridge to its own stored choice on every connect.
+
+30. **Reload with Claude Code stored replaces a stored History view with Stage.** History is off in that mode, so `dashboard/view-mode.js` moves the view to Stage.
+
+31. **The `app.js` hello, reset and onChanged call sites have only browser checks.** The source-switch module has unit tests; the call sites in `app.js` are covered only by the real-bridge browser checks.
+
+32. **A hello with no `source` leaves the page on its own choice.** An older bridge sends none, so the page does not reconcile and the chip shows the stored or default source (Claude Code with no stored choice) even if that bridge reads Cursor. The app and its bridge ship together, so this only shows with a mismatched standalone bridge.
+
+33. **An explicit Cursor folder wins per run, without touching the stored choice.** A bridge started with `--dir` or `CURSOR_TRANSCRIPTS` reports `explicitDir: true`; while it reads Cursor the page shows Cursor and sends no switch, and the stored choice stays as it was (so a later run without a folder is back on the stored or default source). If another client has switched that bridge to Claude Code, the page follows it. The flag describes how the process started and stays true after switches.
+
+34. **Claude Code role labels are not applied, and the Bill's Fable rate is old.** Nothing in production calls `RoleProfiles.apply`, so the active profile stays "cursor" and the stations keep the Cursor labels (Opus, Fable, Worker, Explorer, Researcher) in Claude Code mode; `setModels` only updates the display when the Claude Code profile is active. The Bill prices by model family from `dashboard/bill-math.js` (resolved model ids never reach it), and its Fable rate is $10 / $50 per 1M tokens against the $8 / $40 list price. Both are planned as their own follow-up changes.
+
 ## Verified as non-issues
 
 - **Focus is not lost when a drawer sheet closes.** `setViewMode` checks whether the

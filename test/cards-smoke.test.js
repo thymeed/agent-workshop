@@ -11,7 +11,11 @@ const path = require("path");
 const { pathToFileURL } = require("url");
 const { chromium } = require("playwright");
 const { pushEvent } = require("../live-bridge.js");
-const { startBridgeForSmoke, stopBridgeForSmoke } = require("./bridge-smoke-harness.js");
+const {
+  startBridgeForSmoke,
+  stopBridgeForSmoke,
+  newCursorPage
+} = require("./bridge-smoke-harness.js");
 const { attachErrorCollectors } = require("./smoke-http-collectors.js");
 
 async function assertHermeticTranscripts(page, transcriptsDir) {
@@ -45,7 +49,7 @@ const CARDS_CSS = path.resolve(__dirname, "..", "dashboard", "cards.css");
 const FILE_URL = pathToFileURL(HTML).href;
 
 async function smokeBrokenCardsAssetFails(browser) {
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const { errors, failedRequests, finalizeErrors } = attachErrorCollectors(page);
   await page.route("**/dashboard/cards.css", (route) => route.abort("failed"));
   await page.goto(FILE_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
@@ -66,7 +70,7 @@ async function smokeBrokenCardsAssetFails(browser) {
 
 async function smokeDisallowedApiErrorFails(browser) {
   const { port } = await startBridgeForSmoke();
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const { errors, finalizeErrors } = attachErrorCollectors(page);
   try {
     await page.goto(`http://127.0.0.1:${port}/`, {
@@ -88,7 +92,7 @@ async function smokeDisallowedApiErrorFails(browser) {
 
 async function smokeLiveReconnectDedupe(browser) {
   const { port, transcriptsDir } = await startBridgeForSmoke();
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const errors = [];
   const FIXTURE_MSG = "backlog fixture · session bill";
   try {
@@ -199,7 +203,7 @@ async function smokeLiveReconnectDedupe(browser) {
 
 async function smokeLiveDailyEventDedupe(browser) {
   const { port, transcriptsDir } = await startBridgeForSmoke();
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const errors = [];
   try {
     await page.goto(`http://127.0.0.1:${port}/`, {
@@ -251,7 +255,7 @@ async function smokeLiveDailyEventDedupe(browser) {
 
 async function smokeBridgeReplayRowsSkipDaily(browser) {
   const { port } = await startBridgeForSmoke();
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const errors = [];
   try {
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded", timeout: 15000 });
@@ -293,7 +297,7 @@ async function smokeBridgeReplayRowsSkipDaily(browser) {
 
 async function smokeBridgeReplayRowsSkipShipAndTiming(browser) {
   const { port } = await startBridgeForSmoke();
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const errors = [];
   try {
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded", timeout: 15000 });
@@ -388,7 +392,7 @@ async function smokeLiveReplaySkipsFastestTiming(browser) {
     message: "backlog · explore off",
     active: ["opus"]
   });
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const errors = [];
   try {
     await page.goto(`http://127.0.0.1:${port}/`, {
@@ -545,7 +549,7 @@ async function smokeLiveReplaySkipsFastestTiming(browser) {
 }
 
 async function smokeDemoUsageGrandTotal(browser) {
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const errors = [];
   try {
     await page.goto(FILE_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
@@ -597,7 +601,7 @@ async function smokeDemoUsageGrandTotal(browser) {
 }
 
 async function smokeCardsDemo(browser) {
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const { errors, failedRequests, finalizeErrors } = attachErrorCollectors(page);
 
   await page.goto(FILE_URL, { waitUntil: "domcontentloaded", timeout: 15000 });
@@ -979,7 +983,7 @@ async function smokeCardsDemo(browser) {
  */
 async function smokeSnoozeSoundSuppression(browser) {
   const { port } = await startBridgeForSmoke();
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const errors = [];
   try {
     await page.addInitScript(() => {
@@ -1055,7 +1059,7 @@ async function smokeSnoozeSoundSuppression(browser) {
  */
 async function smokeSnoozeResyncOnLoad(browser) {
   const { port } = await startBridgeForSmoke();
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const errors = [];
   try {
     await page.addInitScript(() => {

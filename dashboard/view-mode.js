@@ -198,6 +198,16 @@
     if (viewMode !== "history" && panel && typeof panel.pause === "function") panel.pause();
   }
 
+  /** The data source the page shows; Claude Code (the default) when the switch script is absent. */
+  function currentSource() {
+    return window.WorkshopSource ? window.WorkshopSource.getSource() : "claude-code";
+  }
+
+  /** History is off only while Live reads Claude Code; Demo and Cursor keep it. */
+  function syncHistoryAllowed(mode) {
+    setHistoryAllowed(!(mode === "live" && currentSource() === "claude-code"));
+  }
+
   /** Show or hide History. Turning it off while History is open returns to Stage. */
   function setHistoryAllowed(allowed) {
     historyAllowed = !!allowed;
@@ -252,6 +262,8 @@
     init: init,
     setViewMode: setViewMode,
     setHistoryAllowed: setHistoryAllowed,
+    currentSource: currentSource,
+    syncHistoryAllowed: syncHistoryAllowed,
     getMode: getMode,
     normalizeViewMode: normalizeViewMode,
     syncViewModeButtons: syncViewModeButtons,

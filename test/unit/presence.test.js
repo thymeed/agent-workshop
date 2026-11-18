@@ -295,3 +295,30 @@ test("noteLiveEvent records a timestamp used by the quiet check", () => {
   t.mod.noteLiveEvent();
   assert.ok(t.mod.getLastEventAt() > 0, "traffic timestamp recorded");
 });
+
+test("no-projects and the idle label name the active source", () => {
+  const cc = load({ getSource: () => "claude-code", getProjectLabel: () => "" });
+  cc.mod.setLivePresence("no-projects");
+  assert.match(cc.els.liveHint.textContent, /no Claude Code projects found/);
+  assert.match(
+    cc.els.liveBanner.textContent,
+    /No Claude Code projects found\. Start a Claude Code/
+  );
+  assert.ok(
+    !/Cursor|agent-transcripts/.test(cc.els.liveHint.textContent),
+    "hint has no Cursor text"
+  );
+  assert.ok(!/Cursor|agent-transcripts/.test(cc.els.liveBanner.textContent), "banner has none");
+  cc.mod.setLivePresence("streaming");
+  assert.equal(
+    cc.els.liveHint.textContent,
+    "Streaming · Claude Code",
+    "no agent-transcripts label"
+  );
+
+  const cur = load({ getSource: () => "cursor", getProjectLabel: () => "" });
+  cur.mod.setLivePresence("no-projects");
+  assert.match(cur.els.liveBanner.textContent, /No Cursor projects found under agent-transcripts/);
+  cur.mod.setLivePresence("streaming");
+  assert.equal(cur.els.liveHint.textContent, "Streaming · agent-transcripts");
+});

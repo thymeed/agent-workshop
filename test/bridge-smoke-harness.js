@@ -66,7 +66,25 @@ async function stopBridgeForSmoke() {
   }
 }
 
+/**
+ * A page whose stored data-source choice is "cursor". The harness bridge starts in Cursor mode
+ * (it is given a dir), and the dashboard's own default is Claude Code: without a stored choice
+ * the page would switch the bridge to Claude Code on connect.
+ */
+async function newCursorPage(browser) {
+  const page = await browser.newPage();
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem("ca.source.v1", "cursor");
+    } catch (_e) {
+      /* storage blocked */
+    }
+  });
+  return page;
+}
+
 module.exports = {
+  newCursorPage,
   getFreePort,
   startBridgeForSmoke,
   stopBridgeForSmoke

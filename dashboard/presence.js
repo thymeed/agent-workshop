@@ -96,8 +96,12 @@
     }, QUIET_AFTER_MS);
   }
 
+  function isClaudeCode() {
+    return !!d.getSource && d.getSource() === "claude-code";
+  }
+
   function hintLabel() {
-    return d.getProjectLabel() || "agent-transcripts";
+    return d.getProjectLabel() || (isClaudeCode() ? "Claude Code" : "agent-transcripts");
   }
 
   function refreshEmptyLogIfIdle() {
@@ -190,10 +194,15 @@
       if (hint) {
         hint.hidden = false;
         hint.className = "live-hint err";
-        hint.textContent = detail || "Connected · no Cursor projects found";
+        hint.textContent =
+          detail ||
+          (isClaudeCode()
+            ? "Connected · no Claude Code projects found"
+            : "Connected · no Cursor projects found");
       }
-      bannerText =
-        "No Cursor projects found under agent-transcripts. Open a project in Cursor, then Reconnect.";
+      bannerText = isClaudeCode()
+        ? "No Claude Code projects found. Start a Claude Code session in a project, then Reconnect."
+        : "No Cursor projects found under agent-transcripts. Open a project in Cursor, then Reconnect.";
       bannerClass += " no-projects";
       showBanner = true;
     } else if (state === "quiet-healthy") {

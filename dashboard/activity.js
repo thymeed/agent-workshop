@@ -169,7 +169,9 @@
       return "Bridge offline · click Reconnect after starting the bridge.";
     }
     if (presence === "no-projects") {
-      return "No Cursor projects found · open a project in Cursor, then Reconnect.";
+      return d.getSource && d.getSource() === "claude-code"
+        ? "No Claude Code projects found · start a Claude Code session in a project, then Reconnect."
+        : "No Cursor projects found · open a project in Cursor, then Reconnect.";
     }
     if (presence === "connecting") return "Connecting to the Live bridge…";
     if (presence === "quiet-healthy") return "Workshop idle · waiting for transcript activity…";

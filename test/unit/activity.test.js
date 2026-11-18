@@ -277,3 +277,12 @@ test("resetLogEmpty accepts explicit copy and defaults to the presence message",
   assert.match(sessionLog.children[0].textContent, /click Reconnect/);
   assert.equal(sessionLog.children[0].id, "logEmpty", "the empty node keeps its id");
 });
+
+test("the no-projects empty log names the active source", () => {
+  const base = { getMode: () => "live", getLivePresence: () => "no-projects" };
+  const cc = load({ ...base, getSource: () => "claude-code" }).mod.emptyLogMessage();
+  assert.match(cc, /No Claude Code projects found · start a Claude Code session/);
+  assert.ok(!/Cursor/.test(cc), "no Cursor text in Claude Code mode");
+  const cur = load({ ...base, getSource: () => "cursor" }).mod.emptyLogMessage();
+  assert.match(cur, /No Cursor projects found · open a project in Cursor/);
+});

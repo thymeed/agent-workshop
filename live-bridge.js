@@ -138,6 +138,8 @@ let currentIngestLine = 0;
 let PORT = 3847;
 /** Identity token for /api/status; Electron refuses foreign listeners on the bridge port. */
 const BRIDGE_ID = "cursor-agents-model-routing-v1";
+/** What a fresh bridge reads and what the dashboard assumes before it is told otherwise. */
+const DEFAULT_SOURCE = "claude-code";
 /** @type {string} */
 let TRANSCRIPTS = emptyTranscripts();
 /** @type {string|null} */
@@ -145,11 +147,17 @@ let currentProjectId = null;
 /** @type {string|null} */
 let currentProjectLabel = null;
 /**
- * Data source: "cursor" (default) or "claude-code". In memory only. The Claude Code side keeps
+ * Data source: "claude-code" (default) or "cursor". In memory only. The Claude Code side keeps
  * its own selection inside `claudeCode`, so switching never clobbers the Cursor project above.
  * @type {"cursor"|"claude-code"}
  */
-let source = "cursor";
+let source = DEFAULT_SOURCE;
+/**
+ * True when this process started with an explicit Cursor folder. It describes how the process
+ * started, so it stays true after a later switch to Claude Code and back. Only a boolean is
+ * ever served, never the folder.
+ */
+let explicitCursorDir = false;
 /** @type {ReturnType<typeof createClaudeCodeMode>|null} */
 let claudeCode = null;
 /** Claude Code tail for the selected project (one per selection), or null. Never serialised.
@@ -299,6 +307,15 @@ function isPathUnderProjectsRoot(absPath) {
   const root = path.resolve(projectsRootPath());
   const rel = path.relative(root, resolved);
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/**
+ * True when the user named a Cursor transcripts folder (`--dir`, `opts.dir` or
+ * CURSOR_TRANSCRIPTS). That is an explicit ask for Cursor, so the bridge starts in Cursor
+ * mode instead of the Claude Code default.
+ */
+function hasExplicitCursorDir(opts) {
+  return !!((opts && opts.dir) || flag("--dir") || process.env.CURSOR_TRANSCRIPTS);
 }
 
 function resolveDefaultTranscripts(opts) {
@@ -750,6 +767,7 @@ function statusPayload() {
     ok: true,
     bridgeId: BRIDGE_ID,
     source,
+    explicitDir: explicitCursorDir,
     port: PORT,
     transcripts: TRANSCRIPTS,
     projectId: currentProjectId,
@@ -786,6 +804,7 @@ async function claudeStatusPayload(cc) {
     bridgeId: BRIDGE_ID,
     port: PORT,
     ...pub,
+    explicitDir: explicitCursorDir,
     projectId: sel.id,
     projectLabel: sel.label,
     events: events.length,
@@ -839,6 +858,29 @@ async function selectClaudeProject(cc, id) {
   };
 }
 
+/**
+ * Claude Code mode with nothing selected: select the newest project (the picker's first entry,
+ * as Cursor does at startup) so tailing starts and the picker shows what the bridge reads. Never
+ * replaces a selection (the user's, or one kept from before a switch away); zero projects or a
+ * failed discovery leave things as they are. Uses the stable project id only.
+ */
+async function autoSelectNewestClaude() {
+  const cc = claudeCode;
+  const stillOurs = () => source === "claude-code" && claudeCode === cc && !cc.selection().id;
+  try {
+    if (!cc || !stillOurs()) return;
+    const body = await cc.projectsBody();
+    const newest = body.projects[0];
+    if (!newest || !stillOurs()) return;
+    const r = await cc.select(newest.id, stillOurs);
+    if (!r.ok || source !== "claude-code" || claudeCode !== cc) return;
+    resetClaudeWatch();
+    beginClaudeTail();
+  } catch (_e) {
+    /* discovery failed: the picker and notes already say so; the next switch or start retries */
+  }
+}
+
 /** Switch source. Cursor selection and watch state are restored by a normal reset. */
 function setSource(next) {
   if (next === source) {
@@ -850,6 +892,7 @@ function setSource(next) {
     claudeCode.invalidate();
     resetClaudeWatch();
     beginClaudeTail();
+    void autoSelectNewestClaude();
   } else {
     claudeTail = null;
     claudeModels = {};
@@ -1560,6 +1603,12 @@ function sendInternalError(res) {
 function createServer() {
   return http.createServer((req, res) => {
     if (rejectIfNotLocal(req, res, PORT)) return;
+    if (!claudeCode) {
+      // stopBridge ran: a request still arriving on a kept-alive socket has nothing to answer with
+      res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8", Connection: "close" });
+      res.end("Bridge stopped");
+      return;
+    }
 
     let url;
     try {
@@ -1861,6 +1910,7 @@ function createServer() {
       const hello = {
         ok: true,
         source,
+        explicitDir: explicitCursorDir,
         transcripts: TRANSCRIPTS,
         projectId: currentProjectId,
         projectLabel: currentProjectLabel,
@@ -1973,7 +2023,9 @@ function startBridge(opts) {
   }
   PORT = Number(opts.port || flag("--port") || 3847);
   resolveDefaultTranscripts(opts);
-  source = "cursor";
+  // Claude Code is the default; an explicit Cursor folder (--dir / CURSOR_TRANSCRIPTS) starts Cursor.
+  explicitCursorDir = hasExplicitCursorDir(opts);
+  source = explicitCursorDir ? "cursor" : DEFAULT_SOURCE;
   claudeCode = makeClaudeCodeMode(opts);
 
   const eventLogCreateOpts = {
@@ -2006,7 +2058,9 @@ function startBridge(opts) {
       } catch (_e) {
         /* keep PORT */
       }
-      snapshotTranscriptInventory();
+      // Claude Code mode watches no Cursor tree; switching to Cursor re-snapshots (resetWatchState)
+      if (source === "cursor") snapshotTranscriptInventory();
+      else void autoSelectNewestClaude();
       scan();
       if (pollTimer) clearInterval(pollTimer);
       pollTimer = setInterval(() => {
@@ -2129,7 +2183,9 @@ function stopBridge() {
     agentWatch.clear();
     onAgentAlert = null;
     snoozeIndefinite = false;
-    source = "cursor";
+    // back to the default, like every other piece of state here; startBridge sets it again anyway
+    source = DEFAULT_SOURCE;
+    explicitCursorDir = false;
     claudeCode = null;
     claudeTail = null;
     claudeModels = {};

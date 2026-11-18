@@ -65,7 +65,7 @@ CURSOR_BRIDGE_PORT=3848 npm start
 
 ### Live project picker
 
-In Live mode, a project dropdown lists Cursor projects that have `~/.cursor/projects/<id>/agent-transcripts` (newest activity first by default).
+In Live mode with the **Cursor** source selected, a project dropdown lists Cursor projects that have `~/.cursor/projects/<id>/agent-transcripts` (newest activity first by default). With the **Claude Code** source the dropdown lists Claude Code projects instead, and the bridge selects the newest one itself when nothing is selected yet (at start, or when you switch to Claude Code), so the picker shows the project being read and tailing starts without a click. A selection you made is kept, also across a switch to Cursor and back.
 
 Choosing a project:
 
@@ -74,6 +74,25 @@ Choosing a project:
 3. Remounts the History replay transport and restarts Live SSE (`reset` resyncs the workshop; it does not remount History replay or move the scrubber by itself).
 
 While Live is connected, loading a session into History (project change or session picker) paints the replay frame on the stage but does not pause Live SSE until you scrub the timeline or press Play. Scrub or Play sets replay ownership so Live events no longer overwrite the stage until you leave History or run Demo/Live again.
+
+### Claude Code source
+
+Live mode has a **Claude Code | Cursor** switch in the header. **Claude Code is the default source.** Your choice is stored in the browser (`ca.source.v1`); with no stored choice, or an invalid one, the page asks for Claude Code, and a stored choice (including Cursor) still wins. A bridge starts on Claude Code too, so the two agree on the first connect and the page sends nothing. The dashboard sends it to the bridge with `POST /api/source` (`{"source":"claude-code"}` or `{"source":"cursor"}`, with the `X-Cursor-Bridge: 1` header and the same-origin check). A HUD chip shows which source the stage is reading.
+
+What Claude Code mode reads, one project at a time from the picker:
+
+- **Windows:** `~/.claude/projects` on the local drive.
+- **WSL:** `/home/<user>/.claude/projects` in each distro that is running. The bridge asks `wsl.exe -l --running` (from `%SystemRoot%\System32`) and reads each running distro through its `\\wsl.localhost` or `\\wsl$` share. A stopped distro is skipped and reported in the project list notes (for example "Ubuntu skipped: not running"), so a missing folder never looks like an empty one.
+- **Labels are path-free.** A project shows its own folder name. A home folder, or a project with no working directory, shows a short label instead. Project ids and those labels are HMAC-SHA256 over a random 16-byte salt, made once per install and kept in the app-data folder beside the event log.
+
+What you see:
+
+- Claude Code rows drive the existing stage and station cards: the parent session, and a delegation by its `subagent_type` (**Planner**, **Researcher**, **Worker** or **Reviewer**; other types take a role from their model family: opus → Planner, sonnet → Worker, haiku → Researcher, anything else → Worker). The stations still carry the Cursor profile labels for now (Opus, Fable, Worker, Explorer, Researcher), and each role lights this station: Lead → Opus, Planner → Fable, Worker → Worker, Researcher → Explorer, Reviewer → Researcher. The Claude Code role names are not applied to them yet (known issue 34).
+- Model aliases (`opus`, `sonnet`, `haiku`, `inherit`) are resolved to full model ids at ingest, and `inherit` takes the Lead's model; an unknown alias stays unset. These ids go to the role-profile model table, which only shows them once the Claude Code profile is active (it is not applied yet, known issue 34).
+- **Bill:** tokens come from each transcript line's `usage`, using the highest count seen for each message id, and are priced by model family with the rates in `dashboard/bill-math.js` (the resolved full model id does not reach the Bill). The Bill view itself is unchanged. Cache tokens are not billed. The Fable rate there is still $10 / $50 per 1M tokens, not the $8 / $40 list price (known issue 34).
+- **History is off.** The History button is hidden, `GET /api/history` returns no events with a `history-off` note, and `POST /api/history/clear` returns 409. Claude Code events never reach the Cursor event log.
+- **Replay, then alerts.** When a session is first read, its catch-up replays silently: rows fill the stage, but nothing alerts, counts toward today's stats, or plays the ship celebration. Once the parent session has been read to its end, finish and error rows alert as they arrive. A newer session clears the stage and replays from its start.
+- Switching back to Cursor restores the Cursor project and watch state.
 
 ## Build and run
 
@@ -197,7 +216,7 @@ node live-bridge.js --port 3847
 node live-bridge.js --dir "C:\Users\<you>\.cursor\projects\<project>\agent-transcripts"
 ```
 
-`CURSOR_BRIDGE_PORT` / `--port` also apply here. `start-live.cmd` is a legacy headless helper only. It is not the primary desktop launch path.
+Naming a Cursor folder (`--dir`, or the `CURSOR_TRANSCRIPTS` environment variable) is an explicit ask for Cursor, so the bridge then starts on the Cursor source instead of Claude Code. The named folder wins for that run: the page shows Cursor on connect (also with no stored choice or a stored Claude Code choice) and does not switch the bridge or change the stored choice. Clicking Claude Code in the header still switches the bridge and stores that choice (known issue 33). `CURSOR_BRIDGE_PORT` / `--port` also apply here. `start-live.cmd` is a legacy headless helper only. It is not the primary desktop launch path.
 
 ### What Live mode wires
 
@@ -212,7 +231,9 @@ node live-bridge.js --dir "C:\Users\<you>\.cursor\projects\<project>\agent-trans
 | `GET /api/history?since=&session=`                  | Persisted history events (JSONL-backed; localhost Host/Origin guards)       |
 | `POST /api/history/clear` + `X-Cursor-Bridge: 1`    | Wipe local history (`{"ok":true}`)                                          |
 
-Roles are inferred from `Task` / `CallDynamicTool` `subagent_type` and subagent prompt text (`advisor`, `worker`, `explore` maps to explorer, `researcher`). Unknown types map to parent/generic. A delegation's `arguments.model` is read too, so a station can name the model the work actually routed to.
+In Cursor mode, roles are inferred from `Task` / `CallDynamicTool` `subagent_type` and subagent prompt text (`advisor`, `worker`, `explore` maps to explorer, `researcher`). Unknown types map to parent/generic. A delegation's `arguments.model` is read too, so a station can name the model the work actually routed to.
+
+In Claude Code mode the same routes apply, with `POST /api/source` switching the source. `GET /api/status` and `GET /api/events` then return counts and path-free rows only. The Claude Code tailing and wiring are described in [Claude Code source](#claude-code-source).
 
 ### Live presence
 
@@ -223,7 +244,7 @@ The Live UI tracks a single presence state for the header hint, stage banner, an
 | `file-origin`   | Coach: open Electron or `http://127.0.0.1:<port>/` (Live from `file://` is unsupported) |
 | `connecting`    | Soft connecting banner                                                                  |
 | `bridge-down`   | Persistent banner + Reconnect (manual; no auto-reconnect loop)                          |
-| `no-projects`   | Coach when the picker has no Cursor projects                                            |
+| `no-projects`   | Coach when the picker has no projects for the source in use (Claude Code or Cursor)     |
 | `quiet-healthy` | Connected with no recent events. Idle workshop, not an error.                           |
 | `streaming`     | Active traffic + project chip                                                           |
 
@@ -284,7 +305,7 @@ Terminal rows come from the transcript's `turn_ended` line, which is the only si
 
 The in-app alert center (header bell) lists the same alerts: mark read, snooze, clear, click to jump when a role/agent is mappable. Mappable roles show a small block-agent avatar beside the status (same cast as Stations, never letter initials). Alerts show only agent name and status, never prompt text or file paths. Backlog/SSE replay quiet gates skip spam the same way card timing does.
 
-### Limits
+### Limits (Cursor source)
 
 - Near-real, not hook-level realtime (no Cursor hooks required for this slice).
 - SESSION BILL is transcript-estimated tokens times published rates per 1M input/output: Opus $4/$20, Sonnet $2/$10, Haiku $0.10/$0.50, Fable $10/$50. Real transcripts carry no `usage` block, so every figure is estimated from character counts — treat it as an estimate of magnitude, not a count. Estimates are illustrative, not official Cursor invoices.
@@ -296,6 +317,17 @@ The in-app alert center (header bell) lists the same alerts: mark read, snooze, 
 - History API responses omit events whose `sessionId` is not present under the current transcripts tree.
 - History records only bytes the bridge saw arrive. A transcript that already existed when the bridge started is warmed from the tail, not back-filled.
 - Hooks, statusline, and Cursor SDK are separate integration paths. This dashboard reads transcripts on disk.
+
+### Limits (Claude Code source)
+
+- Reads only the newest session of the selected project, plus that session's subagents. One project at a time.
+- Files are polled about every 900 ms: near-real, not hook-level realtime.
+- The subagent list holds about 1000 children per session (the first 2000 directory entries are read, and each child has a `.meta.json` beside it).
+- A finish in the first ~4.5 seconds of a brand-new session never alerts: the switch waits 5 polls, then the catch-up replays silently.
+- Replay rows never count toward today's stats. Claude error rows play no error sound.
+- Only tokens from `usage` are billed; cache tokens are not. The Bill view is the Cursor one, unchanged.
+- The Cursor event log and History are not used in this mode.
+- On a first start, two processes can race to create the salt on a disk without hard links (FAT, exFAT, most network shares). See `docs/known-issues.md`.
 
 ### Format compatibility
 

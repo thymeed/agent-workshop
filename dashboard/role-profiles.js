@@ -3,8 +3,10 @@
  * worker, explorer, researcher), DOM ids, data-role, data-avatar and fill colours never
  * change. Only the displayed text does.
  *
- * "cursor" is the default and matches the static HTML exactly. "claude-code" is reached
- * only through apply() from the devtools console for now (no source switch yet).
+ * "cursor" is the profile at load and matches the static HTML exactly (this is the profile,
+ * not the data source: the source default is "claude-code", see source-switch.js). "claude-code"
+ * is reached only through apply(); the source switch does not call it yet, so today it runs
+ * from the devtools console.
  * Loaded after cards.js and before app.js; exposes window.RoleProfiles.
  *
  * get(), current() and tables() hand out deeply frozen copies, never the live profile
