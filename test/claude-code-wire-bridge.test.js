@@ -268,6 +268,12 @@ async function main() {
     await waitFor(async () => (await alertsOf(port)).length === 2, "the live error alert");
     assert.deepStrictEqual((await alertsOf(port))[1].status, "error");
     assert.strictEqual((await alertsOf(port))[1].name, "Reviewer");
+    const failedRow = (await events(port)).find(
+      (e) => e.toolUseId === "toolu_3" && e.type === "error"
+    );
+    assert.ok(failedRow, "the failed row is on the event list");
+    assert.strictEqual(failedRow.failed, true, "a failed child row carries the error-sound flag");
+    assert.notStrictEqual(failedRow.replay, true, "a live row is not a replay row");
 
     // ---- a newer session clears and replays; its finished child is a replay, so no alert ----
     const resetsBefore = (stream.text().match(/event: reset/g) || []).length;

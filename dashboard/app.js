@@ -1116,9 +1116,15 @@
     });
 
     var msg = ev.message || "";
-    var statusCls = ev.replayError ? "err" : "live";
+    var statusCls = ev.replayError || ev.failed === true ? "err" : "live";
     setStatus(cardRole, '<span class="' + statusCls + '">' + escapeHtml(msg) + "</span>");
-    if (ev.replayError && !isReplay && !liveSseBacklogReplay)
+    if (
+      window.WorkshopErrorSound.shouldPlay(ev, {
+        isReplay: isReplay,
+        backlog: liveSseBacklogReplay,
+        alreadySeen: alreadySeen
+      })
+    )
       sound.play("error", { role: cardRole });
     if (!isReplay && (role === "advisor" || ev.kind === "asks")) {
       setCalls(state.calls + 1);
@@ -1170,7 +1176,7 @@
     if (ev.route && !skipMotion) animateRoute(ev.route, ev.routeTo || cardRole);
 
     var logRole = role === "parent" ? "parent" : role;
-    activity.appendLog(logRole, msg, ev.replayError ? "err" : null, ev.ts);
+    activity.appendLog(logRole, msg, ev.replayError || ev.failed === true ? "err" : null, ev.ts);
 
     if (!isReplay && !alreadySeen && mode === "live") {
       presence.noteLiveEvent();
