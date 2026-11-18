@@ -81,6 +81,21 @@ Last reviewed: 2026-10-16 (post-audit of the Live transcript path).
   `electron@33.4.11` to `electron@44.7.2` and `electron-winstaller` denied, because
   Electron 44 dropped its `postinstall` hook and fetches its binary on first use.
 
+- **The six-process salt-lock test failed on the Windows CI runner.**
+  The six-process test in `test/unit/claude-code-sources.test.js` failed on master
+  after the merge of #30
+  (https://github.com/thymeed/agent-workshop/actions/runs/44223223126, green on
+  re-run) and twice on the CI of #33
+  (https://github.com/thymeed/agent-workshop/actions/runs/44268318813). The cause
+  was in `takeSaltLock`: while several processes broke a stale lock, a Windows
+  sharing error (`EPERM`, `EACCES` or `EBUSY`) on reading, linking or removing
+  the lock ended the wait at once, and that process used a temporary salt with the
+  "Labels change after restart" note. Those errors are now waited out inside the
+  existing 3 s lock budget (a persistent one still ends in the note at the
+  deadline), and a sharing error on the hard link never leads to removing the lock
+  directly. Reproduced locally only with the processes pinned to 2 cores under
+  load. See known issue 37 for what is left.
+
 ## Open
 
 1. **A release asset that is renamed between runs accumulates rather than being
@@ -227,7 +242,7 @@ Claude Code source (known limits, found while building it; none of them is a cra
 
 36. **The label salt folder has limits.** The salt now lives in its own config folder, not the event-log folder. On Windows it is protected only by the profile's folder permissions (no `icacls` call); on POSIX the folder is 0700 and the file 0600. On disks without hard links (FAT, exFAT, most SMB shares) two processes starting together on a first run can still end with different salts (see item 27). A migration from the old event-log folder copies and verifies the salt first, then deletes the old copy; if that delete fails (file in use, read-only folder) the old copy stays behind and keeps working as a leftover, and nothing tells the user. A valid salt already in the config folder wins, and the old copy is then deleted too. If the old copy cannot be looked at or read at start (a failed stat of the old folder, a failed real-path lookup, or a read that fails after the sharing-error retries), that run uses a per-process salt with the "Labels change after restart" note: nothing is published in the config folder and the old file is left alone (a valid salt already in the config folder is used instead, with no note), so the next start migrates it and ids return to what they were. The old folder counts only when it is provably a different folder from the config folder (device and inode, else real path: a case variant, symlink or junction does not), and the old salt file is never deleted when it is the same file as the new one; when that cannot be told, the delete is skipped. A lasting fault on the old copy (no permission on the file, a folder named like the salt file) never heals by itself: every start then uses a temporary salt with the note until the fault is fixed or a valid salt is already in the config folder. A missing old folder or file (ENOENT) is trusted as "nothing to migrate". Someone who ran earlier versions with two different `CURSOR_EVENT_LOG_DIR` folders had two salts; only one survives (the first migrated, or one already in the config folder), so the other folder's ids change once. Paths: `%LOCALAPPDATA%\cursor-agents-model-routing-config` (Windows), `~/Library/Application Support/cursor-agents-model-routing-config` (macOS), `$XDG_CONFIG_HOME/cursor-agents-model-routing-config` or `~/.config/cursor-agents-model-routing-config` (Linux; a relative `XDG_CONFIG_HOME` or home is ignored).
 
-37. **A Windows CI test of the salt lock is flaky.** `loadOrCreateSalt: six real processes on a corrupt file (and a dead process's lock) all end on the same salt` (`test/unit/claude-code-sources.test.js`) failed once on the Windows runner (round 1: a process ended on a temporary salt with the "Labels change after restart" note) and passed on a re-run of the same commit: https://github.com/thymeed/agent-workshop/actions/runs/44223223126 . It races six real processes on the lock file, so a slow runner can lose the tie-break (the known limit in item 27). Follow-up unit: harden the test (longer wait, or accept the note and check only the salt on disk) or the lock tie-break. Not changed here.
+37. **The salt lock still gives up on two cases.** The first read of `label-salt.bin`, before any lock is taken, gives a temporary salt with the "Labels change after restart" note on any error other than a missing file, so a sharing error there (another process replacing a corrupt file at that moment, Windows) is not retried. Separately, when a stale lock has to be broken, a hard-link attempt that fails with `EPERM`, `EACCES` or `EBUSY` is treated as a sharing error and waited out, never as "no hard links": a disk that reports one of those codes for every hard link keeps the stale lock, and each start waits the 3 s lock budget and then uses a temporary salt with the note until the lock is removed by hand. Disks that report another code (for example `ENOTSUP`) still use the direct removal. Also, if removing the temporary `.stale-` link made while breaking a stale lock fails, the link stays behind: the next start finds it, waits for it to age past the 10 s stale limit (longer than the 3 s lock budget) and that run uses a temporary salt with the note. Follow-up: give up on, or clear, that link sooner.
 
 ## Verified as non-issues
 

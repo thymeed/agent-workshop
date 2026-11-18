@@ -1407,20 +1407,20 @@ test("loadOrCreateSalt: a corrupt file is replaced only under the lock", () => {
   }
 });
 
-test("loadOrCreateSalt: a lock file that cannot be read or removed never hangs startup", () => {
+test("loadOrCreateSalt: a lock file that cannot be read or removed (a hard error) gives up at once", () => {
   const nodeFs = require("fs");
   const nodePath = require("path");
   const dir = saltScratch("salt-nohang-");
   try {
     const file = nodePath.join(dir, "label-salt.bin");
     const lock = file + ".lock";
-    const epermAt =
+    const failAt =
       (name, counter, cap) =>
       (p, ...a) => {
         if (String(p).includes(".lock")) {
           counter.n += 1;
           if (counter.n > cap) return nodeFs[name](p, ...a); // a regression ends here, and fails the count
-          throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+          throw Object.assign(new Error("EIO"), { code: "EIO" });
         }
         return nodeFs[name](p, ...a);
       };
@@ -1441,7 +1441,7 @@ test("loadOrCreateSalt: a lock file that cannot be read or removed never hangs s
     nodeFs.writeFileSync(lock, "x");
     let c = { n: 0 };
     check(
-      S.loadOrCreateSalt({ dir, fs: { ...nodeFs, statSync: epermAt("statSync", c, 50) } }),
+      S.loadOrCreateSalt({ dir, fs: { ...nodeFs, statSync: failAt("statSync", c, 50) } }),
       c,
       "stat fails"
     );
@@ -1453,8 +1453,8 @@ test("loadOrCreateSalt: a lock file that cannot be read or removed never hangs s
         dir,
         fs: {
           ...nodeFs,
-          linkSync: epermAt("linkSync", c, 50),
-          unlinkSync: epermAt("unlinkSync", c, 50)
+          linkSync: failAt("linkSync", c, 50),
+          unlinkSync: failAt("unlinkSync", c, 50)
         }
       }),
       c,
@@ -1463,7 +1463,7 @@ test("loadOrCreateSalt: a lock file that cannot be read or removed never hangs s
     // the lock is old but cannot be read
     c = { n: 0 };
     check(
-      S.loadOrCreateSalt({ dir, fs: { ...nodeFs, readFileSync: epermAt("readFileSync", c, 50) } }),
+      S.loadOrCreateSalt({ dir, fs: { ...nodeFs, readFileSync: failAt("readFileSync", c, 50) } }),
       c,
       "stale lock cannot be read"
     );
@@ -1471,6 +1471,170 @@ test("loadOrCreateSalt: a lock file that cannot be read or removed never hangs s
     nodeFs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test(
+  "loadOrCreateSalt: a sharing error while breaking a stale lock is waited out, never a throwaway salt",
+  { timeout: 30000 },
+  () => {
+    const nodeFs = require("fs");
+    const nodePath = require("path");
+    // each branch of the stale-lock break that reads, links or removes the lock
+    const branches = [
+      "stat",
+      "lock-read",
+      "grave-read",
+      "link",
+      "samelock-direct",
+      "unlink-direct"
+    ];
+    const direct = new Set(["samelock-direct", "unlink-direct"]); // a disk with no hard links
+    for (const code of ["EPERM", "EACCES", "EBUSY"]) {
+      for (const branch of branches) {
+        const label = code + " on " + branch;
+        const dir = saltScratch("salt-transient-");
+        try {
+          const file = nodePath.join(dir, "label-salt.bin");
+          const lock = file + ".lock";
+          nodeFs.writeFileSync(file, Buffer.alloc(3, 1)); // corrupt, so the lock is needed
+          nodeFs.writeFileSync(lock, "dead");
+          const old = new Date(Date.now() - 60000);
+          nodeFs.utimesSync(lock, old, old);
+          let thrown = 0;
+          let lockReads = 0;
+          let linkFailed = false;
+          let linkRetried = false;
+          let removedAfterFailedLink = 0;
+          const boom = () => {
+            thrown++;
+            throw Object.assign(new Error(code), { code });
+          };
+          const wrapped = {
+            ...nodeFs,
+            statSync: (p, ...a) => {
+              if (branch === "stat" && p === lock && !thrown) boom();
+              return nodeFs.statSync(p, ...a);
+            },
+            readFileSync: (p, ...a) => {
+              if (p === lock) lockReads++;
+              if (branch === "lock-read" && p === lock && !thrown) boom();
+              if (branch === "samelock-direct" && p === lock && lockReads === 2 && !thrown) boom();
+              if (branch === "grave-read" && String(p).includes(".stale-") && !thrown) boom();
+              return nodeFs.readFileSync(p, ...a);
+            },
+            linkSync: (a, b) => {
+              if (String(a) === lock) {
+                if (direct.has(branch)) {
+                  throw Object.assign(new Error("ENOTSUP"), { code: "ENOTSUP" }); // no hard links
+                }
+                if (linkFailed) linkRetried = true;
+                if (branch === "link" && !thrown) {
+                  linkFailed = true;
+                  boom();
+                }
+              }
+              return nodeFs.linkSync(a, b);
+            },
+            unlinkSync: (p) => {
+              if (p === lock && linkFailed && !linkRetried) removedAfterFailedLink++;
+              if (branch === "unlink-direct" && p === lock && !thrown) boom();
+              return nodeFs.unlinkSync(p);
+            }
+          };
+          let clock = 0;
+          const r = S.loadOrCreateSalt({
+            dir,
+            fs: wrapped,
+            mono: () => clock,
+            sleep: (ms) => (clock += ms)
+          });
+          assert.equal(thrown, 1, label + ": the error was really thrown");
+          assert.equal(r.note, undefined, label + ": no throwaway salt");
+          assert.deepEqual(r.salt, nodeFs.readFileSync(file), label + ": the salt on disk is used");
+          assert.equal(r.salt.length, 16, label);
+          assert.equal(removedAfterFailedLink, 0, label + ": the lock was never removed directly");
+          assert.deepEqual(nodeFs.readdirSync(dir), ["label-salt.bin"], label + ": nothing left");
+        } finally {
+          nodeFs.rmSync(dir, { recursive: true, force: true });
+        }
+      }
+    }
+  }
+);
+
+test(
+  "loadOrCreateSalt: a sharing error that never clears gives up at the deadline with the unstable note",
+  { timeout: 30000 },
+  () => {
+    const nodeFs = require("fs");
+    const nodePath = require("path");
+    for (const branch of ["lock-read", "link", "unlink-direct"]) {
+      const dir = saltScratch("salt-transient-forever-");
+      try {
+        const file = nodePath.join(dir, "label-salt.bin");
+        const lock = file + ".lock";
+        nodeFs.writeFileSync(file, Buffer.alloc(3, 1));
+        nodeFs.writeFileSync(lock, "dead");
+        const old = new Date(Date.now() - 60000);
+        nodeFs.utimesSync(lock, old, old);
+        let calls = 0;
+        let lockRemoved = 0;
+        const eperm = () => {
+          calls++;
+          throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+        };
+        const wrapped = {
+          ...nodeFs,
+          readFileSync: (p, ...a) => {
+            if (branch === "lock-read" && p === lock) eperm();
+            return nodeFs.readFileSync(p, ...a);
+          },
+          linkSync: (a, b) => {
+            if (branch === "link" && String(a) === lock) eperm();
+            if (branch === "unlink-direct" && String(a) === lock) {
+              throw Object.assign(new Error("ENOTSUP"), { code: "ENOTSUP" }); // no hard links
+            }
+            return nodeFs.linkSync(a, b);
+          },
+          unlinkSync: (p) => {
+            if (p === lock && branch === "unlink-direct") eperm();
+            if (p === lock) lockRemoved++;
+            return nodeFs.unlinkSync(p);
+          }
+        };
+        let clock = 0;
+        const sleeps = [];
+        const r = S.loadOrCreateSalt({
+          dir,
+          fs: wrapped,
+          mono: () => clock,
+          sleep: (ms) => {
+            sleeps.push(ms);
+            clock += ms;
+          }
+        });
+        assert.equal(r.note.code, "labels-unstable", branch);
+        assert.equal(r.salt.length, 16, branch);
+        assert.ok(calls > 3, branch + ": it did retry, calls=" + calls);
+        assert.ok(
+          clock >= 3000 && clock < 3500,
+          branch + ": it stopped at the deadline, clock=" + clock
+        );
+        assert.ok(
+          sleeps.length > 0 && sleeps.every((ms) => ms > 0),
+          branch + ": it slept, no spin"
+        );
+        assert.equal(lockRemoved, 0, branch + ": the lock was never removed");
+        assert.deepEqual(
+          nodeFs.readFileSync(file),
+          Buffer.alloc(3, 1),
+          branch + ": file untouched"
+        );
+      } finally {
+        nodeFs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
+);
 
 test("loadOrCreateSalt: lock ownership, takeover, future-dated locks and the wait clock", () => {
   const nodeFs = require("fs");
