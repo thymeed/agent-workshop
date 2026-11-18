@@ -144,12 +144,32 @@ async function main() {
     JSON.stringify({ type: "user", cwd: "/srv/proj-demo", sessionId: "s1" }) + "\n"
   );
 
+  // where each platform keeps the salt, inside the fake home
+  const saltDir =
+    process.platform === "win32"
+      ? path.join(fakeHome, "AppData", "Local", "cursor-agents-model-routing-config")
+      : process.platform === "darwin"
+        ? path.join(
+            fakeHome,
+            "Library",
+            "Application Support",
+            "cursor-agents-model-routing-config"
+          )
+        : path.join(fakeHome, ".config", "cursor-agents-model-routing-config");
+
   const env = Object.assign({}, process.env, {
     CURSOR_BRIDGE_PORT: String(port),
     CURSOR_PROJECTS_ROOT: projectsRoot,
     CURSOR_EVENT_LOG_DIR: eventLogDir,
     HOME: fakeHome,
-    USERPROFILE: fakeHome
+    USERPROFILE: fakeHome,
+    // the label salt folder follows these, so it stays inside the fake home
+    APPDATA: path.join(fakeHome, "AppData", "Roaming"),
+    LOCALAPPDATA: path.join(fakeHome, "AppData", "Local"),
+    XDG_CONFIG_HOME: path.join(fakeHome, ".config"),
+    // test-only: the bridge refuses to guess a salt folder in a test process
+    AW_TEST: "1",
+    AW_SALT_DIR: saltDir
   });
   delete env.CURSOR_TRANSCRIPTS;
   if (process.platform === "win32") {
@@ -209,6 +229,9 @@ async function main() {
       listed.projects.some((p) => p.label === "proj-demo"),
       "Claude Code discovery read the isolated home"
     );
+    const saltFile = path.join(saltDir, "label-salt.bin");
+    assert.ok(fs.existsSync(saltFile), "the salt landed in the fake home's config folder");
+    assert.strictEqual(fs.statSync(saltFile).size, 16, "the salt is 16 bytes");
     assert.strictEqual(await postSource(port, "cursor"), 200, "switching to Cursor must work");
     const cursorStatus = JSON.parse((await get(`http://127.0.0.1:${port}/api/status`)).body);
     assert.strictEqual(cursorStatus.source, "cursor");

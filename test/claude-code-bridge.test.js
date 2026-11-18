@@ -21,6 +21,7 @@ const SCRATCH = path.join(__dirname, "..", ".scratch", "u4-cc-bridge");
 const HOME = path.join(SCRATCH, "home");
 const CURSOR_ROOT = path.join(SCRATCH, "cursor-projects");
 const LOG_DIR = path.join(SCRATCH, "app-data");
+const SALT_DIR = path.join(SCRATCH, "config");
 const HEADERS = {
   "Content-Type": "application/json",
   "Sec-Fetch-Site": "same-origin",
@@ -538,11 +539,146 @@ async function testCursorResetNamesSource() {
   });
 }
 
+function testSaltLoadOptions() {
+  const { saltLoadOptions } = require("../live-bridge.js");
+  const { resolveSaltDir } = require("../lib/claude-code-sources.js");
+  const { resolveLogDir } = require("../lib/event-log.js");
+  const logDir = path.join(SCRATCH, "some-log-folder");
+  // under BRIDGE_TEST=1 with no saltDir: nothing to read or write, so no real config path
+  assert.strictEqual(saltLoadOptions({ eventLogDir: logDir }, { BRIDGE_TEST: "1" }), null);
+  assert.strictEqual(saltLoadOptions({}, { BRIDGE_TEST: "1" }), null);
+  // an explicit saltDir is used even under BRIDGE_TEST=1, and the log folder is the old one
+  const explicit = saltLoadOptions(
+    { saltDir: SALT_DIR, eventLogDir: logDir },
+    { BRIDGE_TEST: "1" }
+  );
+  assert.deepStrictEqual(explicit, {
+    dir: path.resolve(SALT_DIR),
+    oldDir: resolveLogDir({ logDir })
+  });
+  // a real run: the config folder, never the log folder; the log folder is where to migrate from
+  for (const env of [{}, { BRIDGE_TEST: "0" }, { CURSOR_EVENT_LOG_DIR: logDir }]) {
+    const got = saltLoadOptions({ eventLogDir: logDir }, env);
+    assert.ok(got, "options for a real run");
+    assert.strictEqual(got.dir, resolveSaltDir({ env }));
+    assert.strictEqual(got.oldDir, resolveLogDir({ logDir }));
+    assert.notStrictEqual(got.dir, got.oldDir, "the salt is not kept in the event-log folder");
+    assert.ok(got.dir.endsWith("cursor-agents-model-routing-config"), got.dir);
+  }
+  const noLog = saltLoadOptions({}, {});
+  assert.strictEqual(noLog.oldDir, resolveLogDir({ logDir: undefined }));
+  assert.strictEqual(noLog.dir, resolveSaltDir({ env: {} }));
+  // a relative saltDir becomes an absolute one
+  const rel = saltLoadOptions({ saltDir: "rel/x" }, {});
+  assert.ok(path.isAbsolute(rel.dir), rel.dir);
+  assert.strictEqual(rel.dir, path.resolve("rel/x"));
+  // under BRIDGE_TEST=1 with a saltDir but no eventLogDir: never the real log folder
+  assert.strictEqual(saltLoadOptions({ saltDir: SALT_DIR }, { BRIDGE_TEST: "1" }).oldDir, "");
+  assert.strictEqual(
+    saltLoadOptions({ saltDir: SALT_DIR, eventLogDir: "" }, { BRIDGE_TEST: "1" }).oldDir,
+    ""
+  );
+}
+
+/** A test process that names no salt folder is refused; AW_TEST=1 may name one in AW_SALT_DIR. */
+function testSaltGuard() {
+  const { saltLoadOptions } = require("../live-bridge.js");
+  for (const env of [{ NODE_TEST_CONTEXT: "child-v8" }, { AW_TEST: "1" }]) {
+    assert.throws(() => saltLoadOptions({}, env), /tests must pass an explicit saltDir/);
+    assert.throws(() => saltLoadOptions({ eventLogDir: LOG_DIR }, env), /explicit saltDir/);
+    assert.strictEqual(saltLoadOptions({ saltDir: SALT_DIR }, env).dir, path.resolve(SALT_DIR));
+  }
+  // BRIDGE_TEST=1 keeps its own rule (no salt file at all) and never throws
+  assert.strictEqual(saltLoadOptions({}, { BRIDGE_TEST: "1", NODE_TEST_CONTEXT: "x" }), null);
+  // AW_SALT_DIR is honored only with AW_TEST=1
+  assert.strictEqual(
+    saltLoadOptions({}, { AW_TEST: "1", AW_SALT_DIR: SALT_DIR }).dir,
+    path.resolve(SALT_DIR)
+  );
+  assert.throws(
+    () => saltLoadOptions({}, { NODE_TEST_CONTEXT: "x", AW_SALT_DIR: SALT_DIR }),
+    /explicit saltDir/
+  );
+  // AW_TEST="0" is not a test marker: no throw, and AW_SALT_DIR is ignored
+  const off = saltLoadOptions(
+    {},
+    { AW_TEST: "0", AW_SALT_DIR: SALT_DIR, XDG_CONFIG_HOME: SCRATCH }
+  );
+  assert.notStrictEqual(off.dir, path.resolve(SALT_DIR));
+  const env0 = { AW_TEST: "0", AW_SALT_DIR: SALT_DIR, XDG_CONFIG_HOME: SCRATCH };
+  assert.strictEqual(
+    off.dir,
+    require("../lib/claude-code-sources.js").resolveSaltDir({ env: env0 })
+  );
+  // opts.saltDir wins over AW_SALT_DIR
+  const other = path.join(SCRATCH, "other-salt");
+  assert.strictEqual(
+    saltLoadOptions({ saltDir: other }, { AW_TEST: "1", AW_SALT_DIR: SALT_DIR }).dir,
+    path.resolve(other)
+  );
+  // BRIDGE_TEST=1 with AW_TEST=1 and AW_SALT_DIR (no opts.saltDir) uses AW_SALT_DIR
+  assert.strictEqual(
+    saltLoadOptions({}, { BRIDGE_TEST: "1", AW_TEST: "1", AW_SALT_DIR: SALT_DIR }).dir,
+    path.resolve(SALT_DIR)
+  );
+  // an ordinary run (no test markers) still uses the real config folder
+  assert.ok(saltLoadOptions({}, { XDG_CONFIG_HOME: path.resolve(SCRATCH, "x") }).dir);
+}
+
+/** Under BRIDGE_TEST=1 with no saltDir the salt is random per start, never a fixed value. */
+async function testBridgeTestSaltIsRandom() {
+  const ids = [];
+  for (let i = 0; i < 2; i++) {
+    await withBridge({ claudeCode: claudeBag() }, async (port) => {
+      await post(port, "/api/source", { source: "claude-code" });
+      const r = await request(port, { path: "/api/projects" });
+      ids.push(JSON.parse(r.body).projects.map((p) => p.id));
+    });
+  }
+  assert.strictEqual(ids[0].length, 3);
+  for (let k = 0; k < 3; k++) {
+    assert.notStrictEqual(ids[0][k], ids[1][k], "project id " + k + " differs between starts");
+  }
+}
+
+/** BRIDGE_TEST=1 with no saltDir: no salt file or config folder appears anywhere under a fake home. */
+async function testBridgeTestSaltIsolation() {
+  const fakeHome = path.join(SCRATCH, "iso-home");
+  fs.mkdirSync(fakeHome, { recursive: true });
+  const keys = ["HOME", "USERPROFILE", "LOCALAPPDATA", "XDG_CONFIG_HOME"];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  for (const k of keys) process.env[k] = fakeHome;
+  try {
+    await withBridge({ dir: undefined, claudeCode: claudeBag() }, async (port) => {
+      await post(port, "/api/source", { source: "claude-code" });
+      const r = await request(port, { path: "/api/projects" });
+      assert.strictEqual(JSON.parse(r.body).projects.length, 3, "discovery works");
+    });
+  } finally {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+  const found = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      if (e.name === "label-salt.bin" || e.name === "cursor-agents-model-routing-config") {
+        found.push(path.join(d, e.name));
+      }
+      if (e.isDirectory()) walk(path.join(d, e.name));
+    }
+  };
+  walk(fakeHome);
+  assert.deepStrictEqual(found, [], "no salt file or config folder under the fake home");
+  assert.deepStrictEqual(fs.readdirSync(fakeHome), [], "the fake home is untouched");
+}
+
 async function testSalt() {
   // unreadable app-data folder (a file stands where the folder should be)
   const badDir = path.join(SCRATCH, "not-a-folder");
   fs.writeFileSync(badDir, "x");
-  await withBridge({ eventLogDir: badDir, claudeCode: claudeBag() }, async (port) => {
+  await withBridge({ saltDir: badDir, claudeCode: claudeBag() }, async (port) => {
     await post(port, "/api/source", { source: "claude-code" });
     const r = await request(port, { path: "/api/projects" });
     const j = JSON.parse(r.body);
@@ -563,19 +699,42 @@ async function testSalt() {
       return { notes: j.notes, ids: j.projects.map((p) => [p.id, p.label]) };
     });
   const run = () =>
-    withBridge({ claudeCode: claudeBag() }, async (port) => {
+    withBridge({ saltDir: SALT_DIR, claudeCode: claudeBag() }, async (port) => {
       await post(port, "/api/source", { source: "claude-code" });
       return listing(port);
     });
   const first = await run();
   assert.ok(
-    fs.existsSync(path.join(LOG_DIR, "label-salt.bin")),
-    "salt file is in the app-data dir"
+    fs.existsSync(path.join(SALT_DIR, "label-salt.bin")),
+    "salt file is in the config folder"
+  );
+  assert.ok(
+    !fs.readdirSync(LOG_DIR).some((n) => n.startsWith("label-salt")),
+    "no salt file in the event-log folder"
   );
   const second = await run();
   assert.ok(!first.notes.some((n) => n.code === "labels-unstable"));
   assert.deepStrictEqual(second.ids, first.ids, "ids and labels survive a restart");
   assert.strictEqual(first.ids.length, 3);
+
+  // an earlier version kept the salt in the event-log folder: the same ids come back from the
+  // config folder, the old file is gone and a neighbour in that folder is untouched
+  const oldSalt = fs.readFileSync(path.join(SALT_DIR, "label-salt.bin"));
+  const freshDir = path.join(SCRATCH, "config-migrated");
+  fs.writeFileSync(path.join(LOG_DIR, "label-salt.bin"), oldSalt);
+  fs.writeFileSync(path.join(LOG_DIR, "neighbour.txt"), "keep");
+  const migrated = await withBridge(
+    { saltDir: freshDir, claudeCode: claudeBag() },
+    async (port) => {
+      await post(port, "/api/source", { source: "claude-code" });
+      return listing(port);
+    }
+  );
+  assert.deepStrictEqual(migrated.ids, first.ids, "migration keeps ids and labels");
+  assert.deepStrictEqual(fs.readFileSync(path.join(freshDir, "label-salt.bin")), oldSalt);
+  assert.ok(!fs.existsSync(path.join(LOG_DIR, "label-salt.bin")), "old salt file removed");
+  assert.strictEqual(fs.readFileSync(path.join(LOG_DIR, "neighbour.txt"), "utf8"), "keep");
+  fs.rmSync(path.join(LOG_DIR, "neighbour.txt"));
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1425,7 +1584,11 @@ async function main() {
     await testExplicitDirFlag();
     await testCursorResetNamesSource();
     await testTimeout();
+    testSaltLoadOptions();
+    testSaltGuard();
     await testSalt();
+    await testBridgeTestSaltIsolation();
+    await testBridgeTestSaltIsRandom();
     await testCursorIsolation();
     await testStallGate();
     await testRestartAndSelectProject();

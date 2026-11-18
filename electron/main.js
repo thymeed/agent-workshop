@@ -186,7 +186,10 @@ if (gotLock) {
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow().catch(() => app.quit());
+        createWindow().catch((err) => {
+          console.error("[electron] failed to start:", err);
+          app.quit();
+        });
       }
     });
   });
