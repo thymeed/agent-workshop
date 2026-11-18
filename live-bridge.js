@@ -1788,6 +1788,41 @@ function createServer() {
       return;
     }
 
+    /**
+     * GET /api/claude/sessions and GET /api/claude/session?id=<opaque> · older Claude Code
+     * sessions of the selected project, read-only. Claude Code mode only; every answer is built
+     * from numbers, ISO times, opaque ids and fixed strings (lib/claude-code-history.js).
+     */
+    if (url.pathname === "/api/claude/sessions" || url.pathname === "/api/claude/session") {
+      if (req.method !== "GET") {
+        sendJson(res, 405, { ok: false, error: "GET required" });
+        return;
+      }
+      if (source !== "claude-code") {
+        sendJson(res, 409, { ok: false, error: "Claude Code mode only" });
+        return;
+      }
+      let r;
+      try {
+        if (url.pathname === "/api/claude/sessions") {
+          r = claudeCode.sessionsBody();
+        } else {
+          // only an opaque id is accepted: any other key (a path, a file name) is refused
+          const keys = [...url.searchParams.keys()];
+          if (keys.length !== 1 || keys[0] !== "id") {
+            sendJson(res, 400, { ok: false, error: "Unknown session" });
+            return;
+          }
+          r = claudeCode.sessionBody(url.searchParams.get("id"));
+        }
+      } catch (_e) {
+        sendInternalError(res);
+        return;
+      }
+      sendJson(res, r.status, r.body);
+      return;
+    }
+
     if (url.pathname === "/api/alerts") {
       if (req.method !== "GET") {
         sendJson(res, 405, { ok: false, error: "GET required" });
