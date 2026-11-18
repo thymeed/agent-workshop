@@ -1825,6 +1825,103 @@ test("facts: a child bigger than one read that fails on its second chunk still h
   }
 });
 
+/** A session whose parent is bigger than one read, plus the rows a clean ingest yields for it. */
+function bigParentProject() {
+  const mk = () => {
+    const dir = newProject();
+    copyFixture(dir);
+    const parent = path.join(dir, "s1.jsonl");
+    const filler = JSON.stringify({ type: "x", pad: "y".repeat(900) }) + String.fromCharCode(10);
+    fs.writeFileSync(parent, filler.repeat(400) + fs.readFileSync(parent, "utf8"));
+    assert.ok(fs.statSync(parent).size > T.TRANSCRIPT_READ_MAX_PER_POLL, "larger than one read");
+    return dir;
+  };
+  const clean = I.createClaudeCodeIngest({ projectDir: mk() });
+  const rows = drain(clean);
+  assert.ok(rows.length > 0 && clean.stats().parentRead, "the reference ingest reads everything");
+  return { dir: mk(), rows, lines: clean.stats().lines };
+}
+
+/** The same fault must not claim the parent was read, lose rows, or duplicate them on recovery. */
+function assertSecondChunkRecovery(ing, ref, got, label) {
+  const st = ing.stats();
+  assert.equal(st.parentRead, false, label + ": a failed chunk is not 'read to its end'");
+  assert.equal(st.drift.unreadable >= 1, true, label + ": the failure is counted");
+  const linesAtFault = st.lines;
+  const all = got.concat(drain(ing));
+  assert.equal(ing.stats().parentRead, true, label + ": the retry reads the parent to its end");
+  assert.deepEqual(all, ref.rows, label + ": no row lost or duplicated");
+  assert.equal(ing.stats().lines, ref.lines, label + ": every line parsed exactly once");
+  assert.ok(ing.stats().lines > linesAtFault, label + ": the retry did the remaining work");
+}
+
+test("a parent whose second chunk fails on readSync is not claimed as read, then recovers", () => {
+  const ref = bigParentProject();
+  const ing = I.createClaudeCodeIngest({ projectDir: ref.dir });
+  const got = ing.poll();
+  assert.equal(ing.stats().capped, true, "the first chunk was capped");
+  assert.equal(ing.stats().parentRead, false);
+  const calls = { n: 0 };
+  const second = withStub(
+    "readSync",
+    (orig) =>
+      function (...a) {
+        calls.n += 1;
+        if (calls.n === 1) throw Object.assign(new Error("io"), { code: "EIO" });
+        return orig.apply(this, a);
+      },
+    () => ing.poll()
+  );
+  assert.equal(calls.n >= 1, true, "fault applied");
+  assert.deepEqual(second, [], "a failed chunk yields no rows");
+  assertSecondChunkRecovery(ing, ref, got.concat(second), "readSync");
+});
+
+test("a parent whose second chunk fails the identity check is not claimed as read, then recovers", () => {
+  const ref = bigParentProject();
+  const ing = I.createClaudeCodeIngest({ projectDir: ref.dir });
+  const got = ing.poll();
+  assert.equal(ing.stats().capped, true, "the first chunk was capped");
+  const calls = { n: 0 };
+  const second = withStub(
+    "fstatSync",
+    (orig) =>
+      function (fd, o, ...rest) {
+        const st = orig.call(this, fd, o, ...rest);
+        if (calls.n++ > 0 || !(o && o.bigint)) return st;
+        // the name now holds another file: same shape, different identity
+        return Object.assign(Object.create(Object.getPrototypeOf(st)), st, {
+          ino: st.ino + 1n,
+          dev: st.dev + 1n
+        });
+      },
+    () => ing.poll()
+  );
+  assert.equal(calls.n >= 1, true, "fault applied");
+  assert.deepEqual(second, [], "a changed identity yields no rows");
+  assertSecondChunkRecovery(ing, ref, got.concat(second), "identity");
+});
+
+test("a read that returns a short first chunk and then fails reads nothing and recovers", () => {
+  const ref = bigParentProject();
+  const ing = I.createClaudeCodeIngest({ projectDir: ref.dir });
+  const calls = { n: 0 };
+  const first = withStub(
+    "readSync",
+    (orig) =>
+      function (fd, buf, off, len, pos) {
+        calls.n += 1;
+        if (calls.n === 1) return orig.call(this, fd, buf, off, Math.min(len, 4096), pos);
+        if (calls.n === 2) throw Object.assign(new Error("io"), { code: "EIO" });
+        return orig.call(this, fd, buf, off, len, pos);
+      },
+    () => ing.poll()
+  );
+  assert.equal(calls.n, 2, "the second readSync of one read failed");
+  assert.deepEqual(first, [], "bytes before the failure are not used");
+  assertSecondChunkRecovery(ing, ref, first, "short-then-fail");
+});
+
 test("facts: a failed subagents folder check holds the live phase", () => {
   const dir = newProject();
   const sub = copyFixture(dir);
