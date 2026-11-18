@@ -83,7 +83,7 @@ What Claude Code mode reads, one project at a time from the picker:
 
 - **Windows:** `~/.claude/projects` on the local drive.
 - **WSL:** `/home/<user>/.claude/projects` in each distro that is running. The bridge asks `wsl.exe -l --running` (from `%SystemRoot%\System32`) and reads each running distro through its `\\wsl.localhost` or `\\wsl$` share. A stopped distro is skipped and reported in the project list notes (for example "Ubuntu skipped: not running"), so a missing folder never looks like an empty one.
-- **Labels are path-free.** A project shows its own folder name. A home folder, or a project with no working directory, shows a short label instead. Project ids and those labels are HMAC-SHA256 over a random 16-byte salt, made once per install and kept in the app-data folder beside the event log.
+- **Labels are path-free.** A project shows its own folder name. A home folder, or a project with no working directory, shows a short label instead. Project ids and those labels are HMAC-SHA256 over a random 16-byte salt, made once per install and kept in a config folder of its own (`%LOCALAPPDATA%\cursor-agents-model-routing-config` on Windows, `~/Library/Application Support/cursor-agents-model-routing-config` on macOS, `$XDG_CONFIG_HOME/cursor-agents-model-routing-config` or `~/.config/cursor-agents-model-routing-config` on Linux; a relative `XDG_CONFIG_HOME` is ignored), not beside the event log, so a zipped log folder does not carry it. A salt an earlier version left in the event-log folder is moved to the config folder on the next start, so ids and labels stay the same. If the old folder cannot be checked or that old file cannot be read at that moment (in use, a disk error), the run uses a temporary salt (ids and labels change until the next start, with a "Labels change after restart" note), nothing is written to the config folder and the old file is left alone, so the next start moves the real one; if the config folder already holds a valid salt, that salt is used instead, with no note. On Linux and macOS the folder is private (0700) and the file 0600; on Windows the folder relies on your profile's folder permissions.
 
 What you see:
 
@@ -327,7 +327,7 @@ The in-app alert center (header bell) lists the same alerts: mark read, snooze, 
 - Replay rows never count toward today's stats. Claude error rows play no error sound.
 - Only tokens from `usage` are billed; cache tokens are not. The Bill view is the Cursor one, unchanged.
 - The Cursor event log and History are not used in this mode.
-- On a first start, two processes can race to create the salt on a disk without hard links (FAT, exFAT, most network shares). See `docs/known-issues.md`.
+- On a first start, two processes can race to create the salt on a disk without hard links (FAT, exFAT, most network shares). See `docs/known-issues.md` (items 27 and 36).
 
 ### Format compatibility
 

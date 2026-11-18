@@ -22,8 +22,9 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
 const { createEventLog, resolveLogDir } = require("./lib/event-log");
-const { loadOrCreateSalt } = require("./lib/claude-code-sources");
+const { loadOrCreateSalt, resolveSaltDir } = require("./lib/claude-code-sources");
 const { createClaudeCodeMode } = require("./lib/claude-code-bridge");
 const { createClaudeCodeIngest } = require("./lib/claude-code-ingest");
 const wire = require("./lib/claude-code-wire");
@@ -1974,12 +1975,49 @@ function probeExistingBridge(port) {
 }
 
 /**
- * Claude Code mode for this run. The salt lives in the same app-data folder as the event log.
+ * Where the label salt is read and written for this run: null under BRIDGE_TEST=1 with no
+ * opts.saltDir (no fs call at all, so a test never reaches the real config folder), else
+ * { dir, oldDir }: the config folder (opts.saltDir, else resolveSaltDir) and the event-log folder
+ * an earlier version kept the salt in (the one to migrate from; "" under BRIDGE_TEST=1 when no
+ * opts.eventLogDir is given, which means no migration and no delete).
+ * A test process (NODE_TEST_CONTEXT or AW_TEST=1) outside BRIDGE_TEST must name a folder, in
+ * opts.saltDir or, with AW_TEST=1, in AW_SALT_DIR; otherwise this throws.
+ * @param {{saltDir?: string, eventLogDir?: string}} opts
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {{dir: string, oldDir: string} | null}
+ */
+function saltLoadOptions(opts, env = process.env) {
+  const test = env.BRIDGE_TEST === "1";
+  // AW_TEST=1 lets a test process (the Electron smoke) name its salt folder in AW_SALT_DIR
+  const awTest = env.AW_TEST === "1";
+  const named = opts.saltDir || (awTest && env.AW_SALT_DIR) || "";
+  if (test && !named) return null;
+  if ((env.NODE_TEST_CONTEXT || awTest) && !named) {
+    throw new Error("tests must pass an explicit saltDir");
+  }
+  return {
+    dir: named ? path.resolve(named) : resolveSaltDir({ env }),
+    // under BRIDGE_TEST=1 only a log folder the test names is migrated from, never the real one
+    oldDir: test && !opts.eventLogDir ? "" : resolveLogDir({ logDir: opts.eventLogDir })
+  };
+}
+
+/**
+ * Claude Code mode for this run. The salt lives in its own config folder (opts.saltDir, else
+ * resolveSaltDir), never in the event-log folder; a salt an earlier version left in the event-log
+ * folder is moved over. Under BRIDGE_TEST=1 with no opts.saltDir nothing is read or written for
+ * the salt (a random in-memory one), so a test never touches the real config folder.
  * Under BRIDGE_TEST=1 an omitted opts.claudeCode becomes an inert bag (no real home, no wsl.exe).
  */
 function makeClaudeCodeMode(opts) {
-  const dir = resolveLogDir({ logDir: opts.eventLogDir });
-  const { salt, note } = loadOrCreateSalt({ dir });
+  let salt;
+  let note;
+  const where = saltLoadOptions(opts);
+  if (!where) {
+    salt = crypto.randomBytes(16);
+  } else {
+    ({ salt, note } = loadOrCreateSalt(where));
+  }
   let bag = opts.claudeCode || {};
   if (process.env.BRIDGE_TEST === "1") {
     /* Each missing key gets an inert default, so a partial bag never reaches the real home
@@ -2000,7 +2038,7 @@ function makeClaudeCodeMode(opts) {
 
 /**
  * Start the bridge HTTP server + transcript poller.
- * @param {{port?:number, dir?:string, quiet?:boolean, reuseExisting?:boolean, onAgentAlert?:Function, eventLogDir?:string, eventLogPath?:string, projectsRoot?:string, claudeCode?:{platform?:string, homedir?:string, fs?:any, runWsl?:Function, now?:()=>number, timeoutMs?:number, ttlMs?:number}}} [opts]
+ * @param {{port?:number, dir?:string, quiet?:boolean, reuseExisting?:boolean, onAgentAlert?:Function, eventLogDir?:string, saltDir?:string, eventLogPath?:string, projectsRoot?:string, claudeCode?:{platform?:string, homedir?:string, fs?:any, runWsl?:Function, now?:()=>number, timeoutMs?:number, ttlMs?:number}}} [opts]
  * @returns {Promise<{port:number, reused:boolean, transcripts:string}>}
  */
 function startBridge(opts) {
@@ -2239,6 +2277,7 @@ module.exports = {
   clearHistory,
   recordHistoryEvent,
   claudeStatusPayload, // exported for tests only
+  saltLoadOptions, // exported for tests only
   scanTranscripts: scan,
   checkStalledAgents,
   terminalTypeFromTranscript,
