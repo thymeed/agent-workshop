@@ -8,7 +8,11 @@
 process.env.BRIDGE_TEST = "1";
 
 const { chromium } = require("playwright");
-const { startBridgeForSmoke, stopBridgeForSmoke } = require("./bridge-smoke-harness.js");
+const {
+  startBridgeForSmoke,
+  stopBridgeForSmoke,
+  newCursorPage
+} = require("./bridge-smoke-harness.js");
 
 const MAX_ATTEMPTS = 6;
 
@@ -27,7 +31,7 @@ async function main() {
 
   try {
     const { port } = await startBridgeForSmoke();
-    const page = await browser.newPage();
+    const page = await newCursorPage(browser);
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded", timeout: 15000 });
     await page.waitForFunction(
       () => globalThis.__cursorAgentsDashTest && globalThis.__cursorAgentsDashTest.reconnectState,

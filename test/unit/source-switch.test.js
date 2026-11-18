@@ -70,7 +70,8 @@ function reply(status, body) {
 }
 
 /**
- * opts.seed: stored localStorage values. opts.storage: a storage object (null or throwing
+ * opts.seed: stored localStorage values. Left out, the page starts from a stored "cursor"
+ * (most tests below are about switching away from it); pass `seed: {}` for a first visit. opts.storage: a storage object (null or throwing
  * ones too). opts.answer(body): the bridge's answer (a response or a promise). opts.hold: keep
  * each POST pending until the test calls holds[i]().
  */
@@ -104,7 +105,10 @@ function setup(opts) {
   vm.runInContext(fs.readFileSync(SOURCE, "utf8"), sandbox, { filename: SOURCE });
   const mod = sandbox.window.WorkshopSource;
   assert.ok(mod, "source-switch.js must expose window.WorkshopSource");
-  const storage = opts.storage === undefined ? memoryStorage(opts.seed) : opts.storage;
+  const storage =
+    opts.storage === undefined
+      ? memoryStorage(opts.seed === undefined ? { [KEY]: "cursor" } : opts.seed)
+      : opts.storage;
   mod.init(
     Object.assign(
       {
@@ -124,12 +128,22 @@ function setup(opts) {
   return { mod, els, calls, holds, changed, storage };
 }
 
-test("default source is cursor and the Cursor button and chip show it", () => {
-  const t = setup();
+test("with no stored choice the default is claude-code and its button and chip show it", () => {
+  const t = setup({ seed: {} });
+  assert.equal(t.mod.getSource(), "claude-code");
+  assert.equal(t.els.claudeButton.getAttribute("aria-pressed"), "true");
+  assert.equal(t.els.cursorButton.getAttribute("aria-pressed"), "false");
+  assert.equal(t.els.claudeButton.classList.contains("on"), true);
+  assert.equal(t.els.cursorButton.classList.contains("on"), false);
+  assert.equal(t.els.chipValue.textContent, "Claude Code");
+  assert.equal(t.storage.store[KEY], undefined, "showing the default stores nothing");
+});
+
+test("a stored cursor choice still wins over the default", () => {
+  const t = setup({ seed: { [KEY]: "cursor" } });
   assert.equal(t.mod.getSource(), "cursor");
   assert.equal(t.els.cursorButton.getAttribute("aria-pressed"), "true");
   assert.equal(t.els.claudeButton.getAttribute("aria-pressed"), "false");
-  assert.equal(t.els.cursorButton.classList.contains("on"), true);
   assert.equal(t.els.chipValue.textContent, "Cursor");
 });
 
@@ -140,14 +154,15 @@ test("a stored claude-code choice is respected at startup", () => {
   assert.equal(t.els.chipValue.textContent, "Claude Code");
 });
 
-test("any other stored value is treated as cursor", () => {
-  for (const bad of ["Claude Code", "claude", "nope", ""]) {
+test("any other stored value falls back to the claude-code default", () => {
+  for (const bad of ["Claude Code", "claude", "Cursor", "nope", ""]) {
     const t = setup({ seed: { [KEY]: bad } });
-    assert.equal(t.mod.getSource(), "cursor", "stored " + JSON.stringify(bad));
+    assert.equal(t.mod.getSource(), "claude-code", "stored " + JSON.stringify(bad));
+    assert.equal(t.els.chipValue.textContent, "Claude Code", "stored " + JSON.stringify(bad));
   }
 });
 
-test("storage that throws leaves cursor and does not break a switch", async () => {
+test("storage that throws leaves claude-code and does not break a switch", async () => {
   const boom = {
     getItem() {
       throw new Error("storage denied");
@@ -157,10 +172,51 @@ test("storage that throws leaves cursor and does not break a switch", async () =
     }
   };
   const t = setup({ storage: boom });
-  assert.equal(t.mod.getSource(), "cursor");
-  const r = await t.mod.setSource("claude-code");
-  assert.equal(r.ok, true, "the switch still succeeds without storage");
   assert.equal(t.mod.getSource(), "claude-code");
+  const r = await t.mod.setSource("cursor");
+  assert.equal(r.ok, true, "the switch still succeeds without storage");
+  assert.equal(t.mod.getSource(), "cursor");
+});
+
+test("no storage at all also gives the claude-code default", () => {
+  const t = setup({ storage: null });
+  assert.equal(t.mod.getSource(), "claude-code");
+});
+
+test("first connect: a bridge already on claude-code and no stored choice sends no POST", async () => {
+  const t = setup({ seed: {} });
+  const r = await t.mod.reconcile("claude-code");
+  assert.equal(r, null);
+  assert.equal(t.calls.length, 0, "page and bridge agree on the default");
+  assert.deepEqual(t.changed, []);
+  assert.equal(t.mod.getSource(), "claude-code");
+});
+
+test("first connect: a stored cursor choice and a bridge on claude-code POSTs once to switch", async () => {
+  const t = setup({ seed: { [KEY]: "cursor" } });
+  const r = await t.mod.reconcile("claude-code");
+  assert.equal(r.ok, true);
+  assert.equal(t.calls.length, 1);
+  assert.deepEqual(t.calls[0].body, { source: "cursor" });
+  assert.equal(t.mod.getSource(), "cursor");
+  assert.deepEqual(t.changed, ["cursor"]);
+});
+
+test("first connect: no stored choice and a bridge on cursor (--dir) POSTs once to claude-code", async () => {
+  const t = setup({ seed: {} });
+  const r = await t.mod.reconcile("cursor");
+  assert.equal(r.ok, true);
+  assert.equal(t.calls.length, 1);
+  assert.deepEqual(t.calls[0].body, { source: "claude-code" });
+  assert.equal(t.mod.getSource(), "claude-code");
+});
+
+test("a hello with no source (older bridge) sends nothing and keeps the default showing", async () => {
+  const t = setup({ seed: {} });
+  assert.equal(await t.mod.reconcile(undefined), null);
+  assert.equal(t.calls.length, 0);
+  assert.equal(t.mod.getSource(), "claude-code");
+  assert.equal(t.els.chipValue.textContent, "Claude Code");
 });
 
 test("setVisible shows the seg and the chip in Live and hides both otherwise", () => {
@@ -232,7 +288,7 @@ test("a refused switch restores the previous buttons, keeps the choice, and show
   assert.equal(t.els.liveHint.hidden, false);
   assert.equal(t.els.liveHint.className, "live-hint err");
   assert.equal(t.els.liveHint.textContent, "Forbidden · same-origin required");
-  assert.equal(t.storage.store[KEY], undefined, "a failed switch stores nothing");
+  assert.equal(t.storage.store[KEY], "cursor", "a failed switch leaves the stored choice");
   assert.equal(t.mod.getSource(), "cursor");
   assert.deepEqual(t.changed, [], "no follow-up on failure");
 });
@@ -289,7 +345,7 @@ test("a failed reconcile shows what the bridge is actually reading and stores no
   assert.equal(t.mod.getSource(), "claude-code", "the bridge's reading is shown");
   assert.equal(t.els.chipValue.textContent, "Claude Code");
   assert.equal(t.els.liveHint.textContent, "busy");
-  assert.equal(t.storage.store[KEY], undefined, "the choice is not overwritten");
+  assert.equal(t.storage.store[KEY], "cursor", "the choice is not overwritten");
   assert.deepEqual(t.changed, []);
 });
 
@@ -298,7 +354,7 @@ test("applySource shows a bridge reading without writing the stored choice", () 
   t.mod.applySource("claude-code");
   assert.equal(t.mod.getSource(), "claude-code");
   assert.equal(t.els.chipValue.textContent, "Claude Code");
-  assert.equal(t.storage.store[KEY], undefined);
+  assert.equal(t.storage.store[KEY], "cursor", "applySource leaves the stored choice");
   t.mod.applySource("elsewhere");
   assert.equal(t.mod.getSource(), "claude-code", "an unknown value is ignored");
 });
@@ -312,7 +368,7 @@ test("a Cursor reset after a Claude Code hello turns the chip and the source bac
   t.mod.applySource(cursorReset.source);
   assert.equal(t.els.chipValue.textContent, "Cursor");
   assert.equal(t.mod.getSource(), "cursor");
-  assert.equal(t.storage.store[KEY], undefined, "a bridge reading never writes the stored choice");
+  assert.equal(t.storage.store[KEY], "cursor", "a bridge reading never writes the stored choice");
 });
 
 test("onSourceShown hears every reading: startup, a bridge reading, a finished switch", async () => {
@@ -452,4 +508,100 @@ test("the footer says claude code after a Claude Code hello with no selection re
   state.id = next.id;
   proj.updateFooterProject();
   assert.equal(footer.textContent, "claude code");
+});
+
+/* An explicit Cursor folder (hello explicitDir: true) wins for the run. */
+function countingStorage(seed) {
+  const s = memoryStorage(seed);
+  s.writes = [];
+  const set = s.setItem;
+  s.setItem = (k, v) => {
+    s.writes.push([k, v]);
+    set(k, v);
+  };
+  return s;
+}
+
+test("explicit Cursor folder, no stored choice: no POST, Cursor shown, nothing stored", async () => {
+  const storage = countingStorage({});
+  const t = setup({ storage });
+  await t.mod.reconcile("cursor", true);
+  await flush();
+  assert.equal(t.calls.length, 0);
+  assert.equal(t.mod.getSource(), "cursor");
+  assert.equal(t.els.chipValue.textContent, "Cursor");
+  assert.equal(t.els.cursorButton.getAttribute("aria-pressed"), "true");
+  assert.equal(storage.writes.length, 0);
+  assert.equal(storage.store[KEY], undefined);
+  assert.deepEqual(t.changed, []);
+});
+
+test("explicit Cursor folder, stored claude-code: no POST, Cursor shown, storage kept", async () => {
+  const storage = countingStorage({ [KEY]: "claude-code" });
+  const t = setup({ storage });
+  await t.mod.reconcile("cursor", true);
+  await flush();
+  assert.equal(t.calls.length, 0);
+  assert.equal(t.mod.getSource(), "cursor");
+  assert.equal(t.els.chipValue.textContent, "Cursor");
+  assert.equal(storage.writes.length, 0);
+  assert.equal(storage.store[KEY], "claude-code");
+});
+
+test("explicit folder: a click on Claude Code switches once and stores; a reconnect keeps it", async () => {
+  const storage = countingStorage({ [KEY]: "claude-code" });
+  const t = setup({ storage });
+  await t.mod.reconcile("cursor", true);
+  t.els.claudeButton.click();
+  await flush();
+  assert.equal(t.calls.length, 1);
+  assert.deepEqual(plain(t.calls[0].body), { source: "claude-code" });
+  assert.equal(t.mod.getSource(), "claude-code");
+  assert.equal(t.els.chipValue.textContent, "Claude Code");
+  assert.deepEqual(storage.writes, [[KEY, "claude-code"]]);
+  assert.deepEqual(t.changed, ["claude-code"]);
+  // SSE reconnect: the bridge still says explicitDir but now reads Claude Code.
+  await t.mod.reconcile("claude-code", true);
+  await flush();
+  assert.equal(t.calls.length, 1, "no POST back to Cursor");
+  assert.equal(t.mod.getSource(), "claude-code");
+  assert.equal(storage.store[KEY], "claude-code");
+});
+
+test("explicit folder: a click back on Cursor stores cursor, and a reload keeps it", async () => {
+  const storage = countingStorage({});
+  const t = setup({ storage });
+  await t.mod.reconcile("cursor", true);
+  t.els.claudeButton.click();
+  await flush();
+  t.els.cursorButton.click();
+  await flush();
+  assert.equal(t.calls.length, 2);
+  assert.equal(storage.store[KEY], "cursor");
+  assert.equal(t.mod.getSource(), "cursor");
+  // reload: a new page with the stored cursor choice meets the same hello
+  const t2 = setup({ storage: memoryStorage({ [KEY]: "cursor" }) });
+  await t2.mod.reconcile("cursor", true);
+  assert.equal(t2.calls.length, 0);
+  assert.equal(t2.mod.getSource(), "cursor");
+});
+
+test("explicit folder but the bridge reads Claude Code (another client): normal reconcile", async () => {
+  const t = setup({ seed: { [KEY]: "cursor" } });
+  await t.mod.reconcile("claude-code", true);
+  await flush();
+  assert.equal(t.calls.length, 1);
+  assert.deepEqual(plain(t.calls[0].body), { source: "cursor" });
+});
+
+test("an old bridge with no explicitDir keeps the old rule: the stored choice is POSTed", async () => {
+  const t = setup({ seed: {} });
+  await t.mod.reconcile("cursor");
+  await flush();
+  assert.equal(t.calls.length, 1);
+  assert.deepEqual(plain(t.calls[0].body), { source: "claude-code" });
+  const t2 = setup({ seed: {} });
+  await t2.mod.reconcile("cursor", false);
+  await flush();
+  assert.equal(t2.calls.length, 1);
 });

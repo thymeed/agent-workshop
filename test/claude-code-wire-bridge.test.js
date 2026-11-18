@@ -166,6 +166,9 @@ async function main() {
     port,
     quiet: true,
     projectsRoot: CURSOR_ROOT,
+    // a named Cursor folder starts Cursor; the switch below then moves to Claude Code, which
+    // auto-selects the newest project (the only one here); the explicit select below repeats it
+    dir: path.join(CURSOR_ROOT, "cur-x", "agent-transcripts"),
     eventLogDir: LOG_DIR,
     reuseExisting: false,
     onAgentAlert: (a) => toasts.push(a),
@@ -177,8 +180,6 @@ async function main() {
     await waitFor(() => stream.text().includes("event: hello"), "hello");
 
     assert.strictEqual((await post(port, "/api/source", { source: "claude-code" })).status, 200);
-    const status0 = (await get(port, "/api/status")).json;
-    assert.strictEqual(status0.ingest, null, "no project selected: no ingest");
     const projects = (await get(port, "/api/projects")).json.projects;
     const proj = projects.find((p) => p.label === "proj-demo");
     assert.ok(proj, "the planted project is listed");

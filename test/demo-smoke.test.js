@@ -10,7 +10,11 @@ process.env.BRIDGE_TEST = "1";
 const path = require("path");
 const { pathToFileURL } = require("url");
 const { chromium } = require("playwright");
-const { startBridgeForSmoke, stopBridgeForSmoke } = require("./bridge-smoke-harness.js");
+const {
+  startBridgeForSmoke,
+  stopBridgeForSmoke,
+  newCursorPage
+} = require("./bridge-smoke-harness.js");
 const { attachErrorCollectors } = require("./smoke-http-collectors.js");
 
 const HTML = path.resolve(__dirname, "..", "model-routing-dashboard.html");
@@ -240,7 +244,7 @@ async function smokeDemoFile(browser) {
 
 async function smokeLiveHttp(browser) {
   const { port } = await startBridgeForSmoke();
-  const page = await browser.newPage();
+  const page = await newCursorPage(browser);
   const { errors, failedRequests, finalizeErrors } = attachErrorCollectors(page);
 
   try {

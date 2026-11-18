@@ -1375,7 +1375,8 @@
 
     function onOk(meta) {
       applyBridgeModels(meta);
-      if (window.WorkshopSource && meta) window.WorkshopSource.reconcile(meta.source);
+      if (window.WorkshopSource && meta)
+        window.WorkshopSource.reconcile(meta.source, meta.explicitDir);
       if (!liveConnectedSince) liveConnectedSince = Date.now();
       if (meta) takeBridgeLabels(meta);
       projects.updateFooterProject();
@@ -1537,11 +1538,7 @@
 
   /** History is off only while Live reads Claude Code; Demo and Cursor keep it. */
   function syncHistoryAllowed() {
-    var claude =
-      mode === "live" &&
-      window.WorkshopSource &&
-      window.WorkshopSource.getSource() === "claude-code";
-    view.setHistoryAllowed(!claude);
+    view.syncHistoryAllowed(mode);
   }
 
   function setMode(next) {
@@ -1677,6 +1674,9 @@
     },
     refreshEmptyLog: function () {
       activity.refreshEmptyLog();
+    },
+    getSource: function () {
+      return view.currentSource();
     }
   });
 
@@ -1720,7 +1720,7 @@
       setViewMode(m);
     },
     getSource: function () {
-      return window.WorkshopSource ? window.WorkshopSource.getSource() : "cursor";
+      return view.currentSource();
     }
   });
 
@@ -1784,6 +1784,9 @@
     },
     getLivePresence: function () {
       return presence.getPresence();
+    },
+    getSource: function () {
+      return view.currentSource();
     },
     noteSensitivePath: function (role, path) {
       if (AgentCards && typeof AgentCards.noteSensitivePath === "function") {

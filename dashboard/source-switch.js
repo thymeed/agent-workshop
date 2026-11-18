@@ -1,18 +1,22 @@
 /**
- * Data source switch: Cursor or Claude Code. Live mode only. The header seg picks the source,
+ * Data source switch: Claude Code or Cursor. Live mode only. The header seg picks the source,
  * the origin chip shows the source the bridge is reading. The renderer's choice (localStorage
- * `ca.source.v1`, default "cursor") wins: a bridge that reports another source is switched to
- * the choice once per connect. Exposed as window.WorkshopSource.
+ * `ca.source.v1`, default "claude-code") wins: a bridge that reports another source is switched to
+ * the choice once per connect. One exception: a bridge started with an explicit Cursor folder
+ * (hello `explicitDir: true`) that is reading Cursor is shown as Cursor, with no POST and no
+ * write to storage, so the folder wins for that run. A click on either button still switches the
+ * bridge and stores the choice. Exposed as window.WorkshopSource.
  */
 (function () {
   "use strict";
 
   var KEY = "ca.source.v1";
+  var DEFAULT = "claude-code"; // no stored choice, or an invalid one
   var LABELS = { cursor: "Cursor", "claude-code": "Claude Code" };
 
   var d = null;
-  var chosen = "cursor"; // the stored choice; what the renderer wants the bridge to read
-  var current = "cursor"; // what the bridge is reading; drives the buttons, chip and copy
+  var chosen = DEFAULT; // the stored choice; what the renderer wants the bridge to read
+  var current = DEFAULT; // what the bridge is reading; drives the buttons, chip and copy
   var switching = false;
   var inLive = true; // false after setVisible(false): a switch that lands in Demo does not restart Live
   var labelSource = null; // source of the last hello/reset label
@@ -32,9 +36,9 @@
   function readStored() {
     try {
       var s = storage();
-      return (s && valid(s.getItem(KEY))) || "cursor";
+      return (s && valid(s.getItem(KEY))) || DEFAULT;
     } catch (_e) {
-      return "cursor";
+      return DEFAULT;
     }
   }
 
@@ -143,11 +147,17 @@
 
   /**
    * Called once per SSE hello. If the bridge reports a source other than the stored choice,
-   * POST the choice once. No retry: the next connect reconciles again.
+   * POST the choice once. No retry: the next connect reconciles again. When the bridge says it
+   * started on an explicit Cursor folder and reads Cursor, show Cursor and leave the stored
+   * choice alone (no POST).
    */
-  function reconcile(bridgeSource) {
+  function reconcile(bridgeSource, explicitDir) {
     var reported = valid(bridgeSource);
     if (!d || !reported || switching) return Promise.resolve(null);
+    if (explicitDir === true && reported === "cursor") {
+      applySource(reported);
+      return Promise.resolve(null);
+    }
     if (reported === chosen) {
       applySource(reported);
       return Promise.resolve(null);

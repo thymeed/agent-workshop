@@ -70,22 +70,22 @@
             <div class="seg source-seg" id="sourceSeg" role="group" aria-label="Data source" hidden>
               <button
                 type="button"
-                id="sourceCursor"
+                id="sourceClaude"
                 class="on"
                 aria-pressed="true"
-                data-tip="Cursor source"
-                data-tip-detail="Read Cursor agent transcripts (the default)"
+                data-tip="Claude Code source"
+                data-tip-detail="Read the selected project's newest Claude Code session, Windows and WSL (the default)"
               >
-                Cursor
+                Claude Code
               </button>
               <button
                 type="button"
-                id="sourceClaude"
+                id="sourceCursor"
                 aria-pressed="false"
-                data-tip="Claude Code source"
-                data-tip-detail="Read the selected project's newest Claude Code session, Windows and WSL"
+                data-tip="Cursor source"
+                data-tip-detail="Read Cursor agent transcripts"
               >
-                Claude Code
+                Cursor
               </button>
             </div>
             <div class="seg view-mode-seg" id="viewMode" role="group" aria-label="View">
@@ -137,9 +137,9 @@
             <select
               id="projectPicker"
               class="project-picker"
-              aria-label="Cursor project"
+              aria-label="Project"
               data-tip="Project picker"
-              data-tip-detail="Which Cursor project's agent-transcripts the bridge tails"
+              data-tip-detail="Which project's transcripts the bridge tails (Claude Code or Cursor)"
               hidden
             ></select>
             <button
@@ -278,8 +278,8 @@
             <h2 class="live-coach-title">Live workshop</h2>
             <ul class="live-coach-list">
               <li>
-                Choose Cursor or Claude Code, then pick a project. The bridge tails that project's
-                transcripts.
+                Choose Claude Code or Cursor. Claude Code starts on your newest project; switch
+                projects any time. The bridge tails that project's transcripts.
               </li>
               <li>
                 Live sees near-real file activity, not hook-level realtime. Idle stations can mean
@@ -675,8 +675,8 @@
                 id="hudSource"
                 hidden
                 data-tip="Data source"
-                data-tip-detail="Which tree the workshop is reading right now: Cursor transcripts or a Claude Code project"
-                >source <strong id="hudSourceValue">Cursor</strong></span
+                data-tip-detail="Which tree the workshop is reading right now: a Claude Code project or Cursor transcripts"
+                >source <strong id="hudSourceValue">Claude Code</strong></span
               >
             </div>
           </div>

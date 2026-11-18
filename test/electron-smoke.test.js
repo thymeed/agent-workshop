@@ -44,6 +44,34 @@ function get(url) {
   });
 }
 
+function postSource(port, source) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ source });
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/api/source",
+        method: "POST",
+        timeout: 4000,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          "X-Cursor-Bridge": "1",
+          "Sec-Fetch-Site": "same-origin"
+        }
+      },
+      (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode));
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function hasXvfb() {
@@ -101,15 +129,36 @@ async function main() {
   const projectsRoot = tmp("projects");
   const eventLogDir = tmp("log");
   const userData = tmp("userdata");
+  /* The Claude Code default reads <home>/.claude/projects: point the home variables at a folder
+     inside the project so the developer's real Windows/POSIX sessions (and any inherited Cursor
+     folder) are not read. Electron needs its profile outside the fake home: see --user-data-dir. */
+  const scratchBase = path.join(ROOT, ".scratch");
+  fs.mkdirSync(scratchBase, { recursive: true });
+  const fakeHome = fs.mkdtempSync(path.join(scratchBase, "electron-home-"));
+
+  // one planted project: proves the bridge read this home, not the developer's
+  const plantedDir = path.join(fakeHome, ".claude", "projects", "enc-demo");
+  fs.mkdirSync(plantedDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(plantedDir, "s1.jsonl"),
+    JSON.stringify({ type: "user", cwd: "/srv/proj-demo", sessionId: "s1" }) + "\n"
+  );
 
   const env = Object.assign({}, process.env, {
     CURSOR_BRIDGE_PORT: String(port),
     CURSOR_PROJECTS_ROOT: projectsRoot,
-    CURSOR_EVENT_LOG_DIR: eventLogDir
+    CURSOR_EVENT_LOG_DIR: eventLogDir,
+    HOME: fakeHome,
+    USERPROFILE: fakeHome
   });
+  delete env.CURSOR_TRANSCRIPTS;
+  if (process.platform === "win32") {
+    env.HOMEDRIVE = fakeHome.slice(0, 2);
+    env.HOMEPATH = fakeHome.slice(2);
+  }
   if (process.platform === "linux") env.ELECTRON_DISABLE_SANDBOX = "1";
 
-  const args = ["."];
+  const args = [".", `--user-data-dir=${userData}`];
   const useXvfb = process.platform === "linux";
   if (useXvfb) args.push("--no-sandbox");
   const child = useXvfb
@@ -147,8 +196,24 @@ async function main() {
         (exitSignals.length ? ` (electron exited ${JSON.stringify(exitSignals[0])})` : "")
     );
     assert.strictEqual(status.ok, true, "bridge /api/status must report ok");
+    // a desktop start names no Cursor folder, so it reads Claude Code (and shows no Cursor path)
+    assert.strictEqual(status.source, "claude-code", "Electron starts on the Claude Code default");
     assert.strictEqual(
       status.transcripts,
+      undefined,
+      "Claude Code status carries no Cursor folder"
+    );
+    const listed = JSON.parse((await get(`http://127.0.0.1:${port}/api/projects`)).body);
+    // (on Windows the bridge also lists running WSL distros; that cannot be redirected from here)
+    assert.ok(
+      listed.projects.some((p) => p.label === "proj-demo"),
+      "Claude Code discovery read the isolated home"
+    );
+    assert.strictEqual(await postSource(port, "cursor"), 200, "switching to Cursor must work");
+    const cursorStatus = JSON.parse((await get(`http://127.0.0.1:${port}/api/status`)).body);
+    assert.strictEqual(cursorStatus.source, "cursor");
+    assert.strictEqual(
+      cursorStatus.transcripts,
       path.join(projectsRoot, "_none", "agent-transcripts"),
       "bridge must use the isolated projects root, not the real one"
     );
@@ -163,7 +228,7 @@ async function main() {
   } finally {
     killTree(child);
     await sleep(800);
-    for (const d of [projectsRoot, eventLogDir, userData]) {
+    for (const d of [projectsRoot, eventLogDir, userData, fakeHome]) {
       fs.rmSync(d, { recursive: true, force: true });
     }
   }
