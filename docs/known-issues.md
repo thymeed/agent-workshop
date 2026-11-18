@@ -96,6 +96,14 @@ Last reviewed: 2026-10-16 (post-audit of the Live transcript path).
   directly. Reproduced locally only with the processes pinned to 2 cores under
   load. See known issue 37 for what is left.
 
+- **Claude Code role labels were not applied.**
+  Nothing called `RoleProfiles.apply`, so the stations kept the Cursor labels in
+  Claude Code mode. `dashboard/app.js` now calls
+  `RoleProfiles.apply(profileFor(mode, source))` from `setMode` and from the source
+  switch's `onSourceShown`: the Claude Code profile in Live on the Claude Code
+  source, the Cursor profile in Cursor and in Demo. Item 34 below keeps its number
+  so the items after it do not move.
+
 ## Open
 
 1. **A release asset that is renamed between runs accumulates rather than being
@@ -236,7 +244,7 @@ Claude Code source (known limits, found while building it; none of them is a cra
 
 33. **An explicit Cursor folder wins per run, without touching the stored choice.** A bridge started with `--dir` or `CURSOR_TRANSCRIPTS` reports `explicitDir: true`; while it reads Cursor the page shows Cursor and sends no switch, and the stored choice stays as it was (so a later run without a folder is back on the stored or default source). If another client has switched that bridge to Claude Code, the page follows it. The flag describes how the process started and stays true after switches.
 
-34. **Claude Code role labels are not applied.** Nothing in production calls `RoleProfiles.apply`, so the active profile stays "cursor" and the stations keep the Cursor labels (Opus, Fable, Worker, Explorer, Researcher) in Claude Code mode; `setModels` only updates the display when the Claude Code profile is active. This is planned as its own follow-up change.
+34. **Claude Code role labels: fixed.** See the Fixed section.
 
 35. **A WSL clock that disagrees with Windows weakens the racy-listing rule.** A folder mtime in the future (WSL clock ahead) keeps every listing racy, so the top-level scan runs on every poll over the share and `drift.dirCut` counts every poll on a capped folder. A WSL clock behind by more than 2.5 s (WSL2 drift after host sleep) stops the rule protecting a same-tick listing; the 30 s `RESCAN_MS` backstop still applies.
 

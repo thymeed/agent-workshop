@@ -353,6 +353,22 @@ test("apply switches what get/tables/label return; earlier copies stay as they w
   assert.equal(RP.tables().chipTips.length, 3);
 });
 
+test("profileFor: Claude Code only in Live on the Claude Code source", () => {
+  const RP = loadProfiles();
+  assert.equal(RP.profileFor("live", "claude-code"), "claude-code");
+  assert.equal(RP.profileFor("live", "cursor"), "cursor");
+  assert.equal(RP.profileFor("demo", "claude-code"), "cursor", "Demo is always Cursor");
+  assert.equal(RP.profileFor("demo", "cursor"), "cursor");
+  for (const bad of [undefined, null, "", "Live", "constructor"]) {
+    assert.equal(RP.profileFor(bad, "claude-code"), "cursor");
+    assert.equal(RP.profileFor("live", bad), "cursor");
+  }
+  assert.equal(RP.apply(RP.profileFor("live", "claude-code")), true);
+  assert.equal(RP.label("opus"), "Lead");
+  assert.equal(RP.apply(RP.profileFor("demo", "claude-code")), true);
+  assert.equal(RP.label("opus"), "Opus");
+});
+
 test("boundaries: unknown and prototype-like sources are refused and change nothing", () => {
   const RP = loadProfiles();
   for (const bad of [
