@@ -221,7 +221,7 @@ Claude Code source (known limits, found while building it; none of them is a cra
 
 33. **An explicit Cursor folder wins per run, without touching the stored choice.** A bridge started with `--dir` or `CURSOR_TRANSCRIPTS` reports `explicitDir: true`; while it reads Cursor the page shows Cursor and sends no switch, and the stored choice stays as it was (so a later run without a folder is back on the stored or default source). If another client has switched that bridge to Claude Code, the page follows it. The flag describes how the process started and stays true after switches.
 
-34. **Claude Code role labels are not applied, and the Bill's Fable rate is old.** Nothing in production calls `RoleProfiles.apply`, so the active profile stays "cursor" and the stations keep the Cursor labels (Opus, Fable, Worker, Explorer, Researcher) in Claude Code mode; `setModels` only updates the display when the Claude Code profile is active. The Bill prices by model family from `dashboard/bill-math.js` (resolved model ids never reach it), and its Fable rate is $10 / $50 per 1M tokens against the $8 / $40 list price. Both are planned as their own follow-up changes.
+34. **Claude Code role labels are not applied.** Nothing in production calls `RoleProfiles.apply`, so the active profile stays "cursor" and the stations keep the Cursor labels (Opus, Fable, Worker, Explorer, Researcher) in Claude Code mode; `setModels` only updates the display when the Claude Code profile is active. This is planned as its own follow-up change.
 
 ## Verified as non-issues
 

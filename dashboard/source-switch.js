@@ -57,7 +57,8 @@
     btn.setAttribute("aria-pressed", on ? "true" : "false");
     // aria-disabled, not disabled: a disabled button loses keyboard focus. setSource ignores
     // clicks while a switch is in flight.
-    btn.setAttribute("aria-disabled", switching ? "true" : "false");
+    if (switching) btn.setAttribute("aria-disabled", "true");
+    else btn.removeAttribute("aria-disabled");
   }
 
   function paint() {

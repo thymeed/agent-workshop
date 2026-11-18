@@ -45,6 +45,12 @@ function makeEl() {
     getAttribute(k) {
       return attrs[k] === undefined ? null : attrs[k];
     },
+    hasAttribute(k) {
+      return attrs[k] !== undefined;
+    },
+    removeAttribute(k) {
+      delete attrs[k];
+    },
     addEventListener(type, fn) {
       (listeners[type] = listeners[type] || []).push(fn);
     },
@@ -273,7 +279,8 @@ test("a second switch while one is in flight is ignored and the buttons are disa
   assert.equal(t.calls.length, 1, "only one POST while in flight");
   t.holds[0]();
   assert.equal((await first).ok, true);
-  assert.equal(t.els.claudeButton.getAttribute("aria-disabled"), "false", "idle after the flight");
+  assert.equal(t.els.claudeButton.hasAttribute("aria-disabled"), false, "idle after the flight");
+  assert.equal(t.els.cursorButton.hasAttribute("aria-disabled"), false, "idle after the flight");
 });
 
 test("a refused switch restores the previous buttons, keeps the choice, and shows the error", async () => {
@@ -284,7 +291,7 @@ test("a refused switch restores the previous buttons, keeps the choice, and show
   assert.deepEqual(plain(r), { ok: false, error: "Forbidden · same-origin required" });
   assert.equal(t.els.cursorButton.getAttribute("aria-pressed"), "true", "previous state restored");
   assert.equal(t.els.claudeButton.getAttribute("aria-pressed"), "false");
-  assert.equal(t.els.cursorButton.getAttribute("aria-disabled"), "false");
+  assert.equal(t.els.cursorButton.hasAttribute("aria-disabled"), false, "idle after a refusal");
   assert.equal(t.els.liveHint.hidden, false);
   assert.equal(t.els.liveHint.className, "live-hint err");
   assert.equal(t.els.liveHint.textContent, "Forbidden · same-origin required");
