@@ -5,8 +5,8 @@
  *
  * "cursor" is the profile at load and matches the static HTML exactly (this is the profile,
  * not the data source: the source default is "claude-code", see source-switch.js). "claude-code"
- * is reached only through apply(); the source switch does not call it yet, so today it runs
- * from the devtools console.
+ * is reached only through apply(). app.js calls apply(profileFor(mode, source)): Claude Code
+ * only while the page is Live on the Claude Code source, Cursor otherwise (Demo included).
  * Loaded after cards.js and before app.js; exposes window.RoleProfiles.
  *
  * get(), current() and tables() hand out deeply frozen copies, never the live profile
@@ -490,6 +490,14 @@
   }
 
   var RoleProfiles = {
+    /**
+     * Profile id the page shows for a mode and a data source: "claude-code" only in Live
+     * on the Claude Code source, "cursor" in every other case (Demo, Cursor, anything else).
+     */
+    profileFor: function (mode, source) {
+      return mode === "live" && source === "claude-code" ? "claude-code" : "cursor";
+    },
+
     /** Profile object for a source id, or null when unknown. */
     get: function (source) {
       return has(source) ? snapshotFor(source) : null;

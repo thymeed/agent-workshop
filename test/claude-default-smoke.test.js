@@ -125,6 +125,47 @@ async function main() {
 
     const bad = posts.filter((p) => p === "/api/source" || p === "/api/select");
     if (bad.length) errors.push("the page posted " + bad.join(", "));
+
+    // station names follow the page: Claude Code roles in Live on Claude Code, Cursor names
+    // after a switch to Cursor and in Demo
+    const names = () =>
+      page.evaluate(() =>
+        ["opus", "advisor", "worker", "explorer", "researcher"].map(
+          (s) => document.querySelector("#char-" + s + " .char-label").textContent
+        )
+      );
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const CC = ["Lead", "Planner", "Worker", "Researcher", "Reviewer"];
+    const CURSOR = ["Opus", "Fable", "Sonnet", "Explore", "Research"];
+    const got = await names();
+    if (!same(got, CC)) errors.push("Claude Code labels: " + got.join(","));
+    await page.click("#sourceCursor", { force: true });
+    await page.waitForFunction(
+      () => document.getElementById("hudSourceValue").textContent === "Cursor",
+      null,
+      { timeout: 20000 }
+    );
+    const gotCursor = await names();
+    if (!same(gotCursor, CURSOR)) errors.push("Cursor labels: " + gotCursor.join(","));
+    await page.click("#sourceClaude", { force: true });
+    await page.waitForFunction(
+      () => document.getElementById("hudSourceValue").textContent === "Claude Code",
+      null,
+      { timeout: 20000 }
+    );
+    const gotBack = await names();
+    if (!same(gotBack, CC)) errors.push("labels after switching back: " + gotBack.join(","));
+    await page.click("#modeDemo");
+    const gotDemo = await names();
+    if (!same(gotDemo, CURSOR)) errors.push("Demo labels: " + gotDemo.join(","));
+    await page.click("#modeLive");
+    await page.waitForFunction(
+      () => document.getElementById("hudSourceValue").textContent === "Claude Code",
+      null,
+      { timeout: 20000 }
+    );
+    const gotLive = await names();
+    if (!same(gotLive, CC)) errors.push("labels after Demo and back to Live: " + gotLive.join(","));
     await page.screenshot({ path: path.join(SCRATCH, "claude-default.png") });
   } finally {
     await ctx.close();

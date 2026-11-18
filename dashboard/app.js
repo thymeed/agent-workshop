@@ -1547,6 +1547,11 @@
     view.syncHistoryAllowed(mode);
   }
 
+  /** Role names follow the page: Claude Code labels only in Live on Claude Code. */
+  function syncRoleProfile() {
+    window.RoleProfiles.apply(window.RoleProfiles.profileFor(mode, view.currentSource()));
+  }
+
   function setMode(next) {
     if (next === mode && next === "live" && es) return;
     mode = next;
@@ -1555,6 +1560,7 @@
     modeLive.classList.toggle("live-on", mode === "live");
     if (window.WorkshopSource) window.WorkshopSource.setVisible(mode === "live");
     syncHistoryAllowed();
+    syncRoleProfile();
     bill.resetDemoTotal();
     if (next === "demo") clearLiveSeenEvents();
     if (AgentCards && typeof AgentCards.onModeChange === "function") {
@@ -1739,7 +1745,10 @@
       chipValue: document.getElementById("hudSourceValue"),
       liveHint: liveHint,
       bridgeUrl: BRIDGE,
-      onSourceShown: syncHistoryAllowed,
+      onSourceShown: function () {
+        syncHistoryAllowed();
+        syncRoleProfile();
+      },
       onChanged: function () {
         // Same follow-up as a project pick: restart the stream on the new source.
         // History is not opened: it is off in Claude Code mode. Only in Live: a switch that
