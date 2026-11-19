@@ -114,9 +114,9 @@ Last reviewed: 2026-10-16 (post-audit of the Live transcript path).
   Loading a session into the History replay sent a "session" frame to the stage,
   which reset the Live state, and leaving History never restored it. Choosing a
   session now leaves the Live stage alone; only a scrub or Play takes the stage,
-  and the Live state it covered (Bill, log, stage calls and active roles, cards)
-  comes back when the replay ends, together with the Live rows that arrived
-  meanwhile, applied quietly and in order.
+  and the Live state it covered (Bill, log, stage calls and active roles, cards,
+  today's Runs, tokens and fastest) comes back when the replay ends, together with
+  the Live rows that arrived meanwhile, applied quietly and in order.
 
 - **A replay start recorded a cut-off Live role as today's fastest.**
   Starting a replay (Cursor or Claude Code) while a Live role was lit ended that
@@ -275,7 +275,9 @@ Claude Code source (known limits, found while building it; none of them is a cra
 
 39. **The Claude Code session list includes the session Live is tailing right now.** Replaying it shows rows Live also shows. Choosing it does not touch the stage until Play or a scrub.
 
-40. **A very long Claude Code replay can lose Live rows.** While a replay owns the stage the Live state is held as a snapshot and the Live rows that arrive are queued, up to 20,000; past that cap the queue is dropped and leaving the replay rebuilds Live from the bridge instead, which carries only its recent backlog (about 40 rows), so rows from the middle of a very long replay are lost. Queued rows are applied quietly: no error sound, ship celebration or fastest timing, but they count in today's stats, and a Live finish or error during a replay still alerts.
+40. **A very long Claude Code replay can lose Live rows.** While a replay owns the stage the Live state is held as a snapshot and the Live rows that arrive are queued, up to 20,000; past that cap the queue is dropped and leaving the replay rebuilds Live from the bridge instead, which carries only its recent backlog (about 40 rows), so rows from the middle of a very long replay are lost. Queued rows are applied quietly: no crate, spark or error sound, ship celebration or fastest timing, but they count in today's stats, and a Live finish or error during a replay still alerts.
+
+41. **A crate in flight when a Claude Code replay starts does not come back.** Leaving the replay restores the stationary state (characters, active roles, calls, Bill, log, cards and today's counters) but not the transient crates, route tokens or sparks that the replay's own reset clears. One that was mid-flight is gone for good; the reset at the start would have removed it anyway.
 
 ## Verified as non-issues
 

@@ -64,6 +64,25 @@ function plantSession(file, startMs, minutes, subagentType, cwd) {
   fs.utimesSync(file, t, t);
 }
 
+/** A subagent file and its meta: one child spawn row when the parent session replays. */
+function plantChild(dir, agentId, startMs, type) {
+  fs.mkdirSync(dir, { recursive: true });
+  const line = {
+    type: "user",
+    isSidechain: true,
+    agentId,
+    parentUuid: null,
+    sessionId: L.SESSION,
+    timestamp: new Date(startMs).toISOString(),
+    message: { role: "user", content: "child " + agentId }
+  };
+  fs.writeFileSync(path.join(dir, "agent-" + agentId + ".jsonl"), JSON.stringify(line) + "\n");
+  fs.writeFileSync(
+    path.join(dir, "agent-" + agentId + ".meta.json"),
+    JSON.stringify({ agentType: type || "worker", toolUseId: "toolu_1" })
+  );
+}
+
 /** Everything a replay overwrites and a restore must give back, read from the page. */
 function sig(page) {
   return page.evaluate(() => {
@@ -99,6 +118,11 @@ function sig(page) {
       guard: h.replayGuardInfo()
     };
   });
+}
+
+/** The recorded start of a lit Live role (ms), or null. */
+function liveRoleStart(page, role) {
+  return page.evaluate((r) => window.AgentCards.getRoleActiveStarted(r), role);
 }
 
 const SAME_KEYS = [
@@ -182,6 +206,10 @@ async function main() {
   const startStale = minute(nowMs - 20 * DAY);
   plantSession(path.join(proj, "enc-new", "new.jsonl"), startNew, 5, "worker", "/srv/proj-new");
   plantSession(path.join(proj, "enc-new", "old.jsonl"), startOld, 4, "planner", "/srv/proj-new");
+  /* Three child files: the replay raises today's sub count, so the restore has to lower it. */
+  ["a1", "a2", "a3"].forEach((a, i) =>
+    plantChild(path.join(proj, "enc-new", "old", "subagents"), a, startOld + 40000 + i * 20000)
+  );
   plantSession(path.join(proj, "enc-new", "stale.jsonl"), startStale, 3, "worker", "/srv/proj-new");
   // a second, older project to pick
   plantSession(
@@ -354,6 +382,7 @@ async function main() {
     if (meta0 !== `1 / ${n}`) errors.push("transport meta before Play: " + meta0);
 
     // ---- Play, a Live row arrives, Stage: Live is back exactly, plus that row ----
+    const startBefore = await liveRoleStart(page, "worker");
     await play(page);
     const played = await sig(page);
     trace("after Play", played);
@@ -376,7 +405,21 @@ async function main() {
     if (mid.tokens !== played.tokens || mid.lines !== played.lines) {
       errors.push("a Live row reached the stage during the replay");
     }
+    // a cue log for the hand-back: the queued rows must play no crate or spark cue
+    await page.evaluate(() => {
+      window.__cues = [];
+      const real = window.WorkshopSound.play;
+      window.WorkshopSound.play = function (name) {
+        window.__cues.push(String(name));
+        return real.apply(this, arguments);
+      };
+    });
     await page.click("#viewStage");
+    const cues = await page.evaluate(() => window.__cues || []);
+    /* Only the cues a crate or spark plays as it starts: crates from the 120 Live rows
+       before the replay pop while the hand-back runs, so "pop" is not counted here. */
+    const noisy = cues.filter((c) => c === "spark" || c === "edit" || c === "tick");
+    if (noisy.length) errors.push("the restore was not quiet: " + JSON.stringify(noisy));
     const back = await sig(page);
     trace("after Stage", back);
     if (back.taken || (back.guard && back.guard.holding))
@@ -403,6 +446,42 @@ async function main() {
     }
     if ((await alertCount()) !== alertsBefore) errors.push("restoring Live raised alerts");
     if ((await errPlays()) !== 0) errors.push("restoring Live played the error sound");
+    const startAfter = await liveRoleStart(page, "worker");
+    if (!(startBefore > 0)) errors.push("no Live role start to check across the replay");
+    else if (!(startAfter > startBefore)) {
+      errors.push(
+        "the replay's minutes were charged to a Live role: " +
+          JSON.stringify({ startBefore, startAfter })
+      );
+    }
+
+    // ---- the replay reaches its three subagent files: today's Runs must come back down ----
+    const runsBefore = back.runs;
+    await page.click("#viewHistory");
+    await waitList(page);
+    await page.selectOption("#claudeHistorySession", opts[2].value);
+    await play(page);
+    await page.evaluate(
+      (events) => window.__cursorAgentsDashTest.replaySeek(events, events.length - 1, "scrub"),
+      apiBody.events
+    );
+    const withSubs = await sig(page);
+    trace("replay at its last event", withSubs);
+    if (withSubs.runs <= runsBefore) {
+      errors.push(
+        "the replay did not raise today's Runs through its subagents: " +
+          JSON.stringify({ runsBefore, runs: withSubs.runs })
+      );
+    }
+    await page.click("#viewStage");
+    const afterSubs = await sig(page);
+    trace("after the subagent replay", afterSubs);
+    if (afterSubs.runs !== runsBefore) {
+      errors.push(
+        "today's Runs stuck after a replay: " +
+          JSON.stringify({ runsBefore, after: afterSubs.runs })
+      );
+    }
 
     // ---- Play, then Insights: Live is back, the flag is false, a later Stage changes nothing ----
     await page.click("#viewHistory");

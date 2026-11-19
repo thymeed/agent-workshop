@@ -261,12 +261,13 @@
         setStatus("");
         return Promise.resolve();
       }
-      var listAt = listGen;
       loadGen += 1;
       var g = loadGen;
       setStatus("Loading session…");
+      /* A list refresh alone does not invalidate this answer: every path that really drops the
+         replay (source, project or picker change) bumps loadGen through dropReplay(). */
       function stale() {
-        return g !== loadGen || listAt !== listGen;
+        return g !== loadGen;
       }
       function failed(msg) {
         dropReplay();

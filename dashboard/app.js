@@ -223,6 +223,9 @@
   var liveConnectedSince = 0;
   /** True while SSE is draining the bridge's initial backlog (connect / reload / reconnect). */
   var liveSseBacklogReplay = false;
+  /* Live rows that arrive while a Claude replay owns the stage are applied without crates or
+     sound cues once the replay ends (they still count in the Bill, the log and today's stats). */
+  var quietLiveRows = false;
   var liveSseBacklogEndTimer = null;
   var LIVE_SSE_BACKLOG_QUIET_MS = 80;
   /** Live presence: file-origin | connecting | bridge-down | no-projects | quiet-healthy | streaming */
@@ -1261,6 +1264,7 @@
   /** The Live state a replay's reset is about to destroy (exactly what resetReplaySession clears). */
   function captureLiveStage() {
     return {
+      takenAt: Date.now(),
       calls: state.calls,
       subs: state.subs,
       liveSubs: Object.assign({}, state.liveSubs),
@@ -1282,7 +1286,20 @@
     setSubs(snap.subs);
     advisorLastEl.textContent = snap.advisorLast;
     activity.restore(snap.activity);
-    if (AgentCards && typeof AgentCards.restore === "function") AgentCards.restore(snap.cards);
+    var cardsSnap = snap.cards;
+    if (cardsSnap && cardsSnap.roleActiveStarted) {
+      /* The replay's own minutes must not count toward a role that was already lit when it
+         started, so its start moves forward by the time the replay owned the stage. */
+      var shift = Math.max(0, Date.now() - (Number(snap.takenAt) || Date.now()));
+      if (shift) {
+        var starts = Object.assign({}, cardsSnap.roleActiveStarted);
+        Object.keys(starts).forEach(function (key) {
+          starts[key] = Number(starts[key]) + shift;
+        });
+        cardsSnap = Object.assign({}, cardsSnap, { roleActiveStarted: starts });
+      }
+    }
+    if (AgentCards && typeof AgentCards.restore === "function") AgentCards.restore(cardsSnap);
     currentActiveRoles = snap.activeRoles.slice();
     stageDirector.setActiveRoles(currentActiveRoles);
     stickyActive = Object.assign({}, snap.stickyActive);
@@ -1293,17 +1310,21 @@
   /**
    * A Live row that arrived during a replay. Real work, so it counts in today's stats like any
    * live row, but quietly: the SSE backlog flag (no error sound, no ship celebration) plus
-   * skipTiming and skipMotion (no fastest timing, no route animation). Alerts are SSE alert
-   * events the replay never gated, so none are raised here.
+   * skipTiming and skipMotion (no fastest timing, no route animation), and quietLiveRows keeps
+   * the crates and their sound cues off. Alerts are SSE alert events the replay never gated,
+   * so none are raised here.
    */
   function applyQueuedLiveRow(ev) {
     if (mode !== "live") return;
     var prev = liveSseBacklogReplay;
+    var prevQuiet = quietLiveRows;
     liveSseBacklogReplay = true;
+    quietLiveRows = true;
     try {
       applyLiveEvent(ev, { skipTiming: true, skipMotion: true });
     } finally {
       liveSseBacklogReplay = prev;
+      quietLiveRows = prevQuiet;
     }
   }
 
@@ -1697,10 +1718,10 @@
       var id = projectPicker.value;
       var previousId = currentProjectId;
       if (!id || id === previousId) return;
-      /* A replay hands the stage (and the Live rows it held) back before the pick proceeds. */
-      endClaudeReplay();
       projects.selectProject(id).then(function (data) {
         if (!data || !data.ok) {
+          /* The pick changed nothing, so a running replay hands the stage back to this project. */
+          endClaudeReplay();
           if (previousId) projectPicker.value = previousId;
           else projectPicker.selectedIndex = 0;
           liveHint.hidden = false;
@@ -1770,6 +1791,7 @@
       return AgentCards;
     },
     tipSpark: function (role) {
+      if (quietLiveRows) return;
       stageDirector.tipSpark(role);
     }
   });
@@ -1861,7 +1883,7 @@
         // Same follow-up as a project pick: restart the stream on the new source.
         // History is not opened by a switch. Only in Live: a switch that
         // finishes after the user went to Demo must not open a stream.
-        endClaudeReplay();
+        // startLive() discards a held replay snapshot, so a rebuild is the only outcome.
         if (mode === "live") {
           currentProjectLabel = null;
           currentProjectId = null;
@@ -1954,6 +1976,7 @@
       }
     },
     spawnCrate: function (entry) {
+      if (quietLiveRows) return;
       stageDirector.spawnCrate(entry);
     }
   });

@@ -419,6 +419,19 @@ test("a list answer that arrives after a newer refresh is ignored", async () => 
   assert.ok(h.select.values().includes("cs-new"));
 });
 
+test("a list refresh while a session loads does not discard that load", async () => {
+  const h = harness();
+  await listed(h);
+  h.select.choose("cs-aaaaaaaaaaaaaaaaaaaaaaaa");
+  /* History is reopened before the session answer: the list reloads, the load must survive. */
+  h.ch.onHistoryOpen();
+  await h.answer(200, { events: [ev(0), ev(1)] });
+  assert.equal(h.replay.length, 1, "the session still reaches the replay");
+  assert.equal(h.replay[0].length, 2);
+  assert.equal(h.select.value, "cs-aaaaaaaaaaaaaaaaaaaaaaaa");
+  assert.match(h.els.status.textContent, /^2 events/);
+});
+
 test("a session answer that arrives after a source switch is ignored", async () => {
   const h = harness();
   await listed(h);

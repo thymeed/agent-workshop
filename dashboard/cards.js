@@ -835,8 +835,9 @@
 
   /**
    * What a History replay overwrites on the cards: each status line and class, avatar
-   * expression, active lit state, privacy level, and the role-started clock the timing path
-   * uses. A copy: later changes to the cards do not reach it.
+   * expression, active lit state, privacy level, the role-started clock the timing path
+   * uses, and today's counters (Runs, tokens, fastest) that a replay's subagent rows can
+   * raise. A copy: later changes to the cards do not reach it.
    */
   function snapshot() {
     ensureDay();
@@ -851,7 +852,18 @@
         privacy: privacyLevel[role] || "none"
       };
     });
-    return { roles: roles, roleActiveStarted: Object.assign({}, dayStats.roleActiveStarted) };
+    var day = dayStats;
+    return {
+      roles: roles,
+      roleActiveStarted: Object.assign({}, day.roleActiveStarted),
+      day: {
+        runs: day.runs,
+        tokens: day.tokens,
+        fastestAgent: day.fastestAgent,
+        fastestMs: day.fastestMs,
+        roleTokens: Object.assign({}, day.roleTokens)
+      }
+    };
   }
 
   /** Put a snapshot() back. Safe to call more than once with the same snapshot. */
@@ -872,7 +884,18 @@
       privacyLevel[role] = s.privacy;
       if (privacyEls[role]) applyPrivacyChrome(privacyEls[role], s.privacy);
     });
+    /* Today's counters too: a replay raises Runs through its subagent rows, and only a
+       restored base keeps that number from sticking for the rest of the day. */
+    var day = snap.day;
+    if (day) {
+      dayStats.runs = Math.max(0, Number(day.runs) || 0);
+      dayStats.tokens = Math.max(0, Number(day.tokens) || 0);
+      dayStats.fastestAgent = day.fastestAgent || null;
+      dayStats.fastestMs = typeof day.fastestMs === "number" ? day.fastestMs : null;
+      dayStats.roleTokens = Object.assign({}, day.roleTokens);
+    }
     dayStats.roleActiveStarted = Object.assign({}, snap.roleActiveStarted);
+    renderDailyStats();
   }
 
   /** Re-decorate role-dependent tips after RoleProfiles.apply(). Same output as init. */
