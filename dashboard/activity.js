@@ -210,12 +210,46 @@
     if (el) el.textContent = emptyLogMessage();
   }
 
+  /**
+   * A copy of the rows, the log clock, the role filter and the Session Log markup (what clear()
+   * and resetLogEmpty() throw away). Later changes do not reach it.
+   */
+  function snapshot() {
+    return {
+      items: items.map(function (a) {
+        return Object.assign({}, a);
+      }),
+      seq: seq,
+      filter: filter,
+      logHtml: d.sessionLog ? d.sessionLog.innerHTML : null,
+      hadEmpty: !!(logEmptyEl && logEmptyEl.parentNode)
+    };
+  }
+
+  /** Put a snapshot() back and repaint. Safe to call twice with the same snapshot. */
+  function restore(snap) {
+    if (!snap) return;
+    items = snap.items.map(function (a) {
+      return Object.assign({}, a);
+    });
+    seq = snap.seq;
+    filter = snap.filter;
+    if (d.sessionLog && snap.logHtml !== null) {
+      d.sessionLog.innerHTML = snap.logHtml;
+      logEmptyEl = snap.hadEmpty ? document.getElementById("logEmpty") : null;
+      d.sessionLog.scrollTop = d.sessionLog.scrollHeight;
+    }
+    render();
+  }
+
   window.WorkshopActivity = {
     init: init,
     append: append,
     appendLog: appendLog,
     render: render,
     clear: clear,
+    snapshot: snapshot,
+    restore: restore,
     setFilter: setFilter,
     activityKindBucket: activityKindBucket,
     emptyLogMessage: emptyLogMessage,

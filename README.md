@@ -70,10 +70,12 @@ In Live mode with the **Cursor** source selected, a project dropdown lists Curso
 Choosing a project:
 
 1. `POST`s `/api/select` with `X-Cursor-Bridge: 1` and switches the bridge transcripts folder.
-2. Opens the History sheet and reloads Insights onto the latest non-empty transcript session for that project (`latestSessionId` from the bridge).
-3. Remounts the History replay transport and restarts Live SSE (`reset` resyncs the workshop; it does not remount History replay or move the scrubber by itself).
+2. Cursor only: opens the History sheet and reloads Insights onto the latest non-empty transcript session for that project (`latestSessionId` from the bridge).
+3. Cursor only: remounts the History replay transport. Both sources restart Live SSE (`reset` resyncs the workshop; it does not remount History replay or move the scrubber by itself).
 
-While Live is connected, loading a session into History (project change or session picker) paints the replay frame on the stage but does not pause Live SSE until you scrub the timeline or press Play. Scrub or Play sets replay ownership so Live events no longer overwrite the stage until you leave History or run Demo/Live again.
+With the Claude Code source a pick stays on the current view (History opens from its header tab) and reloads the session list for the new project.
+
+While Live is connected, loading a Cursor session into History (project change or session picker) paints the replay frame on the stage but does not pause Live SSE until you scrub the timeline or press Play. Scrub or Play sets replay ownership so Live events no longer overwrite the stage until you leave History or run Demo/Live again. With the Claude Code source, choosing a session in the History picker changes nothing on the stage, Bill or log; only a scrub or Play takes the stage. Leaving History then puts that Live state back (Bill, log, stage and cards) and applies, quietly, the Live rows that arrived meanwhile, so no sound, ship celebration or fastest timing plays for them; a Live finish or error still alerts. Only a replay that queues more than 20,000 Live rows falls back to rebuilding Live from the bridge's recent backlog.
 
 ### Claude Code source
 
@@ -90,7 +92,7 @@ What you see:
 - Claude Code rows drive the existing stage and station cards: the parent session, and a delegation by its `subagent_type` (**Planner**, **Researcher**, **Worker** or **Reviewer**; other types take a role from their model family: opus → Planner, sonnet → Worker, haiku → Researcher, anything else → Worker). In Live on Claude Code the stations are labelled Lead, Planner, Worker, Researcher and Reviewer (Cursor and Demo keep the Cursor labels), and each role lights its station: Lead → first station, Planner → second, Worker → third, Researcher → fourth, Reviewer → fifth. The Bill table keeps its own Cursor-style row names and rates.
 - Model aliases (`opus`, `sonnet`, `haiku`, `inherit`) are resolved to full model ids at ingest, and `inherit` takes the Lead's model; an unknown alias stays unset. These ids go to the role-profile model table, which shows on the stations while the Claude Code profile is active (Live on Claude Code).
 - **Bill:** tokens come from each transcript line's `usage`, using the highest count seen for each message id, and are priced by model family with the rates in `dashboard/bill-math.js` (the resolved full model id does not reach the Bill). The Bill view itself is unchanged. Cache tokens are not billed.
-- **History is off.** The History button is hidden, `GET /api/history` returns no events with a `history-off` note, and `POST /api/history/clear` returns 409. Claude Code events never reach the Cursor event log.
+- **History shows older sessions, replay only.** The History tab lists the selected project's sessions from the last 14 days (the 20 newest, labelled with local time, event count once opened and duration). Choosing one loads it into the replay transport; Play or scrub drives the stage, and Live keeps updating the stage until you do (leaving History after that restores Live). A session cut at the size limits says so. The list shows an event count only once a session is opened, and it includes the session Live is tailing right now. Insights (forecast, suggestions) does not read these sessions. A project pick stays on the current view. `GET /api/history` returns no events with a `history-off` note and `POST /api/history/clear` returns 409; Claude Code events never reach the Cursor event log.
 - **Replay, then alerts.** When a session is first read, its catch-up replays silently: rows fill the stage, but nothing alerts, counts toward today's stats, or plays the ship celebration. Once the parent session has been read to its end, finish and error rows alert as they arrive. A newer session clears the stage and replays from its start.
 - Switching back to Cursor restores the Cursor project and watch state.
 
@@ -142,34 +144,36 @@ Keep `node_modules\` unless you are ready for a full `npm ci` / `npm install` (l
 
 ## Project layout
 
-| Path                           | Role                                                                                                                                    |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `model-routing-dashboard.html` | Markup shell (Demo + Live UI)                                                                                                           |
-| `dashboard/styles.css`         | Dashboard styles                                                                                                                        |
-| `dashboard/cards.css`          | Station card / avatar / ship-celebration styles                                                                                         |
-| `dashboard/insights.css`       | Insights / History drawer styles                                                                                                        |
-| `dashboard/tips.css`           | TipLayer floating tooltip styles                                                                                                        |
-| `dashboard/alerts.css`         | Alert center bell / popover styles                                                                                                      |
-| `dashboard/app.js`             | Orchestrator: Demo playbook, Live SSE client, mode switching, project picker, jump-to-agent, ship celebration, `__cursorAgentsDashTest` |
-| `dashboard/activity.js`        | Activity drawer, Session Log, and their empty states; owns its row list, log clock, and role filter                                     |
-| `dashboard/view-mode.js`       | Header view switching (Stage/Insights/History), the Panels toggle, and the drawer-sheet focus policy                                    |
-| `dashboard/projects.js`        | Live project picker: list projects, switch the bridge scope, hand it to Insights + History                                              |
-| `dashboard/presence.js`        | Live presence (hint, banner, coach, empty-log copy), the bridge sync-age chip, and its poll                                             |
-| `dashboard/bill-math.js`       | Pure bill/usage math: rates, token and money formatting, model normalization, summary CSV · no DOM                                      |
-| `dashboard/bill.js`            | Session Bill: usage counters and their DOM, savings comparison, HUD totals; owns the demo daily baseline                                |
-| `dashboard/demo-playbook.js`   | The scripted Demo narrative: one closure per story beat; app.js schedules them                                                          |
-| `dashboard/safe-html.js`       | The single HTML escaper (`window.SafeHtml`); every other dashboard module aliases it · loads first                                      |
-| `dashboard/sound.js`           | Workshop audio cues (Web Audio, synthesized, no assets): master gain + limiter, volume, role-tinted timbres · muted by default          |
-| `dashboard/insights.js`        | Insights forecast, cost-ranked suggestions, History/Replay UI                                                                           |
-| `dashboard/replay-stage.js`    | Replay transport to workshop stage                                                                                                      |
-| `dashboard/cards.js`           | Station cards, avatars, daily stats, privacy meter, ship celebration                                                                    |
-| `dashboard/tips.js`            | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                                       |
-| `dashboard/alerts.js`          | In-app alert center (SSE `alert` + `GET /api/alerts`)                                                                                   |
-| `live-bridge.js`               | Headless/Electron bridge (HTML + `/dashboard/*` + APIs)                                                                                 |
-| `electron/main.js`             | Desktop window; starts bridge in-process                                                                                                |
-| `test/demo-smoke.test.js`      | Demo-mode Playwright smoke test                                                                                                         |
-| `test/cards-smoke.test.js`     | Station cards / avatars / Live timing smoke                                                                                             |
-| `test/insights-smoke.test.js`  | Insights / suggestions / jump-to-agent smoke                                                                                            |
+| Path                               | Role                                                                                                                                    |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `model-routing-dashboard.html`     | Markup shell (Demo + Live UI)                                                                                                           |
+| `dashboard/styles.css`             | Dashboard styles                                                                                                                        |
+| `dashboard/cards.css`              | Station card / avatar / ship-celebration styles                                                                                         |
+| `dashboard/insights.css`           | Insights / History drawer styles                                                                                                        |
+| `dashboard/tips.css`               | TipLayer floating tooltip styles                                                                                                        |
+| `dashboard/alerts.css`             | Alert center bell / popover styles                                                                                                      |
+| `dashboard/app.js`                 | Orchestrator: Demo playbook, Live SSE client, mode switching, project picker, jump-to-agent, ship celebration, `__cursorAgentsDashTest` |
+| `dashboard/activity.js`            | Activity drawer, Session Log, and their empty states; owns its row list, log clock, and role filter                                     |
+| `dashboard/view-mode.js`           | Header view switching (Stage/Insights/History), the Panels toggle, and the drawer-sheet focus policy                                    |
+| `dashboard/projects.js`            | Live project picker: list projects, switch the bridge scope, hand it to Insights + History                                              |
+| `dashboard/presence.js`            | Live presence (hint, banner, coach, empty-log copy), the bridge sync-age chip, and its poll                                             |
+| `dashboard/bill-math.js`           | Pure bill/usage math: rates, token and money formatting, model normalization, summary CSV · no DOM                                      |
+| `dashboard/bill.js`                | Session Bill: usage counters and their DOM, savings comparison, HUD totals; owns the demo daily baseline                                |
+| `dashboard/demo-playbook.js`       | The scripted Demo narrative: one closure per story beat; app.js schedules them                                                          |
+| `dashboard/safe-html.js`           | The single HTML escaper (`window.SafeHtml`); every other dashboard module aliases it · loads first                                      |
+| `dashboard/sound.js`               | Workshop audio cues (Web Audio, synthesized, no assets): master gain + limiter, volume, role-tinted timbres · muted by default          |
+| `dashboard/insights.js`            | Insights forecast, cost-ranked suggestions, History/Replay UI                                                                           |
+| `dashboard/claude-history.js`      | Claude Code History: older sessions picker (last 14 days) feeding the replay transport                                                  |
+| `dashboard/claude-replay-guard.js` | Keeps the Live state a Claude Code replay covers, and queues the Live rows that arrive meanwhile                                        |
+| `dashboard/replay-stage.js`        | Replay transport to workshop stage                                                                                                      |
+| `dashboard/cards.js`               | Station cards, avatars, daily stats, privacy meter, ship celebration                                                                    |
+| `dashboard/tips.js`                | Unified TipLayer (`data-tip` / `data-tip-detail`)                                                                                       |
+| `dashboard/alerts.js`              | In-app alert center (SSE `alert` + `GET /api/alerts`)                                                                                   |
+| `live-bridge.js`                   | Headless/Electron bridge (HTML + `/dashboard/*` + APIs)                                                                                 |
+| `electron/main.js`                 | Desktop window; starts bridge in-process                                                                                                |
+| `test/demo-smoke.test.js`          | Demo-mode Playwright smoke test                                                                                                         |
+| `test/cards-smoke.test.js`         | Station cards / avatars / Live timing smoke                                                                                             |
+| `test/insights-smoke.test.js`      | Insights / suggestions / jump-to-agent smoke                                                                                            |
 
 ## Demo mode (static HTML fallback)
 
@@ -326,7 +330,7 @@ The in-app alert center (header bell) lists the same alerts: mark read, snooze, 
 - A finish in the first ~4.5 seconds of a brand-new session never alerts: the switch waits 5 polls, then the catch-up replays silently.
 - Replay rows never count toward today's stats. A subagent that ends `failed`, `error` or `killed` plays the error sound once when it arrives live (not during the catch-up); `stopped` and `cancelled` stay silent.
 - Only tokens from `usage` are billed; cache tokens are not. The Bill view is the Cursor one, unchanged.
-- The Cursor event log and History are not used in this mode.
+- The Cursor event log is not used in this mode. History lists older sessions for replay only (last 14 days, 20 newest); an event count shows only once a session is opened, and the list includes the session Live is tailing right now.
 - On a first start, two processes can race to create the salt on a disk without hard links (FAT, exFAT, most network shares). See `docs/known-issues.md` (items 27 and 36).
 
 ### Format compatibility

@@ -64,8 +64,19 @@
   /**
    * historyEvent → one or more live-shaped events for applyLiveEvent.
    */
+  /** A Claude Code session event is already live-shaped (role, kind, active, message). */
+  function isLiveShaped(ev) {
+    return (
+      typeof ev.role === "string" &&
+      typeof ev.kind === "string" &&
+      Array.isArray(ev.active) &&
+      ev.replay === true
+    );
+  }
+
   function mapHistoryEvent(ev) {
     if (!ev) return [];
+    if (isLiveShaped(ev)) return [Object.assign({}, ev)];
     var cardRole = roleFromHistory(ev);
     var role = liveRole(cardRole);
     var type = String(ev.type || "").toLowerCase();

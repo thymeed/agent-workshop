@@ -277,3 +277,43 @@ test("replaceUsage swaps the table and re-baselines the daily counter", () => {
   assert.equal(t.state.usage.opus.in, 2000, "table swapped in");
   assert.deepEqual(added, [2000], "daily baseline re-derived from scratch");
 });
+
+test("snapshot and restore: round trip, reuse, and a snapshot is a copy", () => {
+  const t = load();
+  t.state.usage.opus = { in: 1000, out: 500 };
+  t.state.usage.explorer = { in: 40, out: 2 };
+  const snap = t.mod.snapshot();
+  /* later live changes must not leak into the snapshot */
+  t.mod.addUsage({ role: "worker", in: 9000, out: 1 });
+  assert.equal(snap.usage.sonnet.in, 0, "a snapshot is a copy");
+  t.mod.resetUsage();
+  assert.equal(t.state.usage.opus.in, 0, "the replay reset zeroed the table");
+  t.mod.restore(snap);
+  assert.deepEqual({ ...t.state.usage.opus }, { in: 1000, out: 500 });
+  assert.deepEqual({ ...t.state.usage.explorer }, { in: 40, out: 2 });
+  assert.equal(t.state.usage.sonnet.in, 0, "what arrived after the snapshot is gone");
+  assert.equal(t.billEls.opusIn.textContent, "1K", "the table is repainted");
+  /* restoring twice is safe, and later changes do not edit the snapshot */
+  t.mod.addUsage({ role: "parent", model: "opus", in: 1, out: 0 });
+  t.mod.restore(snap);
+  t.mod.restore(snap);
+  assert.deepEqual({ ...t.state.usage.opus }, { in: 1000, out: 500 });
+  t.mod.restore(null);
+  assert.deepEqual(
+    { ...t.state.usage.opus },
+    { in: 1000, out: 500 },
+    "a missing snapshot is a no-op"
+  );
+});
+
+test("restore puts the demo baseline back with the table", () => {
+  const t = load();
+  const added = [];
+  t.seen.cards = { addTokens: (n) => added.push(n), syncLiveSubs: () => {} };
+  t.mod.replaceUsage(Object.assign(t.billMath.emptyUsage(), { opus: { in: 300, out: 0 } }));
+  const snap = t.mod.snapshot();
+  t.mod.resetUsage();
+  t.mod.restore(snap);
+  t.mod.syncDailyStats();
+  assert.deepEqual(added, [300], "no extra delta: the baseline came back with the table");
+});

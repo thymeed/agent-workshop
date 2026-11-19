@@ -1028,3 +1028,49 @@
     font-size: 24px;
   }
 }
+
+/* History sheet: Claude Code older sessions picker */
+.claude-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.claude-history[hidden] {
+  display: none;
+}
+
+.claude-history-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--insights-muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.claude-history-session {
+  background: var(--insights-surface-2);
+  color: var(--insights-ink);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  max-width: 100%;
+}
+
+.claude-history-session:focus-visible {
+  outline: 2px solid rgba(62, 207, 255, 0.55);
+  outline-offset: 2px;
+}
+
+.claude-history-status {
+  margin: 0;
+  color: var(--insights-muted);
+  font-size: 12px;
+}

@@ -337,6 +337,13 @@
 
   function sortEvents(events) {
     return (events || []).slice().sort(function (a, b) {
+      /* Claude Code session events: ISO time, then the server's order (their ts is a clock). */
+      if (a.iso && b.iso && a.replay === true && b.replay === true) {
+        var ia = Date.parse(a.iso) || 0;
+        var ib = Date.parse(b.iso) || 0;
+        if (ia !== ib) return ia - ib;
+        return (Number(a.id) || 0) - (Number(b.id) || 0);
+      }
       var ta = Date.parse(a.ts) || 0;
       var tb = Date.parse(b.ts) || 0;
       if (ta !== tb) return ta - tb;
@@ -611,7 +618,7 @@
     return { roots: roots, event: slice[slice.length - 1] || null, count: slice.length };
   }
 
-  function renderTree(roots) {
+  function renderTree(roots, emptyText) {
     function walk(list, depth) {
       return list
         .map(function (n) {
@@ -660,7 +667,7 @@
         '<div class="insights-empty" data-tree-empty data-tip="Quiet workshop" data-tip-detail="No agents in this frame yet. Run a session with subagents to populate the tree.">' +
         emptyBlockFace() +
         "<strong>No agents yet</strong>" +
-        "Spawn a subagent in Cursor and replay will list it here." +
+        (emptyText || "Spawn a subagent in Cursor and replay will list it here.") +
         "</div>"
       );
     }
@@ -738,6 +745,10 @@
     var replayIndex = 0;
     var replayIndexListeners = [];
     var replayMountEl = null;
+    /** Events of a Claude Code session shown by the replay; null = replay follows the loaded history. */
+    var replayOverride = null;
+    /** Copy for an empty replay tree while the Claude Code picker owns the sheet (null: Cursor copy). */
+    var replayEmptyText = null;
     var transportPlaying = false;
     var transportSpeed = 1;
     var transportTimer = null;
@@ -792,6 +803,18 @@
 
     function activeEvents() {
       return filterSession(allEvents, sessionId);
+    }
+
+    /** Empty-tree copy: a Claude Code session is not a Cursor one. */
+    function treeEmptyText() {
+      return replayOverride
+        ? "Nothing to show at this point of the session."
+        : replayEmptyText || "";
+    }
+
+    /** What the replay transport, scrubber and stage walk through. Forecast and suggestions never use it. */
+    function replayEvents() {
+      return replayOverride || activeEvents();
     }
 
     function pickLatestSessionId(ids, hint) {
@@ -1099,7 +1122,7 @@
     function notifyReplayIndex(source) {
       var payload = {
         index: replayIndex,
-        events: activeEvents().slice(),
+        events: replayEvents().slice(),
         source: source || "scrub"
       };
       replayIndexListeners.forEach(function (cb) {
@@ -1112,7 +1135,7 @@
     function paintReplayInto(host, opts) {
       opts = opts || {};
       if (!host) return;
-      var events = activeEvents();
+      var events = replayEvents();
       var max = Math.max(0, events.length - 1);
       if (replayIndex > max) replayIndex = max;
       var snap = buildTreeAt(events, replayIndex);
@@ -1155,7 +1178,7 @@
           : "No events") +
         "</p>" +
         '<div data-replay-tree data-tip="Agent tree" data-tip-detail="Agents active at this scrubber frame. Hover a node for status.">' +
-        renderTree(snap.roots) +
+        renderTree(snap.roots, treeEmptyText()) +
         "</div>" +
         "</div>";
 
@@ -1180,7 +1203,7 @@
               " · " +
               normalizeModel(next.event.model);
           }
-          if (treeEl) treeEl.innerHTML = renderTree(next.roots);
+          if (treeEl) treeEl.innerHTML = renderTree(next.roots, treeEmptyText());
           syncScrubbers();
         });
       }
@@ -1212,7 +1235,7 @@
     }
 
     function syncScrubbers() {
-      var events = activeEvents();
+      var events = replayEvents();
       var max = Math.max(0, events.length - 1);
       var metaText = (events.length ? replayIndex + 1 : 0) + " / " + events.length;
       var snap = buildTreeAt(events, replayIndex);
@@ -1225,7 +1248,7 @@
           " · " +
           normalizeModel(snap.event.model)
         : "No events";
-      var treeHtml = renderTree(snap.roots);
+      var treeHtml = renderTree(snap.roots, treeEmptyText());
       replayHosts().forEach(function (host) {
         host.querySelectorAll("[data-scrubber]").forEach(function (s) {
           s.max = String(max);
@@ -1266,7 +1289,7 @@
     }
 
     function playTransport() {
-      var events = activeEvents();
+      var events = replayEvents();
       if (!events.length) return;
       transportPlaying = true;
       clearTransportTimer();
@@ -1275,7 +1298,7 @@
       var baseMs = 900;
       var tick = Math.max(120, baseMs / Math.max(0.25, transportSpeed));
       transportTimer = setInterval(function () {
-        var max = Math.max(0, activeEvents().length - 1);
+        var max = Math.max(0, replayEvents().length - 1);
         if (replayIndex >= max) {
           pauseTransport();
           return;
@@ -1301,7 +1324,7 @@
 
     function setReplayIndex(i, opts) {
       opts = opts || {};
-      var events = activeEvents();
+      var events = replayEvents();
       var max = Math.max(0, events.length - 1);
       var next = Math.max(0, Math.min(max, Number(i) || 0));
       var changed = next !== replayIndex;
@@ -1353,7 +1376,7 @@
           return replayIndex;
         },
         getEvents: function () {
-          return activeEvents().slice();
+          return replayEvents().slice();
         }
       };
     }
@@ -1363,7 +1386,7 @@
         playing: transportPlaying,
         speed: transportSpeed,
         index: replayIndex,
-        count: activeEvents().length
+        count: replayEvents().length
       };
     }
 
@@ -1496,6 +1519,27 @@
       }
     }
 
+    /**
+     * Show a Claude Code session in the replay (events are copied; null drops it and the replay
+     * follows the loaded history again). Replay only: forecast, suggestions and what-if keep
+     * reading the history. The "session" notification does not drive the stage while Live owns it (app.js decides).
+     */
+    function setReplayEvents(events) {
+      pauseTransport();
+      replayIndex = 0;
+      replayOverride = Array.isArray(events) ? events.slice() : null;
+      renderReplay();
+      if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
+      if (replayOverride && replayOverride.length) notifyReplayIndex("session");
+    }
+
+    /** Wording for an empty replay tree (a string), or null for the Cursor wording. */
+    function setReplayEmptyText(text) {
+      replayEmptyText = typeof text === "string" && text ? text : null;
+      renderReplay();
+      if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
+    }
+
     function focusLatestSession(hint) {
       return load({ preferLatest: true, latestSessionId: hint || "" });
     }
@@ -1534,6 +1578,8 @@
       },
       reload: load,
       focusLatestSession: focusLatestSession,
+      setReplayEvents: setReplayEvents,
+      setReplayEmptyText: setReplayEmptyText,
       onReady: onReady,
       setDemoMode: setDemoMode,
       showTab: showTab,
