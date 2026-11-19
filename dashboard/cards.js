@@ -833,6 +833,71 @@
     if (opts.mode === "demo" && dailyMode === "demo") applyDemoFixtures();
   }
 
+  /**
+   * What a History replay overwrites on the cards: each status line and class, avatar
+   * expression, active lit state, privacy level, the role-started clock the timing path
+   * uses, and today's counters (Runs, tokens, fastest) that a replay's subagent rows can
+   * raise. A copy: later changes to the cards do not reach it.
+   */
+  function snapshot() {
+    ensureDay();
+    var roles = {};
+    ROLE_KEYS.forEach(function (role) {
+      var st = statusEls[role];
+      roles[role] = {
+        statusHtml: st ? st.innerHTML : null,
+        statusClass: st ? st.className : null,
+        avatar: avatarState[role] || null,
+        active: !!(cards[role] && cards[role].classList.contains("active")),
+        privacy: privacyLevel[role] || "none"
+      };
+    });
+    var day = dayStats;
+    return {
+      roles: roles,
+      roleActiveStarted: Object.assign({}, day.roleActiveStarted),
+      day: {
+        runs: day.runs,
+        tokens: day.tokens,
+        fastestAgent: day.fastestAgent,
+        fastestMs: day.fastestMs,
+        roleTokens: Object.assign({}, day.roleTokens)
+      }
+    };
+  }
+
+  /** Put a snapshot() back. Safe to call more than once with the same snapshot. */
+  function restore(snap) {
+    if (!snap || !snap.roles) return;
+    ensureDay();
+    ROLE_KEYS.forEach(function (role) {
+      var s = snap.roles[role];
+      if (!s) return;
+      var st = statusEls[role];
+      if (st && s.statusHtml !== null) {
+        st.className = s.statusClass;
+        st.innerHTML = s.statusHtml;
+        syncStatusTip(role, (st.textContent || "").trim());
+      }
+      if (cards[role]) cards[role].classList.toggle("active", !!s.active);
+      if (s.avatar) setAvatarState(role, s.avatar);
+      privacyLevel[role] = s.privacy;
+      if (privacyEls[role]) applyPrivacyChrome(privacyEls[role], s.privacy);
+    });
+    /* Today's counters too: a replay raises Runs through its subagent rows, and only a
+       restored base keeps that number from sticking for the rest of the day. */
+    var day = snap.day;
+    if (day) {
+      dayStats.runs = Math.max(0, Number(day.runs) || 0);
+      dayStats.tokens = Math.max(0, Number(day.tokens) || 0);
+      dayStats.fastestAgent = day.fastestAgent || null;
+      dayStats.fastestMs = typeof day.fastestMs === "number" ? day.fastestMs : null;
+      dayStats.roleTokens = Object.assign({}, day.roleTokens);
+    }
+    dayStats.roleActiveStarted = Object.assign({}, snap.roleActiveStarted);
+    renderDailyStats();
+  }
+
   /** Re-decorate role-dependent tips after RoleProfiles.apply(). Same output as init. */
   function refreshRoleTips() {
     decorateAllTips();
@@ -892,6 +957,8 @@
     renderDailyStats: renderDailyStats,
     applyDemoFixtures: applyDemoFixtures,
     reset: reset,
+    snapshot: snapshot,
+    restore: restore,
     getDailyMode: function () {
       return dailyMode;
     },

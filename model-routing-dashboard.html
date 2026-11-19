@@ -1050,6 +1050,21 @@
             History
           </summary>
           <div class="drawer-body">
+            <div class="claude-history" id="claudeHistoryHost" hidden>
+              <label
+                class="claude-history-label"
+                data-tip="Claude Code sessions"
+                data-tip-detail="Older sessions of this project from the last 14 days. Replay only; Insights charts do not read them."
+              >
+                Session
+                <select
+                  class="claude-history-session"
+                  id="claudeHistorySession"
+                  aria-label="Claude Code session"
+                ></select>
+              </label>
+              <p class="claude-history-status" id="claudeHistoryStatus" role="status"></p>
+            </div>
             <p
               class="history-hint"
               id="historyHint"
@@ -1087,6 +1102,8 @@
     <script src="dashboard/role-profiles.js"></script>
     <script src="dashboard/alerts.js"></script>
     <script src="dashboard/insights.js"></script>
+    <script src="dashboard/claude-history.js"></script>
+    <script src="dashboard/claude-replay-guard.js"></script>
     <script src="dashboard/replay-stage.js"></script>
     <script src="dashboard/sound.js"></script>
     <script src="dashboard/error-sound.js"></script>

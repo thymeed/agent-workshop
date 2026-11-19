@@ -188,6 +188,37 @@ async function smokeDemoFile(browser) {
   });
   if (!replaySeekOk) errors.push("replaySeek did not drive stage HUD active role");
 
+  /* A replay that takes the stage cuts off the Live role that was lit. That cut-off is not a
+     finished run: it must not become today's fastest (Cursor replay start; Claude Code has its
+     own check in claude-history-smoke). */
+  const replayStartFastest = await page.evaluate(() => {
+    const t = window.__cursorAgentsDashTest;
+    const start = (i) => ({
+      ts: "2026-10-09T14:00:0" + i + ".000Z",
+      sessionId: "smoke-fastest",
+      agentId: "agent-" + i,
+      parentId: null,
+      name: "Parent",
+      model: "opus",
+      type: "spawn",
+      inputTokens: 0,
+      outputTokens: 0,
+      files: []
+    });
+    const was = t.getDailyStats().fastestAgent;
+    t.applyLiveEvent({ role: "worker", active: ["worker"], message: "live work" });
+    t.setViewMode("history");
+    t.replaySeek([start(0), start(1)], 1, "play-start");
+    const now = t.getDailyStats().fastestAgent;
+    t.setViewMode("stage");
+    return { was, now };
+  });
+  if (replayStartFastest.now !== replayStartFastest.was) {
+    errors.push(
+      "replay start recorded a Live cut-off as fastest: " + JSON.stringify(replayStartFastest)
+    );
+  }
+
   const costBefore = (await page.textContent("#hudSessionCost")) || "";
 
   await page.click("#demoBtn");

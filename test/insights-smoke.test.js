@@ -447,6 +447,101 @@ async function assertInsightsUi(page, label, errors) {
     );
   });
   if (!analyzeOk) errors.push(label + ": analyze.forecast/costFor failed");
+
+  /* Claude Code replay events (setReplayEvents) feed the replay only, never forecast,
+     suggestions or what-if (owner decision). Session change re-renders all three panels. */
+  const replayOnly = await page.evaluate(() => {
+    const h = window.__insightsHandle;
+    const select = document.querySelector(".insights-session");
+    const rerender = () => select.dispatchEvent(new Event("change", { bubbles: true }));
+    const snap = () =>
+      ["forecast", "suggestions", "whatif"]
+        .map((p) => document.querySelector('[data-panel="' + p + '"]').innerHTML)
+        .join("|#|");
+    const ctl = h.getReplayController();
+    rerender();
+    const base = snap();
+    const baseCount = ctl.getEvents().length;
+    const baseIds = JSON.stringify(ctl.getEvents().map((e) => e.agentId));
+    const claude = [0, 1, 2].map((i) => ({
+      ts: "09:0" + i + ":00",
+      iso: "2026-11-18T09:0" + i + ":00.000Z",
+      replay: true,
+      agentId: "session",
+      name: "parent",
+      model: "claude-opus-4-1",
+      parentId: null,
+      type: "message",
+      inputTokens: 9000000,
+      outputTokens: 9000000,
+      files: []
+    }));
+    h.setReplayEvents(claude);
+    rerender();
+    const during = {
+      same: snap() === base,
+      count: h.getTransportState().count,
+      listed: ctl.getEvents().length,
+      first: ctl.getEvents()[0] && ctl.getEvents()[0].agentId
+    };
+    h.setReplayEvents(null);
+    rerender();
+    return {
+      baseCount,
+      during,
+      restoredCount: h.getTransportState().count,
+      restoredSame: JSON.stringify(ctl.getEvents().map((e) => e.agentId)) === baseIds,
+      panelsSame: snap() === base
+    };
+  });
+  if (!replayOnly.during.same)
+    errors.push(label + ": Claude replay events changed forecast, suggestions or what-if");
+  if (
+    replayOnly.during.count !== 3 ||
+    replayOnly.during.listed !== 3 ||
+    replayOnly.during.first !== "session"
+  )
+    errors.push(
+      label + ": replay did not show the Claude events: " + JSON.stringify(replayOnly.during)
+    );
+  if (replayOnly.baseCount === 3)
+    errors.push(label + ": replay test needs a history that is not 3 events");
+  if (
+    replayOnly.restoredCount !== replayOnly.baseCount ||
+    !replayOnly.restoredSame ||
+    !replayOnly.panelsSame
+  )
+    errors.push(label + ": setReplayEvents(null) did not restore the history replay");
+
+  /* Claude Code wording: no Cursor copy in an empty tree while the Claude picker owns the sheet.
+     A second panel whose history is empty (fetch stubbed for its load). */
+  const emptyCopy = await page.evaluate(async () => {
+    const mount = document.createElement("div");
+    document.body.appendChild(mount);
+    const realFetch = window.fetch;
+    window.fetch = async () => ({ ok: true, json: async () => ({ events: [] }) });
+    const h = window.Insights.init(mount, { demo: false });
+    await new Promise((r) => h.onReady(r));
+    window.fetch = realFetch;
+    const host = () => (mount.querySelector("[data-tree-empty]") || {}).textContent || "";
+    const cursor = host();
+    h.setReplayEmptyText("Choose a session above to replay it.");
+    const claudeIdle = host();
+    h.setReplayEvents([]);
+    const claudeLoaded = host();
+    h.setReplayEvents(null);
+    h.setReplayEmptyText(null);
+    const back = host();
+    h.destroy();
+    mount.remove();
+    return { cursor, claudeIdle, claudeLoaded, back };
+  });
+  if (!/Spawn a subagent in Cursor/.test(emptyCopy.cursor + emptyCopy.back))
+    errors.push(label + ": Cursor copy lost: " + JSON.stringify(emptyCopy));
+  if (/cursor/i.test(emptyCopy.claudeIdle) || !/Choose a session/.test(emptyCopy.claudeIdle))
+    errors.push(label + ": idle Claude picker copy: " + emptyCopy.claudeIdle);
+  if (/cursor/i.test(emptyCopy.claudeLoaded) || !/Nothing to show/.test(emptyCopy.claudeLoaded))
+    errors.push(label + ": empty Claude session copy: " + emptyCopy.claudeLoaded);
 }
 
 async function smokeFile(browser) {

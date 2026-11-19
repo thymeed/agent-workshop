@@ -87,6 +87,26 @@ async function main() {
           snoozeKey: typeof T.snoozeKey === "string" && T.snoozeKey.length > 0,
           mapHistoryEvent: typeof RS.mapHistoryEvent === "function"
         },
+        /* A replay overwrites today's counters through the cards; restore must put them back. */
+        dailySnapshot: (() => {
+          const AC = window.AgentCards;
+          const read = () => {
+            const d = AC.getDailyStats();
+            return {
+              runs: d.runs,
+              tokens: d.tokens,
+              fastestAgent: d.fastestAgent,
+              fastestMs: d.fastestMs
+            };
+          };
+          const base = read();
+          const snap = AC.snapshot();
+          AC.recordRun({ agent: "worker", tokens: 7, durationMs: 120 });
+          AC.recordRun({ agent: "worker", tokens: 3, durationMs: 90 });
+          const after = read();
+          AC.restore(snap);
+          return { base, after, back: read() };
+        })(),
         reconnect: (() => {
           const delays = [0, 1, 2, 3, 4, 5, 6, 10].map((n) => T.reconnectDelayMs(n));
           const state = T.reconnectState();
@@ -445,6 +465,17 @@ async function main() {
     assert.ok(data.invariants.disclaimer, "estimates disclaimer must be present");
     assert.ok(data.invariants.snoozeKey, "snooze storage key must be present");
     assert.ok(data.invariants.mapHistoryEvent, "ReplayStage.mapHistoryEvent must be exported");
+
+    /* Today's counters: a replay's subagent rows raise Runs, so restore must put it back. */
+    const ds = data.dailySnapshot;
+    assert.strictEqual(ds.after.runs, ds.base.runs + 2, "recordRun must raise today's Runs");
+    assert.strictEqual(ds.after.tokens, ds.base.tokens + 10, "recordRun must add today's tokens");
+    assert.strictEqual(ds.after.fastestMs, 90, "recordRun must record the fastest run");
+    assert.deepStrictEqual(
+      ds.back,
+      ds.base,
+      "cards.restore must put today's Runs, tokens and fastest back"
+    );
 
     /* SSE auto-reconnect policy: doubling backoff, hard cap, bounded attempts. */
     assert.deepStrictEqual(

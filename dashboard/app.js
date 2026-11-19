@@ -145,6 +145,9 @@
   var viewHistoryBtn = document.getElementById("viewHistory");
   var toastTimer = null;
   var replaySessionActive = false;
+  /* Claude Code replay guard (dashboard/claude-replay-guard.js): the Live state a replay
+     overwrites, and the Live rows that arrive meanwhile. Created next to the stage code below. */
+  var replayGuard = null;
   var lastReplayIndex = -1;
   var ReplayStage = window.ReplayStage || null;
 
@@ -185,6 +188,7 @@
 
   var mode = "demo"; /* demo | live */
   var insightsPanel = null;
+  var claudeHistory = null; /* Claude Code older sessions in the History sheet (created below) */
 
   /* Insights sheet. Mount inside #drawerInsights (not a stacked sibling under drawers). */
   if (window.Insights && typeof window.Insights.init === "function") {
@@ -219,6 +223,9 @@
   var liveConnectedSince = 0;
   /** True while SSE is draining the bridge's initial backlog (connect / reload / reconnect). */
   var liveSseBacklogReplay = false;
+  /* Live rows that arrive while a Claude replay owns the stage are applied without crates or
+     sound cues once the replay ends (they still count in the Bill, the log and today's stats). */
+  var quietLiveRows = false;
   var liveSseBacklogEndTimer = null;
   var LIVE_SSE_BACKLOG_QUIET_MS = 80;
   /** Live presence: file-origin | connecting | bridge-down | no-projects | quiet-healthy | streaming */
@@ -820,7 +827,11 @@
     timers = [];
   }
 
+  /* The roles last lit on the stage (a replay snapshot puts them back). */
+  var currentActiveRoles = [];
+
   function setActive(roles, opts) {
+    currentActiveRoles = (roles || []).slice();
     if (AgentCards && typeof AgentCards.setActive === "function") {
       AgentCards.setActive(roles || [], opts);
     } else {
@@ -1081,8 +1092,12 @@
     if (!ev) return;
     opts = opts || {};
     var isReplay = !!opts.replay;
-    /* History replay owns the stage. Ignore Live/Demo ingress until Stage resumes. */
-    if (replaySessionActive && !isReplay) return;
+    /* History replay owns the stage. Ignore Live/Demo ingress until Stage resumes; a Claude
+       Code replay keeps the rows (in order) and applies them when it ends. */
+    if (replaySessionActive && !isReplay) {
+      if (replayGuard) replayGuard.offer(ev);
+      return;
+    }
 
     var alreadySeen = false;
     if (!isReplay) {
@@ -1213,7 +1228,8 @@
     clearTimers();
     if (playing) stopDemo();
     stageDirector.reset();
-    setActive([]);
+    /* A Live role cut off by the replay is not a finished run: keep it out of today's fastest. */
+    setActive([], { skipTiming: true });
     setStatus("opus", '<span class="live">Replay · idle</span>');
     setStatus("advisor", '<span class="live">Quiet</span>');
     setStatus("worker", '<span class="live">Standby</span>');
@@ -1228,10 +1244,99 @@
     activity.resetLogEmpty("Replay session…");
   }
 
-  function endReplaySession() {
+  /**
+   * The only way a Claude Code replay stops owning the stage: pause the transport, hand the stage
+   * back, put the Live state it overwrote back and apply the Live rows that arrived meanwhile.
+   * opts.discard skips the restore when the stage is about to be rebuilt anyway (a new stream).
+   * Safe to call at any time: with no snapshot it only clears the replay flags.
+   */
+  function endClaudeReplay(opts) {
     if (insightsPanel && typeof insightsPanel.pause === "function") insightsPanel.pause();
     replaySessionActive = false;
     lastReplayIndex = -1;
+    if (replayGuard) replayGuard.end(opts);
+  }
+
+  function endReplaySession() {
+    endClaudeReplay();
+  }
+
+  /** The Live state a replay's reset is about to destroy (exactly what resetReplaySession clears). */
+  function captureLiveStage() {
+    return {
+      takenAt: Date.now(),
+      calls: state.calls,
+      subs: state.subs,
+      liveSubs: Object.assign({}, state.liveSubs),
+      advisorLast: advisorLastEl.textContent,
+      activeRoles: currentActiveRoles.slice(),
+      stickyActive: Object.assign({}, stickyActive),
+      lastLiveActive: lastLiveActive.slice(),
+      bill: bill.snapshot(),
+      activity: activity.snapshot(),
+      cards: AgentCards && typeof AgentCards.snapshot === "function" ? AgentCards.snapshot() : null
+    };
+  }
+
+  function restoreLiveStage(snap) {
+    stageDirector.reset();
+    state.liveSubs = Object.assign({}, snap.liveSubs);
+    bill.restore(snap.bill);
+    setCalls(snap.calls);
+    setSubs(snap.subs);
+    advisorLastEl.textContent = snap.advisorLast;
+    activity.restore(snap.activity);
+    var cardsSnap = snap.cards;
+    if (cardsSnap && cardsSnap.roleActiveStarted) {
+      /* The replay's own minutes must not count toward a role that was already lit when it
+         started, so its start moves forward by the time the replay owned the stage. */
+      var shift = Math.max(0, Date.now() - (Number(snap.takenAt) || Date.now()));
+      if (shift) {
+        var starts = Object.assign({}, cardsSnap.roleActiveStarted);
+        Object.keys(starts).forEach(function (key) {
+          starts[key] = Number(starts[key]) + shift;
+        });
+        cardsSnap = Object.assign({}, cardsSnap, { roleActiveStarted: starts });
+      }
+    }
+    if (AgentCards && typeof AgentCards.restore === "function") AgentCards.restore(cardsSnap);
+    currentActiveRoles = snap.activeRoles.slice();
+    stageDirector.setActiveRoles(currentActiveRoles);
+    stickyActive = Object.assign({}, snap.stickyActive);
+    lastLiveActive = snap.lastLiveActive.slice();
+    scheduleStickyExpiry();
+  }
+
+  /**
+   * A Live row that arrived during a replay. Real work, so it counts in today's stats like any
+   * live row, but quietly: the SSE backlog flag (no error sound, no ship celebration) plus
+   * skipTiming and skipMotion (no fastest timing, no route animation), and quietLiveRows keeps
+   * the crates and their sound cues off. Alerts are SSE alert events the replay never gated,
+   * so none are raised here.
+   */
+  function applyQueuedLiveRow(ev) {
+    if (mode !== "live") return;
+    var prev = liveSseBacklogReplay;
+    var prevQuiet = quietLiveRows;
+    liveSseBacklogReplay = true;
+    quietLiveRows = true;
+    try {
+      applyLiveEvent(ev, { skipTiming: true, skipMotion: true });
+    } finally {
+      liveSseBacklogReplay = prev;
+      quietLiveRows = prevQuiet;
+    }
+  }
+
+  if (window.ClaudeReplayGuard) {
+    replayGuard = window.ClaudeReplayGuard.create({
+      capture: captureLiveStage,
+      restore: restoreLiveStage,
+      applyQueued: applyQueuedLiveRow,
+      rebuild: function () {
+        if (mode === "live") startLive();
+      }
+    });
   }
 
   var replayStageApi = {
@@ -1245,6 +1350,7 @@
     /* Insights reloads history in the background on Stage/Insights. Only History view owns the stage. */
     if (view.getMode() !== "history") {
       replaySessionActive = false;
+      if (replayGuard) replayGuard.end();
       return;
     }
     var events = payload.events || [];
@@ -1255,8 +1361,14 @@
     if (source === "scrub") sound.play("scrub");
     if (playing) stopDemo();
     /* Live + session load (project pick / focusLatestSession): paint History frame but keep Live SSE. */
-    var liveSessionBrowse = mode === "live" && source === "session";
+    var claudeLive = mode === "live" && view.currentSource() === "claude-code";
+    /* Claude Code: choosing a session must not touch the Live stage, Bill or log (a frame would
+       reset them). Only a scrub or Play takes the stage; a new pick then repaints the replay. */
+    if (claudeLive && source === "session" && !(replayGuard && replayGuard.holding())) return;
+    var liveSessionBrowse = mode === "live" && source === "session" && !claudeLive;
     if (!liveSessionBrowse) replaySessionActive = true;
+    /* Keep the Live state the replay is about to overwrite (a second scrub keeps the first copy). */
+    if (claudeLive && events.length && replayGuard) replayGuard.take();
 
     if (source === "play" && index === lastReplayIndex + 1 && lastReplayIndex >= 0) {
       var stepEv = events[index];
@@ -1349,6 +1461,8 @@
   }
 
   function startLive() {
+    /* A new stream rebuilds the stage from the bridge: a held replay snapshot is useless. */
+    endClaudeReplay({ discard: true });
     stopLive();
     resetUI();
     liveHint.hidden = false;
@@ -1435,6 +1549,8 @@
     }
 
     function onReset(meta) {
+      /* The bridge rebuilds Live (reset + backlog): an ongoing Claude replay ends without restoring. */
+      if (replayGuard && replayGuard.holding()) endClaudeReplay({ discard: true });
       armLiveSseBacklogReplay();
       if (meta) {
         takeBridgeLabels(meta);
@@ -1544,9 +1660,16 @@
     stageDirector.reset();
   }
 
-  /** History is off only while Live reads Claude Code; Demo and Cursor keep it. */
+  /** History is available in Demo and in Live on both sources. */
   function syncHistoryAllowed() {
     view.syncHistoryAllowed(mode);
+    syncClaudeHistory();
+  }
+
+  /** Reload the Claude Code session list when the mode, source or project changed. */
+  function syncClaudeHistory() {
+    if (!claudeHistory) return;
+    claudeHistory.sync([mode, view.currentSource(), currentProjectId || ""].join("|"));
   }
 
   /** Role names follow the page: Claude Code labels only in Live on Claude Code. */
@@ -1556,6 +1679,7 @@
 
   function setMode(next) {
     if (next === mode && next === "live" && es) return;
+    endClaudeReplay({ discard: true });
     mode = next;
     modeDemo.classList.toggle("on", mode === "demo");
     modeLive.classList.toggle("on", mode === "live");
@@ -1596,6 +1720,8 @@
       if (!id || id === previousId) return;
       projects.selectProject(id).then(function (data) {
         if (!data || !data.ok) {
+          /* The pick changed nothing, so a running replay hands the stage back to this project. */
+          endClaudeReplay();
           if (previousId) projectPicker.value = previousId;
           else projectPicker.selectedIndex = 0;
           liveHint.hidden = false;
@@ -1608,8 +1734,9 @@
         projects.updateFooterProject();
         // Restart Live stream; SSE "reset" may be missed if the old EventSource closes first
         startLive();
-        // In Claude Code mode the view layer keeps History off and this lands on Stage.
-        setViewMode("history");
+        // Cursor opens History; Claude Code stays on the current view (History is a header tab).
+        view.navigateAfterProjectPick();
+        syncClaudeHistory();
         projects.onScopeChange(data, { navigateHistory: false });
       });
     });
@@ -1664,6 +1791,7 @@
       return AgentCards;
     },
     tipSpark: function (role) {
+      if (quietLiveRows) return;
       stageDirector.tipSpark(role);
     }
   });
@@ -1753,8 +1881,9 @@
       },
       onChanged: function () {
         // Same follow-up as a project pick: restart the stream on the new source.
-        // History is not opened: it is off in Claude Code mode. Only in Live: a switch that
+        // History is not opened by a switch. Only in Live: a switch that
         // finishes after the user went to Demo must not open a stream.
+        // startLive() discards a held replay snapshot, so a rebuild is the only outcome.
         if (mode === "live") {
           currentProjectLabel = null;
           currentProjectId = null;
@@ -1785,8 +1914,43 @@
     },
     getInsightsPanel: function () {
       return insightsPanel;
+    },
+    onHistoryOpen: function () {
+      if (claudeHistory) claudeHistory.onHistoryOpen();
+    },
+    onHistoryLeave: function () {
+      endClaudeReplay();
     }
   });
+
+  if (window.ClaudeHistory && document.getElementById("claudeHistoryHost")) {
+    claudeHistory = window.ClaudeHistory.create({
+      bridgeUrl: BRIDGE,
+      els: {
+        wrap: document.getElementById("claudeHistoryHost"),
+        select: document.getElementById("claudeHistorySession"),
+        status: document.getElementById("claudeHistoryStatus")
+      },
+      getMode: function () {
+        return mode;
+      },
+      getSource: function () {
+        return view.currentSource();
+      },
+      getPanel: function () {
+        return insightsPanel;
+      },
+      isHistoryOpen: function () {
+        return view.getMode() === "history";
+      },
+      /* The replay is dropped (Choose a session…, a project, source or mode change). */
+      onReplayDropped: function () {
+        endClaudeReplay();
+      }
+    });
+    syncClaudeHistory();
+    if (view.getMode() === "history") claudeHistory.onHistoryOpen();
+  }
 
   activity.init({
     sessionLog: sessionLog,
@@ -1812,6 +1976,7 @@
       }
     },
     spawnCrate: function (entry) {
+      if (quietLiveRows) return;
       stageDirector.spawnCrate(entry);
     }
   });
@@ -2026,6 +2191,9 @@
     },
     isReplaySessionActive: function () {
       return replaySessionActive;
+    },
+    replayGuardInfo: function () {
+      return replayGuard ? replayGuard.info() : null;
     },
     demoUsageTokenTotal: function () {
       return usageGrandTotal(state.usage);

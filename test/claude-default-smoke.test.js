@@ -2,7 +2,7 @@
  * First run on the Claude Code default: no stored source choice, a bridge started with no
  * Cursor folder and a planted Claude Code home with two projects. The page must follow the
  * bridge without any POST /api/source or /api/select: the chip reads Claude Code, History is
- * hidden, the picker shows the project the bridge selected (the newest), and that project's
+ * available, the picker shows the project the bridge selected (the newest), and that project's
  * rows reach the stage. The browser profile, the planted home and the event log live under
  * .scratch/ (never system temp).
  */
@@ -105,7 +105,7 @@ async function main() {
     });
     if (chip.chipHidden || chip.chipText !== "Claude Code")
       errors.push("chip: " + JSON.stringify(chip));
-    if (!chip.historyHidden) errors.push("History button is visible in Claude Code mode");
+    if (chip.historyHidden) errors.push("History button is hidden in Claude Code mode");
     if (chip.claudePressed !== "true") errors.push("Claude Code button is not pressed");
 
     // the newest project's rows reach the stage (replay rows fill the session log)

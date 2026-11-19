@@ -306,17 +306,72 @@ test("with no WorkshopSource the page source is claude-code, the default", () =>
   assert.equal(t.mod.currentSource(), "cursor", "a loaded switch is asked");
 });
 
-test("with no WorkshopSource, Live turns History off like Claude Code; Demo keeps it", () => {
+test("History is allowed in Demo and in Live on both sources, Claude Code included", () => {
   const t = load();
   t.init();
-  t.mod.syncHistoryAllowed("live");
-  assert.equal(t.el.viewHistoryBtn.hidden, true, "Live with the default source: History off");
-  t.mod.syncHistoryAllowed("demo");
-  assert.equal(t.el.viewHistoryBtn.hidden, false, "Demo: History on");
-  t.sandbox.window.WorkshopSource = { getSource: () => "cursor" };
-  t.mod.syncHistoryAllowed("live");
-  assert.equal(t.el.viewHistoryBtn.hidden, false, "Live reading Cursor: History on");
+  for (const mode of ["demo", "live"]) {
+    for (const source of [undefined, "cursor", "claude-code"]) {
+      t.sandbox.window.WorkshopSource = source ? { getSource: () => source } : undefined;
+      t.mod.syncHistoryAllowed(mode);
+      assert.equal(t.el.viewHistoryBtn.hidden, false, mode + " / " + source + ": button shown");
+    }
+  }
   t.sandbox.window.WorkshopSource = { getSource: () => "claude-code" };
   t.mod.syncHistoryAllowed("live");
-  assert.equal(t.el.viewHistoryBtn.hidden, true, "Live reading Claude Code: History off");
+  t.mod.setViewMode("history");
+  assert.equal(t.mod.getMode(), "history", "the header button opens History on Claude Code");
+});
+
+test("a stored History view is restored in Live on Claude Code", () => {
+  const t = load({ "cursorAgents.viewMode": "history" });
+  t.sandbox.window.WorkshopSource = { getSource: () => "claude-code" };
+  t.init();
+  t.mod.syncHistoryAllowed("live");
+  assert.equal(t.mod.getMode(), "history");
+});
+
+test("a project pick opens History on Cursor and stays put on Claude Code", () => {
+  const t = load();
+  t.init();
+  t.sandbox.window.WorkshopSource = { getSource: () => "cursor" };
+  assert.equal(t.mod.navigateAfterProjectPick(), true);
+  assert.equal(t.mod.getMode(), "history", "Cursor: a pick opens History");
+  t.mod.setViewMode("stage");
+  t.sandbox.window.WorkshopSource = { getSource: () => "claude-code" };
+  assert.equal(t.mod.navigateAfterProjectPick(), false);
+  assert.equal(t.mod.getMode(), "stage", "Claude Code: a pick stays on Stage");
+  t.mod.setViewMode("insights");
+  t.mod.navigateAfterProjectPick();
+  assert.equal(t.mod.getMode(), "insights", "Claude Code: a pick keeps the current view");
+  t.mod.setViewMode("history");
+  t.mod.navigateAfterProjectPick();
+  assert.equal(t.mod.getMode(), "history", "Claude Code: already on History stays there");
+});
+
+test("onHistoryOpen runs each time History is entered, and not for other views", () => {
+  let opened = 0;
+  const t = load();
+  t.init({ onHistoryOpen: () => (opened += 1) });
+  t.mod.setViewMode("insights");
+  t.mod.setViewMode("stage");
+  assert.equal(opened, 0);
+  t.mod.setViewMode("history");
+  assert.equal(opened, 1);
+  t.mod.setViewMode("stage");
+  t.mod.setViewMode("history");
+  assert.equal(opened, 2);
+});
+
+test("onHistoryLeave runs on every non-History view, never on History", () => {
+  let left = 0;
+  const t = load();
+  t.init({ onHistoryLeave: () => (left += 1) });
+  left = 0; // init itself lands on a view
+  t.mod.setViewMode("history");
+  assert.equal(left, 0, "entering History does not leave it");
+  t.mod.setViewMode("insights");
+  assert.equal(left, 1, "Insights leaves History");
+  t.mod.setViewMode("history");
+  t.mod.setViewMode("stage");
+  assert.equal(left, 2, "Stage leaves History");
 });

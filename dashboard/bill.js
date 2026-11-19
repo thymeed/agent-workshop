@@ -167,6 +167,19 @@
     render();
   }
 
+  /** A copy of the usage table and the demo baseline (later changes do not reach it). */
+  function snapshot() {
+    return { usage: JSON.parse(JSON.stringify(usage())), demoTotal: lastDemoUsageTotal };
+  }
+
+  /** Put a snapshot() back and repaint. The snapshot stays unchanged, so it can be reused. */
+  function restore(snap) {
+    if (!snap || !snap.usage) return;
+    d.state.usage = JSON.parse(JSON.stringify(snap.usage));
+    lastDemoUsageTotal = Number(snap.demoTotal) || 0;
+    render();
+  }
+
   /** Re-baseline the demo daily counter without touching the usage table. */
   function resetDemoTotal() {
     lastDemoUsageTotal = 0;
@@ -194,6 +207,8 @@
     setUsageSnapshot: setUsageSnapshot,
     replaceUsage: replaceUsage,
     resetUsage: resetUsage,
+    snapshot: snapshot,
+    restore: restore,
     resetDemoTotal: resetDemoTotal,
     syncDailyStats: syncDailyStats,
     setCalls: setCalls,

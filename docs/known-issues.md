@@ -104,6 +104,25 @@ Last reviewed: 2026-10-16 (post-audit of the Live transcript path).
   source, the Cursor profile in Cursor and in Demo. Item 34 below keeps its number
   so the items after it do not move.
 
+- **A reload with Claude Code stored replaced a stored History view with Stage.**
+  History was off on that source, so `dashboard/view-mode.js` moved the view to
+  Stage. History is now available on Claude Code (it lists the project's older
+  sessions for replay), so a stored History view is restored. Item 30 below keeps
+  its number.
+
+- **Choosing a Claude Code session wiped the Live stage, Bill and log.**
+  Loading a session into the History replay sent a "session" frame to the stage,
+  which reset the Live state, and leaving History never restored it. Choosing a
+  session now leaves the Live stage alone; only a scrub or Play takes the stage,
+  and the Live state it covered (Bill, log, stage calls and active roles, cards,
+  today's Runs, tokens and fastest) comes back when the replay ends, together with
+  the Live rows that arrived meanwhile, applied quietly and in order.
+
+- **A replay start recorded a cut-off Live role as today's fastest.**
+  Starting a replay (Cursor or Claude Code) while a Live role was lit ended that
+  role through the timing path, so its partial time could become "fastest". The
+  replay reset now skips timing.
+
 ## Open
 
 1. **A release asset that is renamed between runs accumulates rather than being
@@ -236,7 +255,7 @@ Claude Code source (known limits, found while building it; none of them is a cra
 
 29. **Two windows with different stored choices switch the bridge back and forth.** Each one reconciles the bridge to its own stored choice on every connect.
 
-30. **Reload with Claude Code stored replaces a stored History view with Stage.** History is off in that mode, so `dashboard/view-mode.js` moves the view to Stage.
+30. **Reload with Claude Code stored replaces a stored History view with Stage: fixed.** See the Fixed section.
 
 31. **The `app.js` hello, reset and onChanged call sites have only browser checks.** The source-switch module has unit tests; the call sites in `app.js` are covered only by the real-bridge browser checks.
 
@@ -251,6 +270,14 @@ Claude Code source (known limits, found while building it; none of them is a cra
 36. **The label salt folder has limits.** The salt now lives in its own config folder, not the event-log folder. On Windows it is protected only by the profile's folder permissions (no `icacls` call); on POSIX the folder is 0700 and the file 0600. On disks without hard links (FAT, exFAT, most SMB shares) two processes starting together on a first run can still end with different salts (see item 27). A migration from the old event-log folder copies and verifies the salt first, then deletes the old copy; if that delete fails (file in use, read-only folder) the old copy stays behind and keeps working as a leftover, and nothing tells the user. A valid salt already in the config folder wins, and the old copy is then deleted too. If the old copy cannot be looked at or read at start (a failed stat of the old folder, a failed real-path lookup, or a read that fails after the sharing-error retries), that run uses a per-process salt with the "Labels change after restart" note: nothing is published in the config folder and the old file is left alone (a valid salt already in the config folder is used instead, with no note), so the next start migrates it and ids return to what they were. The old folder counts only when it is provably a different folder from the config folder (device and inode, else real path: a case variant, symlink or junction does not), and the old salt file is never deleted when it is the same file as the new one; when that cannot be told, the delete is skipped. A lasting fault on the old copy (no permission on the file, a folder named like the salt file) never heals by itself: every start then uses a temporary salt with the note until the fault is fixed or a valid salt is already in the config folder. A missing old folder or file (ENOENT) is trusted as "nothing to migrate". Someone who ran earlier versions with two different `CURSOR_EVENT_LOG_DIR` folders had two salts; only one survives (the first migrated, or one already in the config folder), so the other folder's ids change once. Paths: `%LOCALAPPDATA%\cursor-agents-model-routing-config` (Windows), `~/Library/Application Support/cursor-agents-model-routing-config` (macOS), `$XDG_CONFIG_HOME/cursor-agents-model-routing-config` or `~/.config/cursor-agents-model-routing-config` (Linux; a relative `XDG_CONFIG_HOME` or home is ignored).
 
 37. **The salt lock still gives up on two cases.** The first read of `label-salt.bin`, before any lock is taken, gives a temporary salt with the "Labels change after restart" note on any error other than a missing file, so a sharing error there (another process replacing a corrupt file at that moment, Windows) is not retried. Separately, when a stale lock has to be broken, a hard-link attempt that fails with `EPERM`, `EACCES` or `EBUSY` is treated as a sharing error and waited out, never as "no hard links": a disk that reports one of those codes for every hard link keeps the stale lock, and each start waits the 3 s lock budget and then uses a temporary salt with the note until the lock is removed by hand. Disks that report another code (for example `ENOTSUP`) still use the direct removal. Also, if removing the temporary `.stale-` link made while breaking a stale lock fails, the link stays behind: the next start finds it, waits for it to age past the 10 s stale limit (longer than the 3 s lock budget) and that run uses a temporary salt with the note. Follow-up: give up on, or clear, that link sooner.
+
+38. **The Claude Code session list shows an event count only once a session is opened.** The list endpoint returns `events: null` (counting would mean reading every file), so a label shows local time and duration, and the count appears after the session is opened.
+
+39. **The Claude Code session list includes the session Live is tailing right now.** Replaying it shows rows Live also shows. Choosing it does not touch the stage until Play or a scrub.
+
+40. **A very long Claude Code replay can lose Live rows.** While a replay owns the stage the Live state is held as a snapshot and the Live rows that arrive are queued, up to 20,000; past that cap the queue is dropped and leaving the replay rebuilds Live from the bridge instead, which carries only its recent backlog (about 40 rows), so rows from the middle of a very long replay are lost. Queued rows are applied quietly: no crate, spark or error sound, ship celebration or fastest timing, but they count in today's stats, and a Live finish or error during a replay still alerts.
+
+41. **A crate in flight when a Claude Code replay starts does not come back.** Leaving the replay restores the stationary state (characters, active roles, calls, Bill, log, cards and today's counters) but not the transient crates, route tokens or sparks that the replay's own reset clears. One that was mid-flight is gone for good; the reset at the start would have removed it anyway.
 
 ## Verified as non-issues
 

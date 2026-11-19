@@ -134,8 +134,7 @@
   function setViewMode(mode, opts) {
     opts = opts || {};
     viewMode = normalizeViewMode(mode);
-    // History is off in Claude Code mode: every way in (header button, project pick, the
-    // stored session view) lands on Stage.
+    // While History is switched off (setHistoryAllowed(false)) every way in lands on Stage.
     if (viewMode === "history" && !historyAllowed) viewMode = "stage";
     var panel = d.getInsightsPanel();
     var reclaimFocus = focusIsInsideHiddenSheet(
@@ -191,11 +190,13 @@
         /* Do not auto-play. The user hits Play in the History transport. */
         if (typeof panel.pause === "function") panel.pause();
       }
+      if (typeof d.onHistoryOpen === "function") d.onHistoryOpen();
     }
 
     if (reclaimFocus) restoreViewFocus();
 
     if (viewMode !== "history" && panel && typeof panel.pause === "function") panel.pause();
+    if (viewMode !== "history" && typeof d.onHistoryLeave === "function") d.onHistoryLeave();
   }
 
   /** The data source the page shows; Claude Code (the default) when the switch script is absent. */
@@ -203,9 +204,23 @@
     return window.WorkshopSource ? window.WorkshopSource.getSource() : "claude-code";
   }
 
-  /** History is off only while Live reads Claude Code; Demo and Cursor keep it. */
-  function syncHistoryAllowed(mode) {
-    setHistoryAllowed(!(mode === "live" && currentSource() === "claude-code"));
+  /**
+   * History is available in Demo and in Live on either source (Cursor reads the event log,
+   * Claude Code lists its older sessions). `mode` is kept for the call sites.
+   */
+  function syncHistoryAllowed(_mode) {
+    setHistoryAllowed(true);
+  }
+
+  /**
+   * After a project pick: Cursor opens History (its picker reloads Insights onto the latest
+   * session); Claude Code stays where it is, History only opens from its header button.
+   * Returns true when History was requested.
+   */
+  function navigateAfterProjectPick() {
+    if (currentSource() === "claude-code") return false;
+    setViewMode("history");
+    return true;
   }
 
   /** Show or hide History. Turning it off while History is open returns to Stage. */
@@ -264,6 +279,7 @@
     setHistoryAllowed: setHistoryAllowed,
     currentSource: currentSource,
     syncHistoryAllowed: syncHistoryAllowed,
+    navigateAfterProjectPick: navigateAfterProjectPick,
     getMode: getMode,
     normalizeViewMode: normalizeViewMode,
     syncViewModeButtons: syncViewModeButtons,

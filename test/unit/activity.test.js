@@ -322,3 +322,113 @@ test("the no-projects empty log names the active source", () => {
   const cur = load({ ...base, getSource: () => "cursor" }).mod.emptyLogMessage();
   assert.match(cur, /No Cursor projects found · open a project in Cursor/);
 });
+
+/** A session log whose markup reflects its children, like a real element's innerHTML. */
+function serialLog() {
+  const el = {
+    tagName: "SECTION",
+    children: [],
+    _set: [],
+    scrollTop: 0,
+    scrollHeight: 99,
+    appendChild(child) {
+      child.parentNode = el;
+      el.children.push(child);
+      return child;
+    },
+    removeChild(child) {
+      el.children = el.children.filter((c) => c !== child);
+      child.parentNode = null;
+      return child;
+    }
+  };
+  Object.defineProperty(el, "innerHTML", {
+    get: () =>
+      el.children.map((c) => "<div>" + (c._html || c.textContent || "") + "</div>").join(""),
+    set: (v) => {
+      el._set.push(String(v));
+      el.children = [];
+    }
+  });
+  return el;
+}
+
+const paintedText = (host) => host.children.map((c) => c._html).join("");
+
+test("snapshot and restore: rows, log clock, filter and log markup come back; a snapshot is a copy", () => {
+  const log = serialLog();
+  const { mod, activityRead } = load({ sessionLog: log });
+  mod.append({ kind: "read", role: "worker", path: "a.txt" }, "t1");
+  mod.append({ kind: "read", role: "opus", path: "b.txt" }, "t2");
+  mod.appendLog("worker", "first", null, "t1");
+  mod.appendLog("parent", "second", null, "t2");
+  const snap = mod.snapshot();
+  const logAtSnap = log.innerHTML;
+  assert.match(logAtSnap, /first/);
+  /* what the replay does, then more activity */
+  mod.clear();
+  mod.resetLogEmpty("Replay session…");
+  mod.append({ kind: "edit", role: "worker", path: "replayed.js" }, "t9");
+  mod.appendLog("worker", "replayed", null, "t9");
+  assert.equal(mod.getItems().length, 1);
+  mod.restore(snap);
+  assert.deepEqual(
+    [...mod.getItems().map((a) => a.path)],
+    ["b.txt", "a.txt"],
+    "rows are back, newest first"
+  );
+  assert.equal(log._set.at(-1), logAtSnap, "the log markup is put back as it was");
+  assert.match(paintedText(activityRead), /a\.txt/);
+  assert.match(paintedText(activityRead), /b\.txt/);
+  /* a snapshot is a copy: changing the rows after it does not edit it */
+  mod.getItems()[0].path = "mutated";
+  mod.append({ kind: "read", role: "worker", path: "later.txt" }, "t3");
+  mod.restore(snap);
+  mod.restore(snap);
+  assert.deepEqual(
+    [...mod.getItems().map((a) => a.path)],
+    ["b.txt", "a.txt"],
+    "restoring twice is safe and the snapshot was not edited"
+  );
+  mod.restore(null);
+  assert.equal(mod.getItems().length, 2, "a missing snapshot is a no-op");
+});
+
+test("a row appended after a snapshot does not enter it", () => {
+  const { mod } = load({ sessionLog: serialLog() });
+  mod.append({ kind: "read", role: "worker", path: "a.txt" }, "t1");
+  const snap = mod.snapshot();
+  mod.append({ kind: "read", role: "opus", path: "after.txt" }, "t2");
+  mod.restore(snap);
+  assert.deepEqual(
+    [...mod.getItems().map((a) => a.path)],
+    ["a.txt"],
+    "the snapshot keeps the rows it was taken with"
+  );
+});
+
+test("the role filter comes back with the rows", () => {
+  const { mod, activityRead } = load({ sessionLog: serialLog() });
+  mod.append({ kind: "read", role: "worker", path: "a.txt" }, "t1");
+  mod.append({ kind: "read", role: "opus", path: "b.txt" }, "t2");
+  mod.setFilter("worker");
+  const snap = mod.snapshot();
+  mod.setFilter(null);
+  assert.match(paintedText(activityRead), /b\.txt/);
+  mod.restore(snap);
+  assert.doesNotMatch(paintedText(activityRead), /b\.txt/, "only the worker row is painted");
+  assert.match(paintedText(activityRead), /a\.txt/);
+});
+
+test("the log clock comes back: the next line is numbered as if the replay never ran", () => {
+  const log = serialLog();
+  const { mod } = load({ sessionLog: log });
+  mod.appendLog("worker", "one");
+  mod.appendLog("worker", "two");
+  const snap = mod.snapshot();
+  mod.resetSeq();
+  mod.appendLog("worker", "replayed");
+  mod.restore(snap);
+  mod.appendLog("worker", "three");
+  assert.match(log.children.at(-1)._html, /00:03/, "the third line, not the second");
+});
