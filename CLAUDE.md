@@ -20,6 +20,8 @@ Chrome: header **Stage | Insights | History** selects which **drawer sheet** own
 
 The per-file table lives in [docs/agent/key-files.md](docs/agent/key-files.md). Read it when you need to know which file owns a feature or which test pins it. Main entry points: `model-routing-dashboard.html` (markup), `dashboard/app.js` (Demo + Live client), `live-bridge.js` (bridge), `lib/claude-code-*.js` (Claude Code source), `electron/main.js` (desktop), `test/` (smoke + unit).
 
+Parser decisions (dedupe key, model rank, usage maximum, row ids vs raw ids) are in [docs/agent/parser-decisions.md](docs/agent/parser-decisions.md); read them before changing `lib/claude-code-parse.js`.
+
 ## How to run
 
 **Desktop (primary):**
