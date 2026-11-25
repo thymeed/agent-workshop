@@ -126,21 +126,21 @@ async function main() {
   const transcriptsDir = mkTmp("history-api-transcripts-");
   const alerts = [];
 
-  await startBridge({
-    port,
-    quiet: true,
-    eventLogDir: logDir,
-    projectsRoot,
-    dir: transcriptsDir,
-    onAgentAlert: (a) => alerts.push(a)
-  });
-
   const errors = [];
   const origin = `http://127.0.0.1:${port}`;
   const baseHeaders = { Host: `127.0.0.1:${port}` };
 
   let cleanupErr;
   try {
+    await startBridge({
+      port,
+      quiet: true,
+      eventLogDir: logDir,
+      projectsRoot,
+      dir: transcriptsDir,
+      onAgentAlert: (a) => alerts.push(a)
+    });
+
     // Seed via internal record path by writing through the running log API after append:
     // Use require of event-log with same dir. Bridge already created log there.
     const { createEventLog } = require("../lib/event-log");

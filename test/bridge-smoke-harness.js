@@ -48,22 +48,31 @@ async function startBridgeForSmoke(opts) {
   return { ...info, port, transcriptsDir: tempDir, eventLogDir };
 }
 
+/**
+ * Never rejects: callers run it inside their own finally, and a throw there would replace their
+ * test error. A failed stop or cleanup is printed and fails the run through the exit code, and the
+ * temp folders are removed either way.
+ */
 async function stopBridgeForSmoke() {
   try {
     resetWatchState();
   } catch (_) {
     /* ignore */
   }
-  await stopBridge();
-  const all = [];
-  while (tempEventLogDirs.length) all.push(tempEventLogDirs.pop());
-  while (tempDirs.length) all.push(tempDirs.pop());
-  // Callers run this inside their own finally: a throw here would replace their test error, so
-  // report the failure and fail the run through the exit code instead.
-  const err = rmTmpAll(all);
-  if (err) {
-    console.error("smoke cleanup failed: " + (err && err.message ? err.message : err));
+  try {
+    await stopBridge();
+  } catch (e) {
+    console.error("smoke stop failed: " + (e && e.message ? e.message : e));
     process.exitCode = 1;
+  } finally {
+    const all = [];
+    while (tempEventLogDirs.length) all.push(tempEventLogDirs.pop());
+    while (tempDirs.length) all.push(tempDirs.pop());
+    const err = rmTmpAll(all);
+    if (err) {
+      console.error("smoke cleanup failed: " + (err && err.message ? err.message : err));
+      process.exitCode = 1;
+    }
   }
 }
 

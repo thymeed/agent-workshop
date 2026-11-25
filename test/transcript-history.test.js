@@ -322,6 +322,9 @@ function seedParentTranscriptForWarmTail(parentFile, lineCount) {
 
 async function testRestartDedupeAndTimestamps() {
   const { root, parent } = tmpTranscripts();
+  // Test hook for test/unit/transcript-history-cleanup.test.js: inert unless the env var is set.
+  if (process.env.TRANSCRIPT_HISTORY_PLANT_THROW === "1")
+    throw new Error("planted throw after tmpTranscripts");
   const tsWarm = new Date(Date.now() - 5000).toISOString();
   const tsNew = new Date().toISOString();
   appendLine(parent, line("user", "<user_query>hello</user_query>", { timestamp: tsWarm }));
