@@ -5,9 +5,8 @@
 
 process.env.BRIDGE_TEST = "1";
 
-const fs = require("fs");
 const net = require("net");
-const os = require("os");
+const { mkTmp, rmTmpAll } = require("./helpers/tmp");
 const path = require("path");
 const { startBridge, stopBridge } = require("../live-bridge.js");
 
@@ -39,8 +38,8 @@ function expectStartBridgeThrows(opts, fragment) {
 }
 
 function isolatedOpts() {
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-guard-log-"));
-  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-guard-projects-"));
+  const logDir = mkTmp("bridge-guard-log-");
+  const projectsRoot = mkTmp("bridge-guard-projects-");
   return { logDir, projectsRoot };
 }
 
@@ -54,7 +53,7 @@ async function main() {
 
   expectStartBridgeThrows({ projectsRoot, eventLogDir: logDir }, "explicit nonzero port");
 
-  const envLogDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-guard-env-log-"));
+  const envLogDir = mkTmp("bridge-guard-env-log-");
   const envLogFile = path.join(envLogDir, "must-not-use.jsonl");
   const prevEventLog = process.env.CURSOR_EVENT_LOG;
   const prevEventLogDir = process.env.CURSOR_EVENT_LOG_DIR;
@@ -62,6 +61,7 @@ async function main() {
   process.env.CURSOR_EVENT_LOG_DIR = envLogDir;
 
   let bridgeStarted = false;
+  let cleanupErr;
   try {
     const info = await startBridge({
       port,
@@ -80,19 +80,20 @@ async function main() {
       throw new Error("event log path must be under explicit eventLogDir, got " + bridgeLog);
     }
   } finally {
-    if (bridgeStarted) await stopBridge();
+    let stopErr;
+    try {
+      if (bridgeStarted) await stopBridge();
+    } catch (e) {
+      stopErr = e;
+    }
     if (prevEventLog === undefined) delete process.env.CURSOR_EVENT_LOG;
     else process.env.CURSOR_EVENT_LOG = prevEventLog;
     if (prevEventLogDir === undefined) delete process.env.CURSOR_EVENT_LOG_DIR;
     else process.env.CURSOR_EVENT_LOG_DIR = prevEventLogDir;
-    for (const dir of [logDir, projectsRoot, envLogDir]) {
-      try {
-        fs.rmSync(dir, { recursive: true, force: true });
-      } catch (_e) {
-        /* ignore */
-      }
-    }
+    const err = rmTmpAll([logDir, projectsRoot, envLogDir]);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 
   console.log("bridge-test-guard OK · BRIDGE_TEST isolation throws and eventLogDir precedence");
 }

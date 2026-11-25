@@ -8,7 +8,7 @@ process.env.BRIDGE_TEST = "1";
 const fs = require("fs");
 const http = require("http");
 const net = require("net");
-const os = require("os");
+const { mkTmp: mkTmpRaw, rmTmp, rmTmpAll } = require("./helpers/tmp");
 const path = require("path");
 const {
   startBridge,
@@ -34,12 +34,21 @@ function getFreePort() {
   });
 }
 
+// Every folder made here, removed in main() even when a test throws.
+const madeDirs = [];
+
+function mkTmp(prefix) {
+  const dir = mkTmpRaw(prefix);
+  madeDirs.push(dir);
+  return dir;
+}
+
 function assert(cond, msg) {
   if (!cond) throw new Error(msg || "assertion failed");
 }
 
 function tmpTranscripts() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-history-"));
+  const root = mkTmp("transcript-history-");
   const parent = path.join(root, "parent.jsonl");
   const subDir = path.join(root, "subagents");
   fs.mkdirSync(subDir, { recursive: true });
@@ -71,10 +80,9 @@ function line(role, text, extra) {
 
 async function withBridge(dir, fn, opts) {
   opts = opts || {};
-  const logDir = opts.logDir || fs.mkdtempSync(path.join(os.tmpdir(), "transcript-log-"));
+  const logDir = opts.logDir || mkTmp("transcript-log-");
   const ownedProjectsRoot = !opts.projectsRoot;
-  const projectsRoot =
-    opts.projectsRoot || fs.mkdtempSync(path.join(os.tmpdir(), "transcript-projects-"));
+  const projectsRoot = opts.projectsRoot || mkTmp("transcript-projects-");
   const alerts = [];
   const port = await getFreePort();
   await startBridge(
@@ -91,25 +99,23 @@ async function withBridge(dir, fn, opts) {
       opts
     )
   );
+  let cleanupErr;
   try {
     await fn({ logDir, alerts, port });
   } finally {
-    await stopBridge();
-    if (!opts.keepLogDir) {
-      try {
-        fs.rmSync(logDir, { recursive: true, force: true });
-      } catch (_e) {
-        /* ignore */
-      }
+    let stopErr;
+    try {
+      await stopBridge();
+    } catch (e) {
+      stopErr = e;
     }
-    if (ownedProjectsRoot) {
-      try {
-        fs.rmSync(projectsRoot, { recursive: true, force: true });
-      } catch (_e) {
-        /* ignore */
-      }
-    }
+    const dirs = [];
+    if (!opts.keepLogDir) dirs.push(logDir);
+    if (ownedProjectsRoot) dirs.push(projectsRoot);
+    const err = rmTmpAll(dirs);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 function historyEvents(logDir) {
@@ -320,7 +326,8 @@ async function testRestartDedupeAndTimestamps() {
   const tsNew = new Date().toISOString();
   appendLine(parent, line("user", "<user_query>hello</user_query>", { timestamp: tsWarm }));
 
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-log-dedupe-"));
+  const logDir = mkTmp("transcript-log-dedupe-");
+  let cleanupErr;
   try {
     await withBridge(
       root,
@@ -350,10 +357,12 @@ async function testRestartDedupeAndTimestamps() {
       { logDir, keepLogDir: true }
     );
   } finally {
-    fs.rmSync(logDir, { recursive: true, force: true });
+    const err = rmTmpAll([logDir]);
+    cleanupErr = err;
   }
+  if (cleanupErr) throw cleanupErr;
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testKeywordFalsePositiveAndStructuredTerminal() {
@@ -401,7 +410,7 @@ async function testKeywordFalsePositiveAndStructuredTerminal() {
     assert(!alerts.some((a) => a.status === "error"), "no error alert on prose");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testOneAlertPerTerminalChange() {
@@ -423,7 +432,7 @@ async function testOneAlertPerTerminalChange() {
     assert(doneRows.length === 2, "both done rows may persist");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testNoPhantomParentStall() {
@@ -439,7 +448,7 @@ async function testNoPhantomParentStall() {
     assert(!alerts.some((a) => a.status === "stalled"), "parent must not stall-alert");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testNewFileReadFromOffsetZero() {
@@ -458,7 +467,7 @@ async function testNewFileReadFromOffsetZero() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testToolErrorNotTerminal() {
@@ -495,7 +504,7 @@ async function testToolErrorNotTerminal() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testStructuredTerminalErrorAlert() {
@@ -516,11 +525,11 @@ async function testStructuredTerminalErrorAlert() {
     assert(!alerts.some((a) => a.status === "finished"), "error terminal should not finish");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testResumedOldTranscriptBeyondScanLimit() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-many-"));
+  const root = mkTmp("transcript-many-");
   const now = Date.now() / 1000;
   const oldFile = path.join(root, "chat-040.jsonl");
   assert(TRANSCRIPT_SCAN_LIMIT === 40, "test assumes scan limit 40");
@@ -556,7 +565,7 @@ async function testResumedOldTranscriptBeyondScanLimit() {
     assert(!alerts.some((a) => a.status === "finished"), "no stale finished alert on resume");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testStartupWarmPushesLiveEvents() {
@@ -573,14 +582,14 @@ async function testStartupWarmPushesLiveEvents() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testProjectSwitchWarmPushesLiveEvents() {
   const stamp = String(Date.now());
   const idA = "cursor-warm-live-a-" + stamp;
   const idB = "cursor-warm-live-b-" + stamp;
-  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-projects-root-"));
+  const projectsRoot = mkTmp("cursor-projects-root-");
   const dirA = path.join(projectsRoot, idA, "agent-transcripts");
   const dirB = path.join(projectsRoot, idB, "agent-transcripts");
   fs.mkdirSync(dirA, { recursive: true });
@@ -591,9 +600,10 @@ async function testProjectSwitchWarmPushesLiveEvents() {
   seedParentTranscriptForWarmTail(parentB, 20);
 
   const port = await getFreePort();
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-project-switch-log-"));
+  const logDir = mkTmp("transcript-project-switch-log-");
   const prevProjectsRoot = process.env.CURSOR_PROJECTS_ROOT;
   process.env.CURSOR_PROJECTS_ROOT = projectsRoot;
+  let cleanupErr;
   try {
     await startBridge({ port, quiet: true, dir: dirA, eventLogDir: logDir });
     let live = transcriptLiveEvents(await fetchLiveEvents(port));
@@ -608,16 +618,22 @@ async function testProjectSwitchWarmPushesLiveEvents() {
     live = transcriptLiveEvents(await fetchLiveEvents(port));
     assert(live.length >= 2, "project switch must warm live feed, got " + live.length);
   } finally {
-    await stopBridge();
+    let stopErr;
+    try {
+      await stopBridge();
+    } catch (e) {
+      stopErr = e;
+    }
     if (prevProjectsRoot === undefined) delete process.env.CURSOR_PROJECTS_ROOT;
     else process.env.CURSOR_PROJECTS_ROOT = prevProjectsRoot;
-    fs.rmSync(logDir, { recursive: true, force: true });
-    fs.rmSync(projectsRoot, { recursive: true, force: true });
+    const err = rmTmpAll([logDir, projectsRoot]);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 async function testLatestSessionIdPrefersNewestNonEmptyTranscript() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-latest-session-"));
+  const root = mkTmp("transcript-latest-session-");
   const oldDir = path.join(root, "sess-old");
   const newDir = path.join(root, "sess-new");
   fs.mkdirSync(oldDir, { recursive: true });
@@ -635,11 +651,11 @@ async function testLatestSessionIdPrefersNewestNonEmptyTranscript() {
 
   const latest = latestSessionIdForTranscripts(root);
   assert(latest === "sess-new", "expected newest non-empty session, got " + latest);
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testResumedOldFileLargeAppendBeforeFirstPoll() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-resume-bulk-"));
+  const root = mkTmp("transcript-resume-bulk-");
   const now = Date.now() / 1000;
   const oldFile = path.join(root, "chat-040.jsonl");
   assert(TRANSCRIPT_SCAN_LIMIT === 40, "test assumes scan limit 40");
@@ -695,7 +711,7 @@ async function testResumedOldFileLargeAppendBeforeFirstPoll() {
     }
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 function appendBigUserLine(file, marker, padBytes) {
@@ -778,7 +794,7 @@ async function testResumedLargeFileNonAscii() {
     assert(!alerts.some((a) => a.status === "finished"), "warm final must not alert on resume");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testOversizedLineSkippedNoStall() {
@@ -840,7 +856,7 @@ async function testOversizedLineSkippedNoStall() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testChunkedReadCappedPerPoll() {
@@ -872,7 +888,7 @@ async function testChunkedReadCappedPerPoll() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testSubagentFinishedNotStalled() {
@@ -894,7 +910,7 @@ async function testSubagentFinishedNotStalled() {
     assert(!alerts.some((a) => a.status === "stalled"), "finished subagent must not stall");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testAlertBusSseAndApi() {
@@ -955,7 +971,7 @@ async function testAlertBusSseAndApi() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 /**
@@ -1003,7 +1019,7 @@ async function testSnoozeGatesDesktopToast() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 /** POST /api/snooze guard matrix, mirroring /api/select: POST-only, same-origin, header. */
@@ -1072,32 +1088,39 @@ async function testSnoozeRouteGuards() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function main() {
-  await testRestartDedupeAndTimestamps();
-  await testKeywordFalsePositiveAndStructuredTerminal();
-  await testOneAlertPerTerminalChange();
-  await testNoPhantomParentStall();
-  await testNewFileReadFromOffsetZero();
-  await testToolErrorNotTerminal();
-  await testStructuredTerminalErrorAlert();
-  await testStartupWarmPushesLiveEvents();
-  await testProjectSwitchWarmPushesLiveEvents();
-  await testLatestSessionIdPrefersNewestNonEmptyTranscript();
-  await testResumedOldTranscriptBeyondScanLimit();
-  await testResumedOldFileLargeAppendBeforeFirstPoll();
-  await testResumedLargeFileNonAscii();
-  await testOversizedLineSkippedNoStall();
-  await testChunkedReadCappedPerPoll();
-  await testSubagentFinishedNotStalled();
-  await testAlertBusSseAndApi();
-  await testSnoozeGatesDesktopToast();
-  await testSnoozeRouteGuards();
-  console.log(
-    "transcript-history tests OK · dedupe, timestamps, terminal signals, alerts, stall, alert bus, snooze"
-  );
+  let cleanupErr;
+  try {
+    await testRestartDedupeAndTimestamps();
+    await testKeywordFalsePositiveAndStructuredTerminal();
+    await testOneAlertPerTerminalChange();
+    await testNoPhantomParentStall();
+    await testNewFileReadFromOffsetZero();
+    await testToolErrorNotTerminal();
+    await testStructuredTerminalErrorAlert();
+    await testStartupWarmPushesLiveEvents();
+    await testProjectSwitchWarmPushesLiveEvents();
+    await testLatestSessionIdPrefersNewestNonEmptyTranscript();
+    await testResumedOldTranscriptBeyondScanLimit();
+    await testResumedOldFileLargeAppendBeforeFirstPoll();
+    await testResumedLargeFileNonAscii();
+    await testOversizedLineSkippedNoStall();
+    await testChunkedReadCappedPerPoll();
+    await testSubagentFinishedNotStalled();
+    await testAlertBusSseAndApi();
+    await testSnoozeGatesDesktopToast();
+    await testSnoozeRouteGuards();
+    console.log(
+      "transcript-history tests OK · dedupe, timestamps, terminal signals, alerts, stall, alert bus, snooze"
+    );
+  } finally {
+    const err = rmTmpAll(madeDirs);
+    cleanupErr = err;
+  }
+  if (cleanupErr) throw cleanupErr;
 }
 
 main().catch((err) => {

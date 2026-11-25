@@ -12,7 +12,7 @@
 
 const assert = require("assert");
 const fs = require("fs");
-const os = require("os");
+const { mkTmp, rmTmpAll } = require("./helpers/tmp");
 const path = require("path");
 const net = require("net");
 const http = require("http");
@@ -125,7 +125,7 @@ async function main() {
 
   const electronPath = require("electron");
   const port = await getFreePort();
-  const tmp = (label) => fs.mkdtempSync(path.join(os.tmpdir(), `electron-${label}-`));
+  const tmp = (label) => mkTmp(`electron-${label}-`);
   const projectsRoot = tmp("projects");
   const eventLogDir = tmp("log");
   const userData = tmp("userdata");
@@ -195,6 +195,8 @@ async function main() {
     exitSignals.push({ code, signal });
   });
 
+  let cleanupErr;
+  let skipped = false;
   try {
     const status = await waitForBridge(port, Date.now() + BOOT_TIMEOUT_MS);
 
@@ -206,55 +208,66 @@ async function main() {
         console.log(
           `electron smoke SKIPPED · electron exited ${code} before the bridge started (runner sandbox/deps)`
         );
-        return;
+        skipped = true;
       }
     }
 
-    assert.ok(
-      status,
-      `electron did not start the in-process bridge on port ${port}` +
-        (exitSignals.length ? ` (electron exited ${JSON.stringify(exitSignals[0])})` : "")
-    );
-    assert.strictEqual(status.ok, true, "bridge /api/status must report ok");
-    // a desktop start names no Cursor folder, so it reads Claude Code (and shows no Cursor path)
-    assert.strictEqual(status.source, "claude-code", "Electron starts on the Claude Code default");
-    assert.strictEqual(
-      status.transcripts,
-      undefined,
-      "Claude Code status carries no Cursor folder"
-    );
-    const listed = JSON.parse((await get(`http://127.0.0.1:${port}/api/projects`)).body);
-    // (on Windows the bridge also lists running WSL distros; that cannot be redirected from here)
-    assert.ok(
-      listed.projects.some((p) => p.label === "proj-demo"),
-      "Claude Code discovery read the isolated home"
-    );
-    const saltFile = path.join(saltDir, "label-salt.bin");
-    assert.ok(fs.existsSync(saltFile), "the salt landed in the fake home's config folder");
-    assert.strictEqual(fs.statSync(saltFile).size, 16, "the salt is 16 bytes");
-    assert.strictEqual(await postSource(port, "cursor"), 200, "switching to Cursor must work");
-    const cursorStatus = JSON.parse((await get(`http://127.0.0.1:${port}/api/status`)).body);
-    assert.strictEqual(cursorStatus.source, "cursor");
-    assert.strictEqual(
-      cursorStatus.transcripts,
-      path.join(projectsRoot, "_none", "agent-transcripts"),
-      "bridge must use the isolated projects root, not the real one"
-    );
+    if (!skipped) {
+      assert.ok(
+        status,
+        `electron did not start the in-process bridge on port ${port}` +
+          (exitSignals.length ? ` (electron exited ${JSON.stringify(exitSignals[0])})` : "")
+      );
+      assert.strictEqual(status.ok, true, "bridge /api/status must report ok");
+      // a desktop start names no Cursor folder, so it reads Claude Code (and shows no Cursor path)
+      assert.strictEqual(
+        status.source,
+        "claude-code",
+        "Electron starts on the Claude Code default"
+      );
+      assert.strictEqual(
+        status.transcripts,
+        undefined,
+        "Claude Code status carries no Cursor folder"
+      );
+      const listed = JSON.parse((await get(`http://127.0.0.1:${port}/api/projects`)).body);
+      // (on Windows the bridge also lists running WSL distros; that cannot be redirected from here)
+      assert.ok(
+        listed.projects.some((p) => p.label === "proj-demo"),
+        "Claude Code discovery read the isolated home"
+      );
+      const saltFile = path.join(saltDir, "label-salt.bin");
+      assert.ok(fs.existsSync(saltFile), "the salt landed in the fake home's config folder");
+      assert.strictEqual(fs.statSync(saltFile).size, 16, "the salt is 16 bytes");
+      assert.strictEqual(await postSource(port, "cursor"), 200, "switching to Cursor must work");
+      const cursorStatus = JSON.parse((await get(`http://127.0.0.1:${port}/api/status`)).body);
+      assert.strictEqual(cursorStatus.source, "cursor");
+      assert.strictEqual(
+        cursorStatus.transcripts,
+        path.join(projectsRoot, "_none", "agent-transcripts"),
+        "bridge must use the isolated projects root, not the real one"
+      );
 
-    const home = await get(`http://127.0.0.1:${port}/`);
-    assert.strictEqual(home.status, 200, `GET / under Electron: got ${home.status}`);
-    assert.ok(/<html/i.test(home.body), "GET / must return the dashboard HTML");
+      const home = await get(`http://127.0.0.1:${port}/`);
+      assert.strictEqual(home.status, 200, `GET / under Electron: got ${home.status}`);
+      assert.ok(/<html/i.test(home.body), "GET / must return the dashboard HTML");
 
-    assert.strictEqual(child.exitCode, null, "electron must still be running after serving");
+      assert.strictEqual(child.exitCode, null, "electron must still be running after serving");
 
-    console.log("electron smoke OK · in-process bridge up, dashboard served");
+      console.log("electron smoke OK · in-process bridge up, dashboard served");
+    }
   } finally {
     killTree(child);
     await sleep(800);
-    for (const d of [projectsRoot, eventLogDir, userData, fakeHome]) {
-      fs.rmSync(d, { recursive: true, force: true });
+    let err = rmTmpAll([projectsRoot, eventLogDir, userData]);
+    try {
+      fs.rmSync(fakeHome, { recursive: true, force: true });
+    } catch (e) {
+      if (err === undefined) err = e;
     }
+    cleanupErr = err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 main().catch((err) => {

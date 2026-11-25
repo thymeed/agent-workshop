@@ -4,6 +4,7 @@ process.env.BRIDGE_TEST = "1";
 
 const assert = require("assert");
 const net = require("net");
+const { mkTmp, rmTmpAll } = require("./helpers/tmp");
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -39,11 +40,10 @@ function testPathSegments() {
 
 async function testCrlfSnapshotResume() {
   const fs = require("fs");
-  const os = require("os");
   const path = require("path");
   const { startBridge, stopBridge, scanTranscripts } = require("../live-bridge.js");
 
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "crlf-resume-"));
+  const root = mkTmp("crlf-resume-");
   const parent = path.join(root, "parent.jsonl");
   const crlfLine =
     JSON.stringify({
@@ -61,8 +61,8 @@ async function testCrlfSnapshotResume() {
       message: { content: [{ type: "text", text: "<user_query>after resume</user_query>" }] }
     }) + "\r\n";
 
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "crlf-log-"));
-  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "crlf-projects-"));
+  const logDir = mkTmp("crlf-log-");
+  const projectsRoot = mkTmp("crlf-projects-");
   const { createEventLog } = require("../lib/event-log");
 
   const port = await getFreePort();
@@ -74,6 +74,7 @@ async function testCrlfSnapshotResume() {
     eventLogDir: logDir,
     reuseExisting: false
   });
+  let cleanupErr;
   try {
     scanTranscripts();
     fs.appendFileSync(parent, newLine, "utf8");
@@ -84,20 +85,24 @@ async function testCrlfSnapshotResume() {
       "CRLF file must record post-snapshot line"
     );
   } finally {
-    await stopBridge();
-    for (const dir of [root, logDir, projectsRoot]) {
-      fs.rmSync(dir, { recursive: true, force: true });
+    let stopErr;
+    try {
+      await stopBridge();
+    } catch (e) {
+      stopErr = e;
     }
+    const err = rmTmpAll([root, logDir, projectsRoot]);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 async function testSubagentIngestWithWindowsPath() {
   const fs = require("fs");
-  const os = require("os");
   const path = require("path");
   const { startBridge, stopBridge, scanTranscripts } = require("../live-bridge.js");
 
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "win-path-ingest-"));
+  const root = mkTmp("win-path-ingest-");
   const subDir = path.join(root, "subagents");
   fs.mkdirSync(subDir, { recursive: true });
   const subId = "dddddddd-eeee-ffff-0000-111111111111";
@@ -116,8 +121,8 @@ async function testSubagentIngestWithWindowsPath() {
   assert.strictEqual(isSubagentTranscriptPath(winStylePath), true);
   assert.strictEqual(subagentUuidFromTranscriptPath(winStylePath), subId);
 
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "win-path-log-"));
-  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "win-path-projects-"));
+  const logDir = mkTmp("win-path-log-");
+  const projectsRoot = mkTmp("win-path-projects-");
   const { createEventLog } = require("../lib/event-log");
 
   const port = await getFreePort();
@@ -129,6 +134,7 @@ async function testSubagentIngestWithWindowsPath() {
     eventLogDir: logDir,
     reuseExisting: false
   });
+  let cleanupErr;
   try {
     scanTranscripts();
     fs.appendFileSync(subFile, line("assistant", "<final>done</final>"), "utf8");
@@ -139,11 +145,16 @@ async function testSubagentIngestWithWindowsPath() {
       "post-snapshot subagent line must record history with subagent agentId"
     );
   } finally {
-    await stopBridge();
-    for (const dir of [root, logDir, projectsRoot]) {
-      fs.rmSync(dir, { recursive: true, force: true });
+    let stopErr;
+    try {
+      await stopBridge();
+    } catch (e) {
+      stopErr = e;
     }
+    const err = rmTmpAll([root, logDir, projectsRoot]);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 async function main() {

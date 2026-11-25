@@ -4,8 +4,7 @@ process.env.BRIDGE_TEST = "1";
 
 const fs = require("fs");
 const net = require("net");
-const os = require("os");
-const path = require("path");
+const { mkTmpAsync, rmTmpAll } = require("./helpers/tmp");
 const { startBridge, stopBridge, resetWatchState } = require("../live-bridge.js");
 
 const tempDirs = [];
@@ -29,12 +28,12 @@ function getFreePort() {
  */
 async function startBridgeForSmoke(opts) {
   opts = opts || {};
-  const projectsRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-projects-"));
-  const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-smoke-"));
+  const projectsRoot = await mkTmpAsync("cursor-agents-projects-");
+  const tempDir = await mkTmpAsync("cursor-agents-smoke-");
   await fs.promises.mkdir(tempDir, { recursive: true });
   tempDirs.push(projectsRoot);
   tempDirs.push(tempDir);
-  const eventLogDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-eventlog-"));
+  const eventLogDir = await mkTmpAsync("cursor-agents-eventlog-");
   tempEventLogDirs.push(eventLogDir);
   const port = opts.port != null ? opts.port : await getFreePort();
   const info = await startBridge({
@@ -56,13 +55,15 @@ async function stopBridgeForSmoke() {
     /* ignore */
   }
   await stopBridge();
-  while (tempEventLogDirs.length) {
-    const dir = tempEventLogDirs.pop();
-    await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
-  }
-  while (tempDirs.length) {
-    const dir = tempDirs.pop();
-    await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+  const all = [];
+  while (tempEventLogDirs.length) all.push(tempEventLogDirs.pop());
+  while (tempDirs.length) all.push(tempDirs.pop());
+  // Callers run this inside their own finally: a throw here would replace their test error, so
+  // report the failure and fail the run through the exit code instead.
+  const err = rmTmpAll(all);
+  if (err) {
+    console.error("smoke cleanup failed: " + (err && err.message ? err.message : err));
+    process.exitCode = 1;
   }
 }
 

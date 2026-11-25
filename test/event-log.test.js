@@ -4,7 +4,7 @@
 "use strict";
 
 const fs = require("fs");
-const os = require("os");
+const { mkTmp, rmTmpAll } = require("./helpers/tmp");
 const path = require("path");
 const {
   createEventLog,
@@ -20,8 +20,12 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg || "assertion failed");
 }
 
+const madeDirs = [];
+
 function tmpDir(label) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "event-log-" + label + "-"));
+  const dir = mkTmp("event-log-" + label + "-");
+  madeDirs.push(dir);
+  return dir;
 }
 
 function sampleEvent(overrides) {
@@ -499,16 +503,30 @@ function testSharedLogDirNotChmodded() {
 }
 
 async function main() {
-  testRedactionFormats();
-  testRedactionSignedUrls();
-  testPemFullBlockRedaction();
-  testContractShape();
-  testReplacePreservesLogOnWriteFailure();
-  testRetentionAndClear();
-  testExistingLogDirChmodOnStart();
-  testFilePermissions();
-  testSharedLogDirNotChmodded();
-  console.log("event-log tests OK · redaction, retention, clear, contract, permissions");
+  let cleanupErr;
+  try {
+    testRedactionFormats();
+    testRedactionSignedUrls();
+    testPemFullBlockRedaction();
+    testContractShape();
+    testReplacePreservesLogOnWriteFailure();
+    testRetentionAndClear();
+    testExistingLogDirChmodOnStart();
+    testFilePermissions();
+    testSharedLogDirNotChmodded();
+    console.log("event-log tests OK · redaction, retention, clear, contract, permissions");
+  } finally {
+    for (const d of madeDirs) {
+      try {
+        fs.chmodSync(d, 0o700);
+      } catch {
+        // already gone
+      }
+    }
+    const err = rmTmpAll(madeDirs);
+    cleanupErr = err;
+  }
+  if (cleanupErr) throw cleanupErr;
 }
 
 main().catch((err) => {

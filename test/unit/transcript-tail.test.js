@@ -4,18 +4,25 @@
 "use strict";
 
 const fs = require("fs");
-const os = require("os");
+const { mkTmp, rmTmpAll, tmpRoot } = require("../helpers/tmp");
 const path = require("path");
 const assert = require("node:assert/strict");
-const { test } = require("node:test");
+const { test, after } = require("node:test");
 
 const tail = require("../../lib/transcript-tail");
 
 const MAX = tail.TRANSCRIPT_READ_MAX_PER_POLL;
 const TRANSCRIPTS = path.join(__dirname, "..", "fixtures", "transcripts");
 
+const madeDirs = [];
+after(() => {
+  const err = rmTmpAll(madeDirs);
+  if (err) throw err;
+});
+
 function tmpFile(label, content) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-tail-" + label + "-"));
+  const dir = mkTmp("transcript-tail-" + label + "-");
+  madeDirs.push(dir);
   const file = path.join(dir, "transcript.jsonl");
   fs.writeFileSync(file, content);
   return file;
@@ -101,7 +108,7 @@ test("readBytesAtSync reads a fixed-size window at an offset", () => {
 });
 
 test("readBytesAtSync throws for a missing file", () => {
-  const missing = path.join(os.tmpdir(), "transcript-tail-absent-" + process.pid + ".jsonl");
+  const missing = path.join(tmpRoot(), "transcript-tail-absent-" + process.pid + ".jsonl");
   assert.throws(() => tail.readBytesAtSync(missing, 0, 16), { code: "ENOENT" });
 });
 
@@ -138,7 +145,7 @@ test("findNextNewlineOffset returns the offset just past the next newline", () =
 });
 
 test("findNextNewlineOffset returns -1 for a missing or newline-free file", () => {
-  const missing = path.join(os.tmpdir(), "transcript-tail-absent-" + process.pid + "-flat.jsonl");
+  const missing = path.join(tmpRoot(), "transcript-tail-absent-" + process.pid + "-flat.jsonl");
   assert.equal(tail.findNextNewlineOffset(missing, 0, 100), -1);
   const flat = tmpFile("flat", "abc");
   assert.equal(tail.findNextNewlineOffset(flat, 0, 3), -1);
