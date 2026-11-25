@@ -163,6 +163,58 @@ async function main() {
             AC.onModeChange("demo");
           }
         })(),
+        /* The role-clock shift in setReplaying(false): a role lit before a replay does not
+           pay for the replay's minutes. Fake clock, no sleeps. */
+        replayShift: (() => {
+          const AC = window.AgentCards;
+          const RealDate = window.Date;
+          let nowMs = new RealDate(2026, 10, 18, 12, 0, 0).getTime();
+          class FakeDate extends RealDate {
+            constructor(...args) {
+              if (args.length) super(...args);
+              else super(nowMs);
+            }
+            static now() {
+              return nowMs;
+            }
+          }
+          const MIN = 60000;
+          const out = {};
+          window.Date = FakeDate;
+          try {
+            AC.onModeChange("live");
+            /* a: a 5 minute replay moves the running clock forward by 5 minutes */
+            AC.setActive(["opus"]);
+            out.aBefore = AC.getRoleActiveStarted("opus");
+            AC.setReplaying(true);
+            nowMs += 5 * MIN;
+            AC.setReplaying(false);
+            out.aAfter = AC.getRoleActiveStarted("opus");
+            AC.setActive([]);
+            /* b: releasing with no replay held leaves the clock alone */
+            AC.setActive(["opus"]);
+            out.bBefore = AC.getRoleActiveStarted("opus");
+            nowMs += 5 * MIN;
+            AC.setReplaying(false);
+            out.bAfter = AC.getRoleActiveStarted("opus");
+            AC.setActive([]);
+            /* c: a second setReplaying(true) keeps the first timestamp */
+            AC.setActive(["opus"]);
+            out.cBefore = AC.getRoleActiveStarted("opus");
+            AC.setReplaying(true);
+            nowMs += 1 * MIN;
+            AC.setReplaying(true);
+            nowMs += 2 * MIN;
+            AC.setReplaying(false);
+            out.cAfter = AC.getRoleActiveStarted("opus");
+            AC.setActive([]);
+            return out;
+          } finally {
+            window.Date = RealDate;
+            AC.setReplaying(false);
+            AC.onModeChange("demo");
+          }
+        })(),
         reconnect: (() => {
           const delays = [0, 1, 2, 3, 4, 5, 6, 10].map((n) => T.reconnectDelayMs(n));
           const state = T.reconnectState();
@@ -556,6 +608,24 @@ async function main() {
       dr.afterMidnight,
       { runs: 0, tokens: 0, fastestAgent: null, fastestMs: null },
       "a replay across midnight must leave the new day at zero"
+    );
+
+    const rs = data.replayShift;
+    assert.ok(rs.aBefore > 0, "replay shift setup: opus has a running clock");
+    assert.strictEqual(
+      rs.aAfter,
+      rs.aBefore + 5 * 60000,
+      "releasing after a 5 minute replay must move the running role clock forward by 5 minutes"
+    );
+    assert.strictEqual(
+      rs.bAfter,
+      rs.bBefore,
+      "setReplaying(false) with no replay held must leave the role clock alone"
+    );
+    assert.strictEqual(
+      rs.cAfter,
+      rs.cBefore + 3 * 60000,
+      "a second setReplaying(true) must keep the first timestamp: the shift covers all 3 minutes"
     );
 
     /* SSE auto-reconnect policy: doubling backoff, hard cap, bounded attempts. */
