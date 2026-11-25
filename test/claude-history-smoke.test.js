@@ -125,6 +125,29 @@ function liveRoleStart(page, role) {
   return page.evaluate((r) => window.AgentCards.getRoleActiveStarted(r), role);
 }
 
+/** Today's counters as a replay must leave them. */
+function dayOf(x) {
+  return JSON.stringify({ runs: x.runs, tokens: x.dayTokens, fastest: x.fastest });
+}
+
+/** After the replay is gone, today's counters count again (a freeze left on would swallow this). */
+function countingResumed(page) {
+  return page.evaluate(() => {
+    const AC = window.AgentCards;
+    const t0 = AC.getDailyStats().tokens;
+    AC.addTokens(1);
+    return AC.getDailyStats().tokens === t0 + 1;
+  });
+}
+
+/** Scrub the open replay to its last event, so its subagent rows really run. */
+function seekLast(page, events) {
+  return page.evaluate(
+    (evs) => window.__cursorAgentsDashTest.replaySeek(evs, evs.length - 1, "scrub"),
+    events
+  );
+}
+
 const SAME_KEYS = [
   "tokens",
   "lines",
@@ -455,22 +478,22 @@ async function main() {
       );
     }
 
-    // ---- the replay reaches its three subagent files: today's Runs must come back down ----
+    // ---- the replay reaches its three subagent files: today's Runs must never move ----
     const runsBefore = back.runs;
     await page.click("#viewHistory");
     await waitList(page);
     await page.selectOption("#claudeHistorySession", opts[2].value);
     await play(page);
-    await page.evaluate(
-      (events) => window.__cursorAgentsDashTest.replaySeek(events, events.length - 1, "scrub"),
-      apiBody.events
-    );
+    await seekLast(page, apiBody.events);
     const withSubs = await sig(page);
     trace("replay at its last event", withSubs);
-    if (withSubs.runs <= runsBefore) {
+    if (!(withSubs.hudSubs !== back.hudSubs || withSubs.log !== back.log)) {
+      errors.push("the replay did not reach its subagent rows");
+    }
+    if (dayOf(withSubs) !== dayOf(back)) {
       errors.push(
-        "the replay did not raise today's Runs through its subagents: " +
-          JSON.stringify({ runsBefore, runs: withSubs.runs })
+        "a replay changed today's counters while it owned the stage: " +
+          JSON.stringify({ before: dayOf(back), during: dayOf(withSubs) })
       );
     }
     await page.click("#viewStage");
@@ -488,9 +511,14 @@ async function main() {
     await waitList(page);
     const s2 = await sig(page);
     await play(page);
+    await seekLast(page, apiBody.events);
+    if (dayOf(await sig(page)) !== dayOf(s2))
+      errors.push("Insights case: counters moved during the replay");
     await page.click("#viewInsights");
     const viaInsights = await sig(page);
     trace("after Insights", viaInsights);
+    if (dayOf(viaInsights) !== dayOf(s2))
+      errors.push("leaving for Insights left the replay's counters: " + dayOf(viaInsights));
     if (viaInsights.taken) errors.push("leaving History for Insights left the replay flag set");
     errors.push(...differ("Play then Insights", s2, viaInsights));
     await page.click("#viewStage");
@@ -524,6 +552,10 @@ async function main() {
       if (text.includes("/srv/")) errors.push(name + " carries a project path");
     }
     if (pageHtml.includes(SECRET_PROMPT)) errors.push("markup carries prompt text");
+    if (FORBIDDEN.test(pageHtml)) errors.push("markup carries a path-like or secret-like value");
+    if (/cs-[0-9a-f]{24}/.test(pageHtml.replace(/value="cs-[0-9a-f]{24}"/g, "")))
+      errors.push("markup carries an opaque session id outside option values");
+    if (pageHtml.includes("/srv/")) errors.push("markup carries a project path");
     if (opts.some((o) => /stale|\.jsonl/.test(o.text))) errors.push("a file name reached a label");
 
     // ---- a Live failure during Play: the alert arrives, no error sound for it, the row is there after ----
@@ -631,12 +663,22 @@ async function main() {
     trace("after failed pick", afterFail);
     if (afterFail.taken || afterFail.guard.holding)
       errors.push("a failed project pick left the replay on the stage");
+    if (afterFail.guard.restored !== preFail.guard.restored + 1)
+      errors.push(
+        "a failed pick must restore once: " +
+          JSON.stringify({ before: preFail.guard, after: afterFail.guard })
+      );
     errors.push(...differ("failed pick", liveBeforePick, afterFail));
     // a real pick
     await page.click("#viewHistory");
     await waitList(page);
     await page.selectOption("#claudeHistorySession", optsNow[1]);
+    const dayBeforePick = await sig(page);
     await play(page);
+    await seekLast(page, apiBody.events);
+    if (dayOf(await sig(page)) !== dayOf(dayBeforePick))
+      errors.push("pick case: counters moved during the replay");
+    const pickGuard0 = await page.evaluate(() => window.__cursorAgentsDashTest.replayGuardInfo());
     await page.selectOption("#projectPicker", { index: 1 });
     await page.waitForFunction(
       () => document.getElementById("footerProject").textContent === "proj-other",
@@ -653,6 +695,21 @@ async function main() {
     const picked2 = await sig(page);
     trace("after real pick", picked2);
     if (picked2.guard.holding) errors.push("a project pick left the snapshot held");
+    if (
+      picked2.guard.restored !== pickGuard0.restored ||
+      picked2.guard.applied !== pickGuard0.applied
+    )
+      errors.push(
+        "a successful pick restored the old Live instead of dropping it: " +
+          JSON.stringify({ before: pickGuard0, after: picked2.guard })
+      );
+    if (dayOf(picked2) !== dayOf(dayBeforePick))
+      errors.push(
+        "a project pick left the replay's counters: " +
+          JSON.stringify({ before: dayOf(dayBeforePick), after: dayOf(picked2) })
+      );
+    if (!(await countingResumed(page)))
+      errors.push("after a project pick today's counters stay frozen");
     if (/bulk-|during-|newer/.test(picked2.log))
       errors.push("the old Live leaked into the new project's stage");
     if (picked2.tokens >= before.tokens)
@@ -685,7 +742,11 @@ async function main() {
     await page.click("#viewHistory");
     await waitList(page);
     await page.selectOption("#claudeHistorySession", opts[2].value);
+    const dayBeforeSwitch = await sig(page);
     await play(page);
+    await seekLast(page, apiBody.events);
+    if (dayOf(await sig(page)) !== dayOf(dayBeforeSwitch))
+      errors.push("switch case: counters moved during the replay");
     await page.click("#sourceCursor", { force: true });
     await page.waitForFunction(
       () => document.getElementById("hudSourceValue").textContent === "Cursor",
@@ -698,6 +759,13 @@ async function main() {
     const onCursor = await sig(page);
     trace("after switch to Cursor", onCursor);
     if (onCursor.guard.holding) errors.push("a source switch left the snapshot held");
+    if (dayOf(onCursor) !== dayOf(dayBeforeSwitch))
+      errors.push(
+        "a source switch left the replay's counters: " +
+          JSON.stringify({ before: dayOf(dayBeforeSwitch), after: dayOf(onCursor) })
+      );
+    if (!(await countingResumed(page)))
+      errors.push("after a source switch today's counters stay frozen");
     if (onCursor.tokens !== 0)
       errors.push("Claude Code rows stayed on the Cursor stage: " + onCursor.tokens);
     const hiddenOnCursor = await page.evaluate(

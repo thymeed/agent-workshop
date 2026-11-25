@@ -428,8 +428,25 @@ test("a list refresh while a session loads does not discard that load", async ()
   await h.answer(200, { events: [ev(0), ev(1)] });
   assert.equal(h.replay.length, 1, "the session still reaches the replay");
   assert.equal(h.replay[0].length, 2);
-  assert.equal(h.select.value, "cs-aaaaaaaaaaaaaaaaaaaaaaaa");
   assert.match(h.els.status.textContent, /^2 events/);
+  await h.answer(200, { sessions: [sess("cs-aaaaaaaaaaaaaaaaaaaaaaaa", {})] });
+  assert.equal(h.select.value, "cs-aaaaaaaaaaaaaaaaaaaaaaaa");
+});
+
+test("a session answer before the list answer leaves the picker loading, then the list enables it", async () => {
+  const h = harness();
+  await listed(h);
+  h.select.choose("cs-aaaaaaaaaaaaaaaaaaaaaaaa");
+  h.ch.onHistoryOpen();
+  await h.answer(200, { events: [ev(0)] });
+  assert.equal(h.select.disabled, true, "the picker waits for the list");
+  assert.deepEqual(h.select.texts(), ["Loading sessions…"], "no half-filled list meanwhile");
+  await h.answer(200, {
+    sessions: [sess("cs-aaaaaaaaaaaaaaaaaaaaaaaa", {}), sess("cs-bbbbbbbbbbbbbbbbbbbbbbbb", {})]
+  });
+  assert.equal(h.select.disabled, false, "the list answer enables the picker");
+  assert.equal(h.select.value, "cs-aaaaaaaaaaaaaaaaaaaaaaaa");
+  assert.equal(h.select.children.length, 3);
 });
 
 test("a session answer that arrives after a source switch is ignored", async () => {

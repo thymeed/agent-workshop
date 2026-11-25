@@ -1263,8 +1263,7 @@
 
   /** The Live state a replay's reset is about to destroy (exactly what resetReplaySession clears). */
   function captureLiveStage() {
-    return {
-      takenAt: Date.now(),
+    var snap = {
       calls: state.calls,
       subs: state.subs,
       liveSubs: Object.assign({}, state.liveSubs),
@@ -1276,6 +1275,10 @@
       activity: activity.snapshot(),
       cards: AgentCards && typeof AgentCards.snapshot === "function" ? AgentCards.snapshot() : null
     };
+    /* From here until the guard ends the replay (its release dep), today's counters and role
+       clocks are frozen. Set last, so a capture that throws freezes nothing. */
+    if (AgentCards && typeof AgentCards.setReplaying === "function") AgentCards.setReplaying(true);
+    return snap;
   }
 
   function restoreLiveStage(snap) {
@@ -1286,20 +1289,7 @@
     setSubs(snap.subs);
     advisorLastEl.textContent = snap.advisorLast;
     activity.restore(snap.activity);
-    var cardsSnap = snap.cards;
-    if (cardsSnap && cardsSnap.roleActiveStarted) {
-      /* The replay's own minutes must not count toward a role that was already lit when it
-         started, so its start moves forward by the time the replay owned the stage. */
-      var shift = Math.max(0, Date.now() - (Number(snap.takenAt) || Date.now()));
-      if (shift) {
-        var starts = Object.assign({}, cardsSnap.roleActiveStarted);
-        Object.keys(starts).forEach(function (key) {
-          starts[key] = Number(starts[key]) + shift;
-        });
-        cardsSnap = Object.assign({}, cardsSnap, { roleActiveStarted: starts });
-      }
-    }
-    if (AgentCards && typeof AgentCards.restore === "function") AgentCards.restore(cardsSnap);
+    if (AgentCards && typeof AgentCards.restore === "function") AgentCards.restore(snap.cards);
     currentActiveRoles = snap.activeRoles.slice();
     stageDirector.setActiveRoles(currentActiveRoles);
     stickyActive = Object.assign({}, snap.stickyActive);
@@ -1332,6 +1322,11 @@
     replayGuard = window.ClaudeReplayGuard.create({
       capture: captureLiveStage,
       restore: restoreLiveStage,
+      /* Every way a held replay ends (restore, discard, rebuild) unfreezes today's counters first. */
+      release: function () {
+        if (AgentCards && typeof AgentCards.setReplaying === "function")
+          AgentCards.setReplaying(false);
+      },
       applyQueued: applyQueuedLiveRow,
       rebuild: function () {
         if (mode === "live") startLive();

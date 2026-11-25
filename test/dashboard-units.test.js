@@ -87,8 +87,8 @@ async function main() {
           snoozeKey: typeof T.snoozeKey === "string" && T.snoozeKey.length > 0,
           mapHistoryEvent: typeof RS.mapHistoryEvent === "function"
         },
-        /* A replay overwrites today's counters through the cards; restore must put them back. */
-        dailySnapshot: (() => {
+        /* While a replay owns the stage (setReplaying), nothing it drives may change today's counters. */
+        dailyFreeze: (() => {
           const AC = window.AgentCards;
           const read = () => {
             const d = AC.getDailyStats();
@@ -99,13 +99,69 @@ async function main() {
               fastestMs: d.fastestMs
             };
           };
+          AC.onModeChange("live");
+          AC.recordRun({ agent: "worker", tokens: 5, durationMs: 500 });
+          AC.setActive(["opus"]);
+          const startBefore = AC.getRoleActiveStarted("opus");
           const base = read();
-          const snap = AC.snapshot();
+          AC.setReplaying(true);
           AC.recordRun({ agent: "worker", tokens: 7, durationMs: 120 });
+          AC.addTokens(40, "worker");
+          AC.syncLiveSubs(9);
+          AC.recordLiveSession();
+          AC.setActive(["worker"]);
+          AC.setActive([]);
+          AC.setActive([], { skipTiming: true });
+          const frozen = read();
+          const startFrozen = AC.getRoleActiveStarted("opus");
+          AC.setReplaying(false);
           AC.recordRun({ agent: "worker", tokens: 3, durationMs: 90 });
           const after = read();
-          AC.restore(snap);
-          return { base, after, back: read() };
+          AC.onModeChange("demo");
+          return { base, frozen, after, startBefore, startFrozen };
+        })(),
+        /* A replay that crosses midnight: the replay's own rows must not fill the new day. */
+        dayRollover: (() => {
+          const AC = window.AgentCards;
+          const RealDate = window.Date;
+          let nowMs = new RealDate(2026, 10, 18, 23, 59, 0).getTime();
+          class FakeDate extends RealDate {
+            constructor(...args) {
+              if (args.length) super(...args);
+              else super(nowMs);
+            }
+            static now() {
+              return nowMs;
+            }
+          }
+          const read = () => {
+            const d = AC.getDailyStats();
+            return {
+              runs: d.runs,
+              tokens: d.tokens,
+              fastestAgent: d.fastestAgent,
+              fastestMs: d.fastestMs
+            };
+          };
+          window.Date = FakeDate;
+          try {
+            AC.onModeChange("live");
+            AC.recordRun({ agent: "worker", tokens: 500, durationMs: 1000 });
+            const before = read();
+            const snap = AC.snapshot();
+            AC.setReplaying(true);
+            nowMs = new RealDate(2026, 10, 19, 0, 2, 0).getTime();
+            AC.setActive(["worker"], { skipTiming: true });
+            AC.syncLiveSubs(3);
+            AC.recordRun({ agent: "worker", tokens: 9, durationMs: 40 });
+            AC.setReplaying(false);
+            AC.restore(snap);
+            return { before, afterMidnight: read() };
+          } finally {
+            window.Date = RealDate;
+            AC.setReplaying(false);
+            AC.onModeChange("demo");
+          }
         })(),
         reconnect: (() => {
           const delays = [0, 1, 2, 3, 4, 5, 6, 10].map((n) => T.reconnectDelayMs(n));
@@ -466,15 +522,40 @@ async function main() {
     assert.ok(data.invariants.snoozeKey, "snooze storage key must be present");
     assert.ok(data.invariants.mapHistoryEvent, "ReplayStage.mapHistoryEvent must be exported");
 
-    /* Today's counters: a replay's subagent rows raise Runs, so restore must put it back. */
-    const ds = data.dailySnapshot;
-    assert.strictEqual(ds.after.runs, ds.base.runs + 2, "recordRun must raise today's Runs");
-    assert.strictEqual(ds.after.tokens, ds.base.tokens + 10, "recordRun must add today's tokens");
-    assert.strictEqual(ds.after.fastestMs, 90, "recordRun must record the fastest run");
+    /* Today's counters: frozen while a replay owns the stage, normal again afterwards. */
+    const df = data.dailyFreeze;
     assert.deepStrictEqual(
-      ds.back,
-      ds.base,
-      "cards.restore must put today's Runs, tokens and fastest back"
+      df.base,
+      { runs: 1, tokens: 5, fastestAgent: "worker", fastestMs: 500 },
+      "freeze setup: one run"
+    );
+    assert.deepStrictEqual(
+      df.frozen,
+      df.base,
+      "setReplaying(true) must freeze Runs, tokens and fastest"
+    );
+    assert.ok(df.startBefore > 0, "freeze setup: opus has a running clock");
+    assert.strictEqual(
+      df.startFrozen,
+      df.startBefore,
+      "a frozen setActive must not touch role clocks"
+    );
+    assert.deepStrictEqual(
+      df.after,
+      { runs: 2, tokens: 8, fastestAgent: "worker", fastestMs: 90 },
+      "counting must work again once the replay is released"
+    );
+
+    const dr = data.dayRollover;
+    assert.deepStrictEqual(
+      dr.before,
+      { runs: 1, tokens: 500, fastestAgent: "worker", fastestMs: 1000 },
+      "day rollover setup: the first day has its run"
+    );
+    assert.deepStrictEqual(
+      dr.afterMidnight,
+      { runs: 0, tokens: 0, fastestAgent: null, fastestMs: null },
+      "a replay across midnight must leave the new day at zero"
     );
 
     /* SSE auto-reconnect policy: doubling backoff, hard cap, bounded attempts. */

@@ -154,3 +154,35 @@ test("a snapshot is a copy: later changes to the Live state do not reach it", ()
   t.guard.end();
   assert.ok(t.log.includes("restore:1"));
 });
+
+test("release runs once on every way a held replay ends, before restore, discard or rebuild", () => {
+  const ends = [
+    ["restore", undefined, ["capture", "release", "restore:1"], 0],
+    ["discard", { discard: true }, ["capture", "release"], 0],
+    ["rebuild", undefined, ["capture", "release", "rebuild"], 2]
+  ];
+  for (const [name, opts, want, cap] of ends) {
+    const log = [];
+    const guard = G.create({
+      capture: () => (log.push("capture"), { n: 1 }),
+      restore: (s) => log.push("restore:" + s.n),
+      applyQueued: () => {},
+      rebuild: () => log.push("rebuild"),
+      release: () => log.push("release"),
+      cap: cap || undefined
+    });
+    guard.take();
+    if (cap) for (let i = 0; i < cap + 1; i++) guard.offer(i);
+    guard.end(opts);
+    guard.end(opts);
+    assert.deepEqual(log, want, name);
+  }
+});
+
+test("release is not called when nothing is held", () => {
+  let released = 0;
+  const t = make({ release: () => released++ });
+  t.guard.end();
+  t.guard.end({ discard: true });
+  assert.equal(released, 0);
+});

@@ -18,6 +18,7 @@
    * @param {object} deps
    *   capture() -> snapshot of the Live state a replay is about to overwrite
    *   restore(snapshot) -> put it back
+   *   release() -> optional; called once whenever a held replay ends, before restore, discard or rebuild
    *   applyQueued(row) -> apply one queued Live row (quietly: no sound, ship or timing)
    *   rebuild() -> rebuild Live from the bridge (queue overflow)
    *   cap -> most rows queued (default 20000)
@@ -71,6 +72,7 @@
         var rows = queue;
         var over = overflow;
         discard();
+        if (typeof deps.release === "function") deps.release();
         if (opts && opts.discard) {
           counts.discarded += 1;
           return true;
