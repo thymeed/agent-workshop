@@ -7,7 +7,7 @@ process.env.BRIDGE_TEST = "1";
 
 const fs = require("fs");
 const net = require("net");
-const os = require("os");
+const { mkTmp } = require("./helpers/tmp");
 const path = require("path");
 const { startBridge, stopBridge } = require("../live-bridge.js");
 
@@ -39,8 +39,8 @@ function expectStartBridgeThrows(opts, fragment) {
 }
 
 function isolatedOpts() {
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-guard-log-"));
-  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-guard-projects-"));
+  const logDir = mkTmp("bridge-guard-log-");
+  const projectsRoot = mkTmp("bridge-guard-projects-");
   return { logDir, projectsRoot };
 }
 
@@ -54,7 +54,7 @@ async function main() {
 
   expectStartBridgeThrows({ projectsRoot, eventLogDir: logDir }, "explicit nonzero port");
 
-  const envLogDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-guard-env-log-"));
+  const envLogDir = mkTmp("bridge-guard-env-log-");
   const envLogFile = path.join(envLogDir, "must-not-use.jsonl");
   const prevEventLog = process.env.CURSOR_EVENT_LOG;
   const prevEventLogDir = process.env.CURSOR_EVENT_LOG_DIR;

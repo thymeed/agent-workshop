@@ -8,7 +8,7 @@ process.env.BRIDGE_TEST = "1";
 const http = require("http");
 const net = require("net");
 const fs = require("fs");
-const os = require("os");
+const { mkTmp } = require("./helpers/tmp");
 const path = require("path");
 const { startBridge, stopBridge } = require("../live-bridge.js");
 const { EVENT_TYPES } = require("../lib/event-log");
@@ -91,7 +91,7 @@ function assertContractEvent(ev, errors, label) {
 }
 
 function testClearHistoryNoOpWithoutStartedLog() {
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "clear-history-noop-"));
+  const logDir = mkTmp("clear-history-noop-");
   const logPath = path.join(logDir, "event-log.jsonl");
   const sentinel =
     '{"ts":"2020-01-01T00:00:00.000Z","sessionId":"keep","agentId":"a","parentId":null,"name":"n","model":"opus","type":"turn","inputTokens":1,"outputTokens":0,"files":[]}\n';
@@ -118,9 +118,9 @@ async function main() {
   testClearHistoryNoOpWithoutStartedLog();
 
   const port = await getFreePort();
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "history-api-"));
-  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "history-api-projects-"));
-  const transcriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), "history-api-transcripts-"));
+  const logDir = mkTmp("history-api-");
+  const projectsRoot = mkTmp("history-api-projects-");
+  const transcriptsDir = mkTmp("history-api-transcripts-");
   const alerts = [];
 
   await startBridge({

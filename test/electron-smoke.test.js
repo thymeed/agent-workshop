@@ -12,7 +12,7 @@
 
 const assert = require("assert");
 const fs = require("fs");
-const os = require("os");
+const { mkTmp } = require("./helpers/tmp");
 const path = require("path");
 const net = require("net");
 const http = require("http");
@@ -125,7 +125,7 @@ async function main() {
 
   const electronPath = require("electron");
   const port = await getFreePort();
-  const tmp = (label) => fs.mkdtempSync(path.join(os.tmpdir(), `electron-${label}-`));
+  const tmp = (label) => mkTmp(`electron-${label}-`);
   const projectsRoot = tmp("projects");
   const eventLogDir = tmp("log");
   const userData = tmp("userdata");

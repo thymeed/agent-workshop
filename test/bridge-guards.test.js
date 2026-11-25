@@ -9,8 +9,7 @@ process.env.BRIDGE_TEST = "1";
 const assert = require("assert");
 const http = require("http");
 const fs = require("fs");
-const os = require("os");
-const path = require("path");
+const { mkTmp } = require("./helpers/tmp");
 const net = require("net");
 
 function getFreePort() {
@@ -211,9 +210,9 @@ async function testStaticAndCors(port) {
 }
 
 async function main() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "guards-transcripts-"));
-  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "guards-projects-"));
-  const eventLogDir = fs.mkdtempSync(path.join(os.tmpdir(), "guards-log-"));
+  const dir = mkTmp("guards-transcripts-");
+  const projectsRoot = mkTmp("guards-projects-");
+  const eventLogDir = mkTmp("guards-log-");
   const port = await getFreePort();
 
   const { startBridge, stopBridge } = require("../live-bridge.js");

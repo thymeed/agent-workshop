@@ -8,7 +8,7 @@ process.env.BRIDGE_TEST = "1";
 const fs = require("fs");
 const http = require("http");
 const net = require("net");
-const os = require("os");
+const { mkTmp } = require("./helpers/tmp");
 const path = require("path");
 const {
   startBridge,
@@ -39,7 +39,7 @@ function assert(cond, msg) {
 }
 
 function tmpTranscripts() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-history-"));
+  const root = mkTmp("transcript-history-");
   const parent = path.join(root, "parent.jsonl");
   const subDir = path.join(root, "subagents");
   fs.mkdirSync(subDir, { recursive: true });
@@ -71,10 +71,9 @@ function line(role, text, extra) {
 
 async function withBridge(dir, fn, opts) {
   opts = opts || {};
-  const logDir = opts.logDir || fs.mkdtempSync(path.join(os.tmpdir(), "transcript-log-"));
+  const logDir = opts.logDir || mkTmp("transcript-log-");
   const ownedProjectsRoot = !opts.projectsRoot;
-  const projectsRoot =
-    opts.projectsRoot || fs.mkdtempSync(path.join(os.tmpdir(), "transcript-projects-"));
+  const projectsRoot = opts.projectsRoot || mkTmp("transcript-projects-");
   const alerts = [];
   const port = await getFreePort();
   await startBridge(
@@ -320,7 +319,7 @@ async function testRestartDedupeAndTimestamps() {
   const tsNew = new Date().toISOString();
   appendLine(parent, line("user", "<user_query>hello</user_query>", { timestamp: tsWarm }));
 
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-log-dedupe-"));
+  const logDir = mkTmp("transcript-log-dedupe-");
   try {
     await withBridge(
       root,
@@ -520,7 +519,7 @@ async function testStructuredTerminalErrorAlert() {
 }
 
 async function testResumedOldTranscriptBeyondScanLimit() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-many-"));
+  const root = mkTmp("transcript-many-");
   const now = Date.now() / 1000;
   const oldFile = path.join(root, "chat-040.jsonl");
   assert(TRANSCRIPT_SCAN_LIMIT === 40, "test assumes scan limit 40");
@@ -580,7 +579,7 @@ async function testProjectSwitchWarmPushesLiveEvents() {
   const stamp = String(Date.now());
   const idA = "cursor-warm-live-a-" + stamp;
   const idB = "cursor-warm-live-b-" + stamp;
-  const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cursor-projects-root-"));
+  const projectsRoot = mkTmp("cursor-projects-root-");
   const dirA = path.join(projectsRoot, idA, "agent-transcripts");
   const dirB = path.join(projectsRoot, idB, "agent-transcripts");
   fs.mkdirSync(dirA, { recursive: true });
@@ -591,7 +590,7 @@ async function testProjectSwitchWarmPushesLiveEvents() {
   seedParentTranscriptForWarmTail(parentB, 20);
 
   const port = await getFreePort();
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-project-switch-log-"));
+  const logDir = mkTmp("transcript-project-switch-log-");
   const prevProjectsRoot = process.env.CURSOR_PROJECTS_ROOT;
   process.env.CURSOR_PROJECTS_ROOT = projectsRoot;
   try {
@@ -617,7 +616,7 @@ async function testProjectSwitchWarmPushesLiveEvents() {
 }
 
 async function testLatestSessionIdPrefersNewestNonEmptyTranscript() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-latest-session-"));
+  const root = mkTmp("transcript-latest-session-");
   const oldDir = path.join(root, "sess-old");
   const newDir = path.join(root, "sess-new");
   fs.mkdirSync(oldDir, { recursive: true });
@@ -639,7 +638,7 @@ async function testLatestSessionIdPrefersNewestNonEmptyTranscript() {
 }
 
 async function testResumedOldFileLargeAppendBeforeFirstPoll() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-resume-bulk-"));
+  const root = mkTmp("transcript-resume-bulk-");
   const now = Date.now() / 1000;
   const oldFile = path.join(root, "chat-040.jsonl");
   assert(TRANSCRIPT_SCAN_LIMIT === 40, "test assumes scan limit 40");

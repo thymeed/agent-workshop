@@ -4,8 +4,7 @@ process.env.BRIDGE_TEST = "1";
 
 const fs = require("fs");
 const net = require("net");
-const os = require("os");
-const path = require("path");
+const { mkTmpAsync } = require("./helpers/tmp");
 const { startBridge, stopBridge, resetWatchState } = require("../live-bridge.js");
 
 const tempDirs = [];
@@ -29,12 +28,12 @@ function getFreePort() {
  */
 async function startBridgeForSmoke(opts) {
   opts = opts || {};
-  const projectsRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-projects-"));
-  const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-smoke-"));
+  const projectsRoot = await mkTmpAsync("cursor-agents-projects-");
+  const tempDir = await mkTmpAsync("cursor-agents-smoke-");
   await fs.promises.mkdir(tempDir, { recursive: true });
   tempDirs.push(projectsRoot);
   tempDirs.push(tempDir);
-  const eventLogDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cursor-agents-eventlog-"));
+  const eventLogDir = await mkTmpAsync("cursor-agents-eventlog-");
   tempEventLogDirs.push(eventLogDir);
   const port = opts.port != null ? opts.port : await getFreePort();
   const info = await startBridge({
