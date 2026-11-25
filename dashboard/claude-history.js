@@ -288,7 +288,9 @@
               return;
             }
             hasReplay = true;
-            fillList(id);
+            /* While the list is still loading the picker keeps its "Loading sessions…" state;
+               the list answer fills it and selects this session. */
+            if (sessions.length) fillList(id);
             panel.setReplayEvents(events);
             setStatus(
               (events.length ? countText(events.length) : "No events in this session") +

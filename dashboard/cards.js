@@ -63,6 +63,9 @@
   var dailyStatsEl = null;
   var dayKey = null;
   var dayStats = emptyDayStats();
+  /* A Claude Code replay owns the stage: today's counters and role clocks stay as they were. */
+  var replaying = false;
+  var replayingSince = 0;
   var dailyMode = "demo";
   var demoFixtureApplied = false;
   var reducedMotion = false;
@@ -682,6 +685,7 @@
   function setActive(roles, opts) {
     opts = opts || {};
     var skipTiming = !!opts.skipTiming;
+    var timing = !skipTiming && !replaying;
     var set = {};
     (roles || []).forEach(function (r) {
       set[r] = true;
@@ -693,8 +697,8 @@
       var on = !!set[key];
       cards[key].classList.toggle("active", on);
       if (on) {
-        if (!skipTiming && !dayStats.roleActiveStarted[key]) dayStats.roleActiveStarted[key] = now;
-      } else if (!skipTiming && dayStats.roleActiveStarted[key]) {
+        if (timing && !dayStats.roleActiveStarted[key]) dayStats.roleActiveStarted[key] = now;
+      } else if (timing && dayStats.roleActiveStarted[key]) {
         var started = dayStats.roleActiveStarted[key];
         delete dayStats.roleActiveStarted[key];
         var dur = Math.max(0, now - started);
@@ -710,7 +714,7 @@
         ) {
           syncAvatarFromStatus(key);
         }
-      } else if (skipTiming && dayStats.roleActiveStarted[key]) {
+      } else if (skipTiming && !replaying && dayStats.roleActiveStarted[key]) {
         delete dayStats.roleActiveStarted[key];
         if (
           avatarState[key] !== "error" &&
@@ -746,6 +750,7 @@
   }
 
   function addTokens(n, role) {
+    if (replaying) return;
     ensureDay();
     var add = Math.max(0, Number(n) || 0);
     if (!add) return;
@@ -757,6 +762,7 @@
   }
 
   function recordRun(meta) {
+    if (replaying) return;
     ensureDay();
     dayStats.runs += 1;
     meta = meta || {};
@@ -773,12 +779,33 @@
 
   /** Demo-only: bump runs when subagent count rises (Live uses recordLiveSession). */
   function syncLiveSubs(subs) {
-    if (dailyMode !== "live") return;
+    if (dailyMode !== "live" || replaying) return;
     var n = Math.max(0, Number(subs) || 0);
     if (n > dayStats.runs) {
       dayStats.runs = n;
       renderDailyStats();
     }
+  }
+
+  /**
+   * While on, a replay's rows leave today's Runs, tokens, fastest and role clocks alone (the
+   * cards still repaint). Turning it off moves every running role clock forward by the time
+   * the replay held the stage, so that time is not charged to a role that was already lit.
+   */
+  function setReplaying(on) {
+    on = !!on;
+    if (on === replaying) return;
+    if (on) {
+      replayingSince = Date.now();
+    } else {
+      var shift = Math.max(0, Date.now() - replayingSince);
+      if (shift) {
+        Object.keys(dayStats.roleActiveStarted).forEach(function (k) {
+          dayStats.roleActiveStarted[k] += shift;
+        });
+      }
+    }
+    replaying = on;
   }
 
   function recordLiveSession() {
@@ -835,9 +862,9 @@
 
   /**
    * What a History replay overwrites on the cards: each status line and class, avatar
-   * expression, active lit state, privacy level, the role-started clock the timing path
-   * uses, and today's counters (Runs, tokens, fastest) that a replay's subagent rows can
-   * raise. A copy: later changes to the cards do not reach it.
+   * expression, active lit state and privacy level. Today's counters are not in it: while a
+   * replay owns the stage setReplaying keeps them from changing. A copy: later changes to the
+   * cards do not reach it.
    */
   function snapshot() {
     ensureDay();
@@ -852,18 +879,7 @@
         privacy: privacyLevel[role] || "none"
       };
     });
-    var day = dayStats;
-    return {
-      roles: roles,
-      roleActiveStarted: Object.assign({}, day.roleActiveStarted),
-      day: {
-        runs: day.runs,
-        tokens: day.tokens,
-        fastestAgent: day.fastestAgent,
-        fastestMs: day.fastestMs,
-        roleTokens: Object.assign({}, day.roleTokens)
-      }
-    };
+    return { roles: roles };
   }
 
   /** Put a snapshot() back. Safe to call more than once with the same snapshot. */
@@ -884,17 +900,6 @@
       privacyLevel[role] = s.privacy;
       if (privacyEls[role]) applyPrivacyChrome(privacyEls[role], s.privacy);
     });
-    /* Today's counters too: a replay raises Runs through its subagent rows, and only a
-       restored base keeps that number from sticking for the rest of the day. */
-    var day = snap.day;
-    if (day) {
-      dayStats.runs = Math.max(0, Number(day.runs) || 0);
-      dayStats.tokens = Math.max(0, Number(day.tokens) || 0);
-      dayStats.fastestAgent = day.fastestAgent || null;
-      dayStats.fastestMs = typeof day.fastestMs === "number" ? day.fastestMs : null;
-      dayStats.roleTokens = Object.assign({}, day.roleTokens);
-    }
-    dayStats.roleActiveStarted = Object.assign({}, snap.roleActiveStarted);
     renderDailyStats();
   }
 
@@ -954,6 +959,7 @@
     recordRun: recordRun,
     recordLiveSession: recordLiveSession,
     syncLiveSubs: syncLiveSubs,
+    setReplaying: setReplaying,
     renderDailyStats: renderDailyStats,
     applyDemoFixtures: applyDemoFixtures,
     reset: reset,
