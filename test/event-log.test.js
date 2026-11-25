@@ -4,7 +4,7 @@
 "use strict";
 
 const fs = require("fs");
-const { mkTmp } = require("./helpers/tmp");
+const { mkTmp, rmTmpAll } = require("./helpers/tmp");
 const path = require("path");
 const {
   createEventLog,
@@ -503,6 +503,7 @@ function testSharedLogDirNotChmodded() {
 }
 
 async function main() {
+  let cleanupErr;
   try {
     testRedactionFormats();
     testRedactionSignedUrls();
@@ -521,9 +522,11 @@ async function main() {
       } catch {
         // already gone
       }
-      fs.rmSync(d, { recursive: true, force: true });
     }
+    const err = rmTmpAll(madeDirs);
+    cleanupErr = err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 main().catch((err) => {

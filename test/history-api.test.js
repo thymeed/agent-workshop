@@ -8,7 +8,7 @@ process.env.BRIDGE_TEST = "1";
 const http = require("http");
 const net = require("net");
 const fs = require("fs");
-const { mkTmp } = require("./helpers/tmp");
+const { mkTmp, rmTmpAll } = require("./helpers/tmp");
 const path = require("path");
 const { startBridge, stopBridge } = require("../live-bridge.js");
 const { EVENT_TYPES } = require("../lib/event-log");
@@ -98,6 +98,7 @@ function testClearHistoryNoOpWithoutStartedLog() {
   fs.writeFileSync(logPath, sentinel, "utf8");
   const prev = process.env.CURSOR_EVENT_LOG_DIR;
   process.env.CURSOR_EVENT_LOG_DIR = logDir;
+  let cleanupErr;
   try {
     const { clearHistory } = require("../live-bridge.js");
     const result = clearHistory();
@@ -110,8 +111,10 @@ function testClearHistoryNoOpWithoutStartedLog() {
   } finally {
     if (prev === undefined) delete process.env.CURSOR_EVENT_LOG_DIR;
     else process.env.CURSOR_EVENT_LOG_DIR = prev;
-    fs.rmSync(logDir, { recursive: true, force: true });
+    const err = rmTmpAll([logDir]);
+    cleanupErr = err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 async function main() {
@@ -136,6 +139,7 @@ async function main() {
   const origin = `http://127.0.0.1:${port}`;
   const baseHeaders = { Host: `127.0.0.1:${port}` };
 
+  let cleanupErr;
   try {
     // Seed via internal record path by writing through the running log API after append:
     // Use require of event-log with same dir. Bridge already created log there.
@@ -365,20 +369,21 @@ async function main() {
       }
     }
   } finally {
-    await stopBridge();
-    for (const dir of [logDir, projectsRoot, transcriptsDir]) {
-      try {
-        fs.rmSync(dir, { recursive: true, force: true });
-      } catch (_e) {
-        /* ignore */
-      }
+    let stopErr;
+    try {
+      await stopBridge();
+    } catch (e) {
+      stopErr = e;
     }
+    const err = rmTmpAll([logDir, projectsRoot, transcriptsDir]);
+    cleanupErr = stopErr || err;
   }
-
   if (errors.length) {
     console.error("History API tests failed:\n- " + errors.join("\n- "));
+    if (cleanupErr) console.error("cleanup also failed: " + cleanupErr.message);
     process.exit(1);
   }
+  if (cleanupErr) throw cleanupErr;
   console.log(
     "History API tests OK · free port " + port + " · guards/ACAO/contract/clear/alerts passed"
   );

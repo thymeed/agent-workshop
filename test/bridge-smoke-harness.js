@@ -4,7 +4,7 @@ process.env.BRIDGE_TEST = "1";
 
 const fs = require("fs");
 const net = require("net");
-const { mkTmpAsync } = require("./helpers/tmp");
+const { mkTmpAsync, rmTmpAll } = require("./helpers/tmp");
 const { startBridge, stopBridge, resetWatchState } = require("../live-bridge.js");
 
 const tempDirs = [];
@@ -55,13 +55,15 @@ async function stopBridgeForSmoke() {
     /* ignore */
   }
   await stopBridge();
-  while (tempEventLogDirs.length) {
-    const dir = tempEventLogDirs.pop();
-    await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
-  }
-  while (tempDirs.length) {
-    const dir = tempDirs.pop();
-    await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+  const all = [];
+  while (tempEventLogDirs.length) all.push(tempEventLogDirs.pop());
+  while (tempDirs.length) all.push(tempDirs.pop());
+  // Callers run this inside their own finally: a throw here would replace their test error, so
+  // report the failure and fail the run through the exit code instead.
+  const err = rmTmpAll(all);
+  if (err) {
+    console.error("smoke cleanup failed: " + (err && err.message ? err.message : err));
+    process.exitCode = 1;
   }
 }
 

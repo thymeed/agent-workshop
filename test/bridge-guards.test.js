@@ -8,8 +8,7 @@ process.env.BRIDGE_TEST = "1";
 
 const assert = require("assert");
 const http = require("http");
-const fs = require("fs");
-const { mkTmp } = require("./helpers/tmp");
+const { mkTmp, rmTmpAll } = require("./helpers/tmp");
 const net = require("net");
 
 function getFreePort() {
@@ -218,6 +217,7 @@ async function main() {
   const { startBridge, stopBridge } = require("../live-bridge.js");
   await startBridge({ port, quiet: true, dir, projectsRoot, eventLogDir, reuseExisting: false });
 
+  let cleanupErr;
   try {
     await testLoopbackGuard(port);
     await testMethodGuards(port);
@@ -226,11 +226,16 @@ async function main() {
     await testStaticAndCors(port);
     console.log("bridge-guards OK · loopback, method, CSRF, body, static, CORS matrix");
   } finally {
-    await stopBridge();
-    for (const d of [dir, projectsRoot, eventLogDir]) {
-      fs.rmSync(d, { recursive: true, force: true });
+    let stopErr;
+    try {
+      await stopBridge();
+    } catch (e) {
+      stopErr = e;
     }
+    const err = rmTmpAll([dir, projectsRoot, eventLogDir]);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 main().catch((err) => {

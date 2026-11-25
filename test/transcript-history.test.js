@@ -8,7 +8,7 @@ process.env.BRIDGE_TEST = "1";
 const fs = require("fs");
 const http = require("http");
 const net = require("net");
-const { mkTmp } = require("./helpers/tmp");
+const { mkTmp: mkTmpRaw, rmTmp, rmTmpAll } = require("./helpers/tmp");
 const path = require("path");
 const {
   startBridge,
@@ -32,6 +32,15 @@ function getFreePort() {
     });
     s.on("error", reject);
   });
+}
+
+// Every folder made here, removed in main() even when a test throws.
+const madeDirs = [];
+
+function mkTmp(prefix) {
+  const dir = mkTmpRaw(prefix);
+  madeDirs.push(dir);
+  return dir;
 }
 
 function assert(cond, msg) {
@@ -90,25 +99,23 @@ async function withBridge(dir, fn, opts) {
       opts
     )
   );
+  let cleanupErr;
   try {
     await fn({ logDir, alerts, port });
   } finally {
-    await stopBridge();
-    if (!opts.keepLogDir) {
-      try {
-        fs.rmSync(logDir, { recursive: true, force: true });
-      } catch (_e) {
-        /* ignore */
-      }
+    let stopErr;
+    try {
+      await stopBridge();
+    } catch (e) {
+      stopErr = e;
     }
-    if (ownedProjectsRoot) {
-      try {
-        fs.rmSync(projectsRoot, { recursive: true, force: true });
-      } catch (_e) {
-        /* ignore */
-      }
-    }
+    const dirs = [];
+    if (!opts.keepLogDir) dirs.push(logDir);
+    if (ownedProjectsRoot) dirs.push(projectsRoot);
+    const err = rmTmpAll(dirs);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 function historyEvents(logDir) {
@@ -320,6 +327,7 @@ async function testRestartDedupeAndTimestamps() {
   appendLine(parent, line("user", "<user_query>hello</user_query>", { timestamp: tsWarm }));
 
   const logDir = mkTmp("transcript-log-dedupe-");
+  let cleanupErr;
   try {
     await withBridge(
       root,
@@ -349,10 +357,12 @@ async function testRestartDedupeAndTimestamps() {
       { logDir, keepLogDir: true }
     );
   } finally {
-    fs.rmSync(logDir, { recursive: true, force: true });
+    const err = rmTmpAll([logDir]);
+    cleanupErr = err;
   }
+  if (cleanupErr) throw cleanupErr;
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testKeywordFalsePositiveAndStructuredTerminal() {
@@ -400,7 +410,7 @@ async function testKeywordFalsePositiveAndStructuredTerminal() {
     assert(!alerts.some((a) => a.status === "error"), "no error alert on prose");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testOneAlertPerTerminalChange() {
@@ -422,7 +432,7 @@ async function testOneAlertPerTerminalChange() {
     assert(doneRows.length === 2, "both done rows may persist");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testNoPhantomParentStall() {
@@ -438,7 +448,7 @@ async function testNoPhantomParentStall() {
     assert(!alerts.some((a) => a.status === "stalled"), "parent must not stall-alert");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testNewFileReadFromOffsetZero() {
@@ -457,7 +467,7 @@ async function testNewFileReadFromOffsetZero() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testToolErrorNotTerminal() {
@@ -494,7 +504,7 @@ async function testToolErrorNotTerminal() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testStructuredTerminalErrorAlert() {
@@ -515,7 +525,7 @@ async function testStructuredTerminalErrorAlert() {
     assert(!alerts.some((a) => a.status === "finished"), "error terminal should not finish");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testResumedOldTranscriptBeyondScanLimit() {
@@ -555,7 +565,7 @@ async function testResumedOldTranscriptBeyondScanLimit() {
     assert(!alerts.some((a) => a.status === "finished"), "no stale finished alert on resume");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testStartupWarmPushesLiveEvents() {
@@ -572,7 +582,7 @@ async function testStartupWarmPushesLiveEvents() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testProjectSwitchWarmPushesLiveEvents() {
@@ -593,6 +603,7 @@ async function testProjectSwitchWarmPushesLiveEvents() {
   const logDir = mkTmp("transcript-project-switch-log-");
   const prevProjectsRoot = process.env.CURSOR_PROJECTS_ROOT;
   process.env.CURSOR_PROJECTS_ROOT = projectsRoot;
+  let cleanupErr;
   try {
     await startBridge({ port, quiet: true, dir: dirA, eventLogDir: logDir });
     let live = transcriptLiveEvents(await fetchLiveEvents(port));
@@ -607,12 +618,18 @@ async function testProjectSwitchWarmPushesLiveEvents() {
     live = transcriptLiveEvents(await fetchLiveEvents(port));
     assert(live.length >= 2, "project switch must warm live feed, got " + live.length);
   } finally {
-    await stopBridge();
+    let stopErr;
+    try {
+      await stopBridge();
+    } catch (e) {
+      stopErr = e;
+    }
     if (prevProjectsRoot === undefined) delete process.env.CURSOR_PROJECTS_ROOT;
     else process.env.CURSOR_PROJECTS_ROOT = prevProjectsRoot;
-    fs.rmSync(logDir, { recursive: true, force: true });
-    fs.rmSync(projectsRoot, { recursive: true, force: true });
+    const err = rmTmpAll([logDir, projectsRoot]);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 async function testLatestSessionIdPrefersNewestNonEmptyTranscript() {
@@ -634,7 +651,7 @@ async function testLatestSessionIdPrefersNewestNonEmptyTranscript() {
 
   const latest = latestSessionIdForTranscripts(root);
   assert(latest === "sess-new", "expected newest non-empty session, got " + latest);
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testResumedOldFileLargeAppendBeforeFirstPoll() {
@@ -694,7 +711,7 @@ async function testResumedOldFileLargeAppendBeforeFirstPoll() {
     }
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 function appendBigUserLine(file, marker, padBytes) {
@@ -777,7 +794,7 @@ async function testResumedLargeFileNonAscii() {
     assert(!alerts.some((a) => a.status === "finished"), "warm final must not alert on resume");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testOversizedLineSkippedNoStall() {
@@ -839,7 +856,7 @@ async function testOversizedLineSkippedNoStall() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testChunkedReadCappedPerPoll() {
@@ -871,7 +888,7 @@ async function testChunkedReadCappedPerPoll() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testSubagentFinishedNotStalled() {
@@ -893,7 +910,7 @@ async function testSubagentFinishedNotStalled() {
     assert(!alerts.some((a) => a.status === "stalled"), "finished subagent must not stall");
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function testAlertBusSseAndApi() {
@@ -954,7 +971,7 @@ async function testAlertBusSseAndApi() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 /**
@@ -1002,7 +1019,7 @@ async function testSnoozeGatesDesktopToast() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 /** POST /api/snooze guard matrix, mirroring /api/select: POST-only, same-origin, header. */
@@ -1071,32 +1088,39 @@ async function testSnoozeRouteGuards() {
     );
   });
 
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTmp(root);
 }
 
 async function main() {
-  await testRestartDedupeAndTimestamps();
-  await testKeywordFalsePositiveAndStructuredTerminal();
-  await testOneAlertPerTerminalChange();
-  await testNoPhantomParentStall();
-  await testNewFileReadFromOffsetZero();
-  await testToolErrorNotTerminal();
-  await testStructuredTerminalErrorAlert();
-  await testStartupWarmPushesLiveEvents();
-  await testProjectSwitchWarmPushesLiveEvents();
-  await testLatestSessionIdPrefersNewestNonEmptyTranscript();
-  await testResumedOldTranscriptBeyondScanLimit();
-  await testResumedOldFileLargeAppendBeforeFirstPoll();
-  await testResumedLargeFileNonAscii();
-  await testOversizedLineSkippedNoStall();
-  await testChunkedReadCappedPerPoll();
-  await testSubagentFinishedNotStalled();
-  await testAlertBusSseAndApi();
-  await testSnoozeGatesDesktopToast();
-  await testSnoozeRouteGuards();
-  console.log(
-    "transcript-history tests OK · dedupe, timestamps, terminal signals, alerts, stall, alert bus, snooze"
-  );
+  let cleanupErr;
+  try {
+    await testRestartDedupeAndTimestamps();
+    await testKeywordFalsePositiveAndStructuredTerminal();
+    await testOneAlertPerTerminalChange();
+    await testNoPhantomParentStall();
+    await testNewFileReadFromOffsetZero();
+    await testToolErrorNotTerminal();
+    await testStructuredTerminalErrorAlert();
+    await testStartupWarmPushesLiveEvents();
+    await testProjectSwitchWarmPushesLiveEvents();
+    await testLatestSessionIdPrefersNewestNonEmptyTranscript();
+    await testResumedOldTranscriptBeyondScanLimit();
+    await testResumedOldFileLargeAppendBeforeFirstPoll();
+    await testResumedLargeFileNonAscii();
+    await testOversizedLineSkippedNoStall();
+    await testChunkedReadCappedPerPoll();
+    await testSubagentFinishedNotStalled();
+    await testAlertBusSseAndApi();
+    await testSnoozeGatesDesktopToast();
+    await testSnoozeRouteGuards();
+    console.log(
+      "transcript-history tests OK · dedupe, timestamps, terminal signals, alerts, stall, alert bus, snooze"
+    );
+  } finally {
+    const err = rmTmpAll(madeDirs);
+    cleanupErr = err;
+  }
+  if (cleanupErr) throw cleanupErr;
 }
 
 main().catch((err) => {

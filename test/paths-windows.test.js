@@ -4,7 +4,7 @@ process.env.BRIDGE_TEST = "1";
 
 const assert = require("assert");
 const net = require("net");
-const { mkTmp } = require("./helpers/tmp");
+const { mkTmp, rmTmpAll } = require("./helpers/tmp");
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -74,6 +74,7 @@ async function testCrlfSnapshotResume() {
     eventLogDir: logDir,
     reuseExisting: false
   });
+  let cleanupErr;
   try {
     scanTranscripts();
     fs.appendFileSync(parent, newLine, "utf8");
@@ -84,11 +85,16 @@ async function testCrlfSnapshotResume() {
       "CRLF file must record post-snapshot line"
     );
   } finally {
-    await stopBridge();
-    for (const dir of [root, logDir, projectsRoot]) {
-      fs.rmSync(dir, { recursive: true, force: true });
+    let stopErr;
+    try {
+      await stopBridge();
+    } catch (e) {
+      stopErr = e;
     }
+    const err = rmTmpAll([root, logDir, projectsRoot]);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 async function testSubagentIngestWithWindowsPath() {
@@ -128,6 +134,7 @@ async function testSubagentIngestWithWindowsPath() {
     eventLogDir: logDir,
     reuseExisting: false
   });
+  let cleanupErr;
   try {
     scanTranscripts();
     fs.appendFileSync(subFile, line("assistant", "<final>done</final>"), "utf8");
@@ -138,11 +145,16 @@ async function testSubagentIngestWithWindowsPath() {
       "post-snapshot subagent line must record history with subagent agentId"
     );
   } finally {
-    await stopBridge();
-    for (const dir of [root, logDir, projectsRoot]) {
-      fs.rmSync(dir, { recursive: true, force: true });
+    let stopErr;
+    try {
+      await stopBridge();
+    } catch (e) {
+      stopErr = e;
     }
+    const err = rmTmpAll([root, logDir, projectsRoot]);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 }
 
 async function main() {

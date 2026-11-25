@@ -5,9 +5,8 @@
 
 process.env.BRIDGE_TEST = "1";
 
-const fs = require("fs");
 const net = require("net");
-const { mkTmp } = require("./helpers/tmp");
+const { mkTmp, rmTmpAll } = require("./helpers/tmp");
 const path = require("path");
 const { startBridge, stopBridge } = require("../live-bridge.js");
 
@@ -62,6 +61,7 @@ async function main() {
   process.env.CURSOR_EVENT_LOG_DIR = envLogDir;
 
   let bridgeStarted = false;
+  let cleanupErr;
   try {
     const info = await startBridge({
       port,
@@ -80,19 +80,20 @@ async function main() {
       throw new Error("event log path must be under explicit eventLogDir, got " + bridgeLog);
     }
   } finally {
-    if (bridgeStarted) await stopBridge();
+    let stopErr;
+    try {
+      if (bridgeStarted) await stopBridge();
+    } catch (e) {
+      stopErr = e;
+    }
     if (prevEventLog === undefined) delete process.env.CURSOR_EVENT_LOG;
     else process.env.CURSOR_EVENT_LOG = prevEventLog;
     if (prevEventLogDir === undefined) delete process.env.CURSOR_EVENT_LOG_DIR;
     else process.env.CURSOR_EVENT_LOG_DIR = prevEventLogDir;
-    for (const dir of [logDir, projectsRoot, envLogDir]) {
-      try {
-        fs.rmSync(dir, { recursive: true, force: true });
-      } catch (_e) {
-        /* ignore */
-      }
-    }
+    const err = rmTmpAll([logDir, projectsRoot, envLogDir]);
+    cleanupErr = stopErr || err;
   }
+  if (cleanupErr) throw cleanupErr;
 
   console.log("bridge-test-guard OK · BRIDGE_TEST isolation throws and eventLogDir precedence");
 }

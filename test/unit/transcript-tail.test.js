@@ -4,7 +4,7 @@
 "use strict";
 
 const fs = require("fs");
-const { mkTmp, tmpRoot } = require("../helpers/tmp");
+const { mkTmp, rmTmpAll, tmpRoot } = require("../helpers/tmp");
 const path = require("path");
 const assert = require("node:assert/strict");
 const { test, after } = require("node:test");
@@ -16,7 +16,8 @@ const TRANSCRIPTS = path.join(__dirname, "..", "fixtures", "transcripts");
 
 const madeDirs = [];
 after(() => {
-  for (const d of madeDirs) fs.rmSync(d, { recursive: true, force: true });
+  const err = rmTmpAll(madeDirs);
+  if (err) throw err;
 });
 
 function tmpFile(label, content) {
