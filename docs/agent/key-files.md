@@ -1,0 +1,68 @@
+# Key files
+
+One bullet per file: path, then its role. Moved out of CLAUDE.md so it is read only when needed.
+
+- `model-routing-dashboard.html`: Dashboard markup shell (Demo + Live; Stage/Insights/History chrome)
+- `dashboard/styles.css`: Dashboard styles
+- `dashboard/cards.css`: Station card / avatar / ship-celebration styles
+- `dashboard/insights.css`: Insights / History drawer styles
+- `dashboard/tips.css`: TipLayer floating tooltip styles
+- `dashboard/alerts.css`: Alert center bell / popover styles
+- `dashboard/app.js`: Demo playbook + Live SSE client + workshop stage + Live presence + inbound route tokens
+- `dashboard/insights.js`: Insights forecast + cost-ranked suggestions + History/Replay UI
+- `dashboard/claude-history.js`: Claude Code History: older sessions of the selected project (last 14 days) in the History sheet; session picker (labels are local time, event count once opened, duration; the opaque id only in the option value), loads `/api/claude/session?id=` and hands the events to the Insights replay (`setReplayEvents`, replay only: forecast and suggestions never read them), 409 / 400 / network / truncated / empty states, generation guards against stale answers; unit tested in `test/unit/claude-history.test.js`
+- `dashboard/claude-replay-guard.js`: The Live state a Claude Code replay is about to cover, kept as a snapshot, plus the Live rows that arrive meanwhile (cap 20000; past it the queue is dropped and `end()` asks for a rebuild instead). `end()` is the only way a replay stops owning the stage: restore, then apply the queued rows in order, or `discard` for a stage that is about to be rebuilt. No DOM and no app state; unit tested in `test/unit/claude-replay-guard.test.js`
+- `dashboard/replay-stage.js`: Replay transport → workshop stage (crates/characters)
+- `dashboard/cards.js`: Station cards, pixel-cast `faceMarkup` / `blockAgentSvgInner`, daily stats, privacy meter, ship celebration
+- `dashboard/bill-math.js`: Pure bill/usage math (rates, formatting, model normalization, summary CSV); no DOM, unit tested in `test/unit/bill-math.test.js`
+- `dashboard/bill.js`: Session Bill state + DOM; owns the demo daily baseline, unit tested in `test/unit/bill.test.js`
+- `dashboard/demo-playbook.js`: Scripted demo beats; step bodies lifted verbatim, unit tested in `test/unit/demo-playbook.test.js`
+- `dashboard/activity.js`: Activity drawer + Session Log + empty states; owns rows/log clock/role filter, unit tested in `test/unit/activity.test.js`
+- `dashboard/view-mode.js`: View switching + Panels toggle + focus policy; owns the current view, unit tested in `test/unit/view-mode.test.js`
+- `dashboard/projects.js`: Live project picker + /api/select; owns the in-flight guard, unit tested in `test/unit/projects.test.js`
+- `dashboard/source-switch.js`: Data source switch (Claude Code / Cursor) in Live: header seg, origin chip, stored choice `ca.source.v1` (default `claude-code`); reconciles the bridge once per connect; unit tested in `test/unit/source-switch.test.js`
+- `dashboard/error-sound.js`: When a row plays the error sound: Claude Code rows the wire marks `failed` (status failed, error or killed; not stopped or cancelled), never Cursor rows; silent during any replay, the SSE backlog (flag or row mark) and for a row already seen; unit tested in `test/unit/error-sound.test.js`
+- `dashboard/role-profiles.js`: Displayed role names per slot for the Cursor and Claude Code profiles, and the list-price table; `setModels` checks model ids. `app.js` applies the Claude Code profile only in Live on the Claude Code source (`profileFor(mode, source)`, from `setMode` and the source switch) and the Cursor profile otherwise, Demo included
+- `dashboard/presence.js`: Presence state + coach + sync-age poll; owns presence/timers/scan meta, unit tested in `test/unit/presence.test.js`
+- `dashboard/safe-html.js`: The single HTML escaper `window.SafeHtml`; loads before every other dashboard script, which all alias it
+- `dashboard/tips.js`: Unified TipLayer (`data-tip` / `data-tip-detail`)
+- `dashboard/alerts.js`: In-app alert center (SSE `alert` + `GET /api/alerts`; indefinite snooze with un-snooze; mini faces via `AgentCards.faceMarkup`)
+- `live-bridge.js`: Headless bridge: HTML + `/dashboard/*` + `/api/stream`, `/api/events`, `/api/status`, `/api/alerts`, `/api/snooze`, and in Claude Code mode the read-only `/api/claude/sessions` and `/api/claude/session?id=`
+- `start-live.cmd`: Windows CLI fallback to start the bridge with a visible console
+- `package.json`: Electron/desktop scripts + lint/test/ci
+- `scripts/copy-exe.js`: After `build`/`pack`: copy **portable** `dist/AgentWorkshop.exe` → repo-root (never win-unpacked); Windows-only, no-op elsewhere
+- `electron/main.js`: Desktop window; start bridge in-process
+- `test/demo-smoke.test.js`: Demo-mode smoke (Playwright)
+- `test/cards-smoke.test.js`: Station cards / avatars / Live timing smoke
+- `test/insights-smoke.test.js`: Insights / suggestions / jump-to-agent smoke
+- `test/bridge-guards.test.js`: Route x guard matrix: loopback, method, CSRF, body, static, CORS
+- `test/dashboard-units.test.js`: Dashboard formatters + pixel-cast avatar/brand invariants
+- `test/unit/real-transcript-format.test.js`: Pins the on-disk Cursor line shapes and the parsers that read them
+- `test/unit/real-transcript-ingest.test.js`: Drives real-shaped transcripts through the real bridge: done/error rows, finish alerts, drift counters
+- `scripts/sanitize-claude-transcript.js`: Turns a real Claude Code session into a shareable fixture: read-only on input, every string becomes `S1` unless allowlisted and checked against a known set, ids hashed with a per-run salt, object keys allowlisted (KNOWN_KEYS, all others hashed to `k_<hash>`), arrays cut to 3 (not `message.content`)
+- `test/fixtures/claude-code/real/`: Sanitized real-shape Claude Code sessions under neutral names (`C--proj-demo`, `-home-user-demo`); the oversize line, cut-off tail and partial-usage line are labelled synthetic
+- `lib/claude-code-parse.js`: Pure Claude Code transcript parser: rows, usage, delegation, task notifications; never exposes prompt/result text or raw paths; `state.roleModels` keeps the models as written per role
+- `lib/claude-code-ingest.js`: Claude Code session tailing: newest session of one selected project folder to path-free parser rows, parent file before subagents (children wait while the parent has unread bytes or failed to read, and a child waits a bounded number of polls for its parent's Agent result), capped reads, drift counters, cached newest-session and subagents listings, 5-poll session hold, replaced-file detection decided by platform (Windows local drive: creation time plus a nonzero id; WSL share and POSIX: dev/ino, since creation time on a WSL share is the Linux modification time; shrink check everywhere), meta retried by poll, idle children checked every 10th poll (about 9 s at the bridge's 900 ms poll), opaque `session` / `subagent:<n>` source labels with `describeFile`, `models()` (models as written, raw), per-poll facts in `stats()` (`parentRead`: this poll read the current session's parent to its end without error; `capped`: unread bytes left by the read cap; `waiting`: a poll-counted wait is pending; `more` also covers waits) and `poll({catchUp:true})`, a re-poll inside one scan that advances no poll-counted wait, open-handle checks (fstat of the open file, exact BigInt dev/ino; O_NOFOLLOW on POSIX only); never touches event-log or history
+- `test/unit/claude-code-ingest.test.js`: Pins ordering, incremental/CRLF/oversize/truncation/new-session handling, scan cache, session hold, labels, link/junction/swap refusal, meta cap and retry, replaced-file detection, child hold, caps, path-free rows and no event-log
+- `lib/claude-code-sources.js`: Claude Code discovery: `~/.claude/projects` on Windows and in running WSL distros (`wsl.exe -l --running`, skipped distros noted), path-free labels and ids (HMAC-SHA256 with the per-install salt file `label-salt.bin`, kept in its own config folder (`resolveSaltDir`: `%LOCALAPPDATA%\cursor-agents-model-routing-config`, `~/Library/Application Support/cursor-agents-model-routing-config`, or `$XDG_CONFIG_HOME/cursor-agents-model-routing-config` (absolute only) / `~/.config/cursor-agents-model-routing-config`; 0700 folder and 0600 file on POSIX), never the event-log folder; `loadOrCreateSalt` moves a salt an earlier version left in the event-log folder (copy, read back, then delete; an old folder or file that cannot be checked or read gives a per-process salt, publishes nothing and leaves it alone), `opts.saltDir` points tests elsewhere), bounded async listing
+- `lib/claude-code-models.js`: Resolves Claude Code model aliases (`opus`, `sonnet`, `haiku`, `inherit`) to full model ids at ingest; pure, no fs or DOM
+- `lib/claude-code-slots.js`: Parser role to dashboard slot key (the parser's `researcher` is the explorer slot, its `reviewer` is the researcher slot)
+- `lib/claude-code-bridge.js`: Claude Code mode for the bridge: discovery, the id to folder map and the selected project; every returned body is built from the path-free helpers; `sessionsBody()` / `sessionBody(id)` serve older sessions through `lib/claude-code-history.js`
+- `lib/claude-code-wire.js`: Claude Code rows to bridge events, alerts and model slots: roles mapped to the dashboard slot keys, kept fields (type, ids, status, tokens, childRole), absolute tool paths cut to a file name (a path ending at a home folder, or at the user name below it, shows `~`; percent-encoded paths are judged decoded), ids kept only as plain tokens, finish/error alerts named by role label, model aliases and `inherit` resolved to full ids per slot; pure, never loads event-log
+- `test/unit/claude-code-wire.test.js`: Pins the wire: kept fields, slot mapping, path and id cuts, alert names (also through `roleFromAgentHint`), alias / inherit / unknown / `a/../b` model cases
+- `test/claude-code-wire-bridge.test.js`: Real bridge with a planted Claude Code project: replay without alerts, live finish and error alerts, clear-and-replay on a newer session, Cursor event log untouched, every body and stream free of planted paths and prompt text
+- `test/claude-code-wire-edge.test.js`: Real bridge edge cases: a session that appears after empty polls replays silently, one busy error on the first open or lstat still replays silently, a child hold and a late meta keep their poll-counted waits (also beside a sibling larger than four read caps), drift counters reset on a new session
+- `lib/claude-code-history.js`: Older Claude Code sessions of the selected project, read-only: `listSessions` (the 20 newest, and only those from the last 14 days, whichever is fewer) and `loadSession` (parent file then subagent files merged by time, every event `replay: true`, subagent rows grouped by `source` / `parentToolUseId`); opaque ids are HMAC-SHA256 with the install salt and mapped to files on the server only, an id not in the current listing is refused, same safe-open rules as the ingest, caps on events, bytes and subagent files set `truncated`; never loads event-log
+- `test/unit/claude-code-history.test.js`: Pins the list rule at its edges (injected clock), opaque ids, refusals, caps and truncation, symlink and junction refusal, subagent grouping, privacy scrub, read-only and no event-log
+- `test/claude-code-history-bridge.test.js`: Real bridge with a planted project: `GET /api/claude/sessions` and `/api/claude/session?id=`, 409 outside Claude Code mode or with no selection, 400 for unknown ids and client-sent paths, bodies free of planted paths and prompt text, planted files unchanged (bytes and mtime), Cursor event log untouched
+- `test/claude-default-smoke.test.js`: Browser smoke on the Claude Code default: no stored choice, no POST /api/source or /api/select, newest project selected and shown in the picker, chip, History available, rows on the stage
+- `test/claude-history-smoke.test.js`: Browser smoke on Claude Code History: real bridge, planted project (two sessions inside 14 days, one older), the picker lists only the two with local-time labels, a session loads and Play drives the stage, a project pick keeps Stage, a switch to Cursor hides the picker, no path, prompt text or opaque id in the page or console
+- `test/unit/claude-replay-guard.test.js`: Pins the guard: one snapshot per replay, restore before the queued rows and in arrival order, discard, end idempotence, the 20000-row cap and the overflow rebuild
+- `test/unit/claude-code-parse.test.js`: Pins the parser's rows, usage maximum, delegation spawn rows, notification dedupe and sanitizing
+- `test/unit/claude-code-format.test.js`: Pins the Claude Code on-disk shapes the fixtures show (Agent delegation, message.id repeats, parentUuid links, task-notification carriers)
+- `test/unit/fixture-privacy.test.js`: Fails if any fixture file content (raw and JSON-decoded) or file/folder name carries a real username, home path or WSL path
+- `test/unit/sanitize-claude-transcript.test.js`: Runs the sanitizer CLI on a planted session: no planted token survives, ids link, input untouched, unsafe output paths refused
+- `test/electron-smoke.test.js`: Launches Electron; asserts the in-process bridge and served dashboard (skipped on Linux without xvfb)
+- `.github/workflows/ci.yml`: Lint, format check, smoke test, packaging check, unpacked package build (Ubuntu / Windows / macOS)
+- `README.md`: User-facing run instructions and Live-mode limits
+- `docs/known-issues.md`: Audit findings: fixed / open / verified non-issues (alert snooze, notifications, CI)
