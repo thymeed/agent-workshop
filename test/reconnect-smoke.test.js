@@ -110,7 +110,7 @@ async function main() {
     await page.close();
   } finally {
     await browser.close();
-    await stopBridgeForSmoke().catch(() => {});
+    await stopBridgeForSmoke();
   }
 
   if (errors.length) {

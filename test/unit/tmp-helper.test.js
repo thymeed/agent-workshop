@@ -41,7 +41,10 @@ test("mkTmp makes a folder under tmpRoot and rmTmp removes it", () => {
   try {
     assert.ok(fs.statSync(dir).isDirectory());
     assert.ok(path.basename(dir).startsWith("x-"));
-    assert.equal(path.dirname(dir), path.resolve(tmpRoot()));
+    assert.ok(
+      path.dirname(dir) === path.resolve(tmpRoot()),
+      "folder is not directly under the test temp root: " + path.basename(dir)
+    );
   } finally {
     rmTmp(dir);
   }
@@ -51,7 +54,10 @@ test("mkTmp makes a folder under tmpRoot and rmTmp removes it", () => {
 test("mkTmpAsync makes a folder under tmpRoot", async () => {
   const dir = await mkTmpAsync("y-");
   try {
-    assert.equal(path.dirname(dir), path.resolve(tmpRoot()));
+    assert.ok(
+      path.dirname(dir) === path.resolve(tmpRoot()),
+      "folder is not directly under the test temp root: " + path.basename(dir)
+    );
     assert.ok(fs.statSync(dir).isDirectory());
   } finally {
     rmTmp(dir);
@@ -73,15 +79,20 @@ const BAD_PREFIXES = [
   ["undefined", undefined]
 ];
 
+// A TypeError from a dropped typeof check must not pass as a refusal.
+const isBadPrefixError = (e) => e instanceof Error && e.message.startsWith("mkTmp: bad prefix");
+
 for (const [label, prefix] of BAD_PREFIXES) {
   test("mkTmp refuses a bad prefix before creating anything: " + label, async () => {
-    const calls = await countMkdtemp(() => assert.throws(() => mkTmp(prefix)));
+    const calls = await countMkdtemp(() => assert.throws(() => mkTmp(prefix), isBadPrefixError));
     assert.equal(calls, 0);
     assert.equal(fs.existsSync(outsideAbs), false);
   });
 
   test("mkTmpAsync refuses a bad prefix before creating anything: " + label, async () => {
-    const calls = await countMkdtemp(() => assert.rejects(async () => mkTmpAsync(prefix)));
+    const calls = await countMkdtemp(() =>
+      assert.rejects(async () => mkTmpAsync(prefix), isBadPrefixError)
+    );
     assert.equal(calls, 0);
     assert.equal(fs.existsSync(outsideAbs), false);
   });
@@ -176,7 +187,10 @@ for (const rel of ["test/event-log.test.js", "test/unit/transcript-tail.test.js"
       assert.ok(made.length > 0, "preload recorded no folders, so this check proves nothing");
       const root = path.resolve(tmpRoot());
       const left = made.filter((d) => {
-        assert.equal(path.dirname(path.resolve(d)), root);
+        assert.ok(
+          path.dirname(path.resolve(d)) === root,
+          "recorded folder is outside the test temp root: " + path.basename(d)
+        );
         return fs.existsSync(d);
       });
       assert.deepEqual(
