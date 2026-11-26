@@ -539,6 +539,10 @@
   max-width: 100%;
 }
 
+.insights-suggest > .insights-suggest-honesty {
+  flex: 0 0 auto;
+}
+
 .insights-suggest-copy {
   appearance: none;
   flex: 0 0 auto;

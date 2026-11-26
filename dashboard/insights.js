@@ -9,9 +9,14 @@
 
   var escapeHtml = global.SafeHtml.escapeHtml;
 
-  /* Single configurable price table + spend limit */
+  /* Spend limit, model order and the fallback price table */
   var CONFIG = {
-    /** USD per 1M tokens */
+    /**
+     * USD per 1M tokens. The fallback: costFor reads the Bill's rate table (dashboard/bill-math.js
+     * RATES) for opus, fable, sonnet and haiku whenever bill-math is loaded; these rows price the
+     * same models without it (test/unit/insights-prices.test.js pins them equal) and the `auto`
+     * model, which the Bill has no rate for.
+     */
     prices: {
       opus: { in: 4.0, out: 20.0 },
       fable: { in: 8.0, out: 40.0 },
@@ -304,6 +309,9 @@
     ]
   };
 
+  /** Session id of the Claude Code rows the page applied live (never a transcript's own id). */
+  var LIVE_SESSION_ID = "live-session";
+
   function normalizeModel(model) {
     var m = String(model || "")
       .toLowerCase()
@@ -318,6 +326,12 @@
   }
 
   function costFor(model, inn, out) {
+    /* The Bill's own cost function when it is loaded: one formula for the Bill and Insights. */
+    var bm = global.WorkshopBillMath;
+    var key = normalizeModel(model);
+    if (bm && bm.RATES && bm.RATES[key]) {
+      return bm.modelCost(key, Math.max(0, inn || 0), Math.max(0, out || 0));
+    }
     var rates = CONFIG.prices[normalizeModel(model)] || CONFIG.prices.opus;
     return (Math.max(0, inn || 0) / 1e6) * rates.in + (Math.max(0, out || 0) / 1e6) * rates.out;
   }
@@ -740,7 +754,16 @@
     var demo = !!opts.demo;
     var destroyed = false;
     var loadGeneration = 0;
+    /* allEvents = loadedEvents (history) + the live aggregate events (Claude Code rows the page applied). */
     var allEvents = [];
+    var loadedEvents = [];
+    /* Claude Code live rows are never stored one by one: only a row count, the first and last
+       time, and per-model token totals (O(models) however long the session runs). */
+    var liveRows = 0;
+    var liveFirstMs = NaN;
+    var liveLastMs = NaN;
+    var liveTokens = {};
+    var liveTimer = null;
     var sessionId = "";
     var replayIndex = 0;
     var replayIndexListeners = [];
@@ -814,7 +837,7 @@
 
     /** What the replay transport, scrubber and stage walk through. Forecast and suggestions never use it. */
     function replayEvents() {
-      return replayOverride || activeEvents();
+      return replayOverride || filterSession(loadedEvents, sessionId);
     }
 
     function pickLatestSessionId(ids, hint) {
@@ -824,11 +847,29 @@
       return ids.length ? ids[ids.length - 1] : "";
     }
 
+    /** The session ids the picker was last filled with (refreshLive skips a rewrite when equal). */
+    var filledKey = null;
+
+    function sessionKey(events) {
+      var seen = {};
+      (events || []).forEach(function (ev) {
+        seen[ev.sessionId || "unknown"] = true;
+      });
+      return Object.keys(seen).sort().join("\n");
+    }
+
     function fillSessions(hint) {
+      filledKey = sessionKey(allEvents);
       var ids = sessionIds(allEvents);
       sessionSelect.innerHTML = ids
         .map(function (id) {
-          return '<option value="' + escapeHtml(id) + '">' + escapeHtml(id) + "</option>";
+          return (
+            '<option value="' +
+            escapeHtml(id) +
+            '">' +
+            escapeHtml(id === LIVE_SESSION_ID ? "Live session" : id) +
+            "</option>"
+          );
         })
         .join("");
       if (!ids.length) {
@@ -864,7 +905,7 @@
             formatTokens(u.out) +
             " out · est. " +
             formatMoney(u.cost) +
-            " (CONFIG prices, not an invoice).";
+            " (list-price estimate, not an invoice).";
           return (
             '<tr class="model-' +
             escapeHtml(m) +
@@ -930,9 +971,9 @@
             emptyBlockFace() +
             "<strong>No turns yet</strong>No billable turns in this session yet.</div></td></tr>") +
         "</tbody></table>" +
-        '<p class="insights-config-hint" data-tip="CONFIG prices" data-tip-detail="Tweak $/1M rates and the soft limit (' +
+        '<p class="insights-config-hint" data-tip="Prices and limit" data-tip-detail="$/1M rates come from the Bill rate table (dashboard/bill-math.js RATES). The soft limit (' +
         formatMoney(CONFIG.limitUsd) +
-        ') in dashboard/insights.js CONFIG.">Prices &amp; limit live in Insights CONFIG (limit ' +
+        ') is in dashboard/insights.js CONFIG.">Prices follow the Bill rates; the limit is in Insights CONFIG (limit ' +
         formatMoney(CONFIG.limitUsd) +
         ").</p>" +
         "</div>";
@@ -1026,8 +1067,27 @@
       }
     }
 
+    /** The Claude Code live session: its rows are totals, not agents, so there is nothing per agent to rank. */
+    function isLiveSession() {
+      return !demo && liveRows > 0 && sessionId === LIVE_SESSION_ID;
+    }
+
+    /** Stands where Suggestions and What-if would be for the live session (static text). */
+    function liveNoteMarkup() {
+      return (
+        '<div class="insights-empty" data-live-unavailable data-tip="Live session" data-tip-detail="Per-agent figures need per-agent pricing, which a live session does not have yet. The Forecast matches the Bill.">' +
+        emptyBlockFace() +
+        "<strong>Not available for live sessions yet.</strong>" +
+        "</div>"
+      );
+    }
+
     function renderSuggestions() {
       var panel = root.querySelector('[data-panel="suggestions"]');
+      if (isLiveSession()) {
+        panel.innerHTML = '<div class="insights-suggest">' + liveNoteMarkup() + "</div>";
+        return;
+      }
       var list = routingSuggestions(activeEvents());
       if (!list.length) {
         panel.innerHTML =
@@ -1402,6 +1462,10 @@
 
     function renderWhatIf() {
       var panel = root.querySelector('[data-panel="whatif"]');
+      if (isLiveSession()) {
+        panel.innerHTML = '<div class="insights-whatif">' + liveNoteMarkup() + "</div>";
+        return;
+      }
       var scenarios = whatIfScenarios(activeEvents());
       var maxCost = Math.max.apply(
         null,
@@ -1478,6 +1542,118 @@
       notifyReplayIndex("session");
     });
 
+    /** The Claude Code live rows as events: one billable event per model, plus one at the last time. */
+    function liveAggregateEvents() {
+      if (!liveRows) return [];
+      var first = new Date(liveFirstMs).toISOString();
+      var events = Object.keys(liveTokens).map(function (m) {
+        return {
+          ts: first,
+          sessionId: LIVE_SESSION_ID,
+          agentId: "live-" + m,
+          parentId: null,
+          name: "Live session",
+          model: m,
+          type: "turn",
+          inputTokens: liveTokens[m].in,
+          outputTokens: liveTokens[m].out,
+          files: []
+        };
+      });
+      /* No tokens: it only marks the last time, so the spend pace spans the whole session. */
+      events.push({
+        ts: new Date(liveLastMs).toISOString(),
+        sessionId: LIVE_SESSION_ID,
+        agentId: "live-last",
+        parentId: null,
+        name: "Live session",
+        model: "auto",
+        type: "turn",
+        inputTokens: 0,
+        outputTokens: 0,
+        files: []
+      });
+      return events;
+    }
+
+    function mergedEvents() {
+      return demo || !liveRows
+        ? sortEvents(loadedEvents)
+        : sortEvents(loadedEvents.concat(liveAggregateEvents()));
+    }
+
+    /** Events the status line counts: every history event, and every live row as one. */
+    function eventCount() {
+      return demo ? allEvents.length : loadedEvents.length + liveRows;
+    }
+
+    function statusLine() {
+      return (
+        (demo ? "Demo" : "Live") +
+        " · " +
+        eventCount() +
+        " events" +
+        (sessionId ? " · " + sessionId : "")
+      );
+    }
+
+    /** Repaint what reads the live rows. The replay is left alone (it never follows them). */
+    function refreshLive() {
+      liveTimer = null;
+      if (destroyed) return;
+      allEvents = mergedEvents();
+      if (sessionKey(allEvents) !== filledKey) fillSessions("");
+      renderForecast();
+      renderSuggestions();
+      renderWhatIf();
+      setStatus(statusLine());
+    }
+
+    function scheduleLiveRefresh() {
+      if (liveTimer == null) liveTimer = setTimeout(refreshLive, 100);
+    }
+
+    /**
+     * Claude Code Live: one path-free row the page applied (the same row the stage and the Bill
+     * got, in memory only). It joins the session "Live session": every row counts as an event, a
+     * row with usage adds its tokens to its model's total the way the Bill bills it (a row without
+     * usage names no model and only counts). Demo ignores it.
+     */
+    function addLiveRow(row) {
+      if (destroyed || demo || !row || typeof row !== "object") return;
+      /* Transcript rows carry a type; the bridge's own status lines ("bridge online") do not. */
+      if (typeof row.type !== "string" || !row.type) return;
+      var ms = typeof row.iso === "string" && row.iso ? Date.parse(row.iso) : NaN;
+      if (!isFinite(ms)) ms = Date.now();
+      liveRows += 1;
+      if (!(ms >= liveFirstMs)) liveFirstMs = ms;
+      if (!(ms <= liveLastMs)) liveLastMs = ms;
+      var u = row.usage && typeof row.usage === "object" ? row.usage : null;
+      if (u) {
+        var inn = Math.max(0, Number(u.in) || 0);
+        var out = Math.max(0, Number(u.out) || 0);
+        if (inn + out > 0) {
+          var bm = global.WorkshopBillMath;
+          var role = String(u.role || row.role || "").toLowerCase();
+          var model = bm ? bm.normalizeModel(u.model, role) : normalizeModel(u.model);
+          var t = liveTokens[model] || (liveTokens[model] = { in: 0, out: 0 });
+          t.in += inn;
+          t.out += out;
+        }
+      }
+      scheduleLiveRefresh();
+    }
+
+    /** A new stream, a reset or a leave of Live: forget the live rows. */
+    function clearLiveRows() {
+      if (!liveRows) return;
+      liveRows = 0;
+      liveFirstMs = NaN;
+      liveLastMs = NaN;
+      liveTokens = {};
+      scheduleLiveRefresh();
+    }
+
     async function load(loadOpts) {
       loadOpts = loadOpts || {};
       var gen = ++loadGeneration;
@@ -1495,23 +1671,19 @@
           }
         }
         if (destroyed || gen !== loadGeneration) return;
-        allEvents = sortEvents(allEvents);
+        loadedEvents = sortEvents(allEvents);
+        allEvents = mergedEvents();
         fillSessions(latestHint);
         pauseTransport();
         replayIndex = 0;
         renderAll();
         if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
         notifyReplayIndex("session");
-        setStatus(
-          (demo ? "Demo" : "Live") +
-            " · " +
-            allEvents.length +
-            " events" +
-            (sessionId ? " · " + sessionId : "")
-        );
+        setStatus(statusLine());
       } catch (err) {
         if (destroyed || gen !== loadGeneration) return;
-        allEvents = demo ? DEMO_HISTORY.events.slice() : [];
+        loadedEvents = demo ? DEMO_HISTORY.events.slice() : [];
+        allEvents = mergedEvents();
         fillSessions(loadOpts.latestSessionId || "");
         renderAll();
         if (replayMountEl) paintReplayInto(replayMountEl, { transport: true });
@@ -1571,6 +1743,7 @@
       destroy: function () {
         if (destroyed) return;
         destroyed = true;
+        if (liveTimer != null) clearTimeout(liveTimer);
         pauseTransport();
         replayIndexListeners = [];
         replayMountEl = null;
@@ -1579,6 +1752,12 @@
       reload: load,
       focusLatestSession: focusLatestSession,
       setReplayEvents: setReplayEvents,
+      addLiveRow: addLiveRow,
+      clearLiveRows: clearLiveRows,
+      /* test-only: not used by the page */
+      __testLiveState: function () {
+        return { rows: liveRows, models: Object.keys(liveTokens).length };
+      },
       setReplayEmptyText: setReplayEmptyText,
       onReady: onReady,
       setDemoMode: setDemoMode,

@@ -640,6 +640,230 @@ function assertFixtureOnDisk() {
   return errors;
 }
 
+/** Live mode with an empty history: Suggestions shows the empty state, honesty chip stays a short line. */
+async function smokeEmptySuggestions(browser) {
+  const { server, port } = await startStaticServer();
+  const page = await browser.newPage();
+  const { errors, failedRequests } = attachErrorCollectors(page);
+  try {
+    await page.route("**/api/history**", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: '{"events":[]}' })
+    );
+    await page.goto(`http://127.0.0.1:${port}/test/insights-harness.html?live=1`, {
+      waitUntil: "domcontentloaded",
+      timeout: 15000
+    });
+    await page.waitForSelector(".insights-root", { timeout: 8000 });
+    await page.click('.insights-tab[data-tab="suggestions"]');
+    await page.waitForSelector('[data-panel="suggestions"].on [data-suggestions-empty]', {
+      timeout: 5000
+    });
+    const honesty = await page.locator("[data-suggestions-honesty]").boundingBox();
+    if (!honesty || honesty.height > 48) {
+      errors.push(
+        "empty suggestions: honesty chip height " +
+          (honesty ? honesty.height : "missing") +
+          "px (max 48)"
+      );
+    }
+    const emptyVisible = await page.locator("[data-suggestions-empty]").isVisible();
+    if (!emptyVisible) errors.push("empty suggestions: [data-suggestions-empty] not visible");
+  } finally {
+    await page.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+  if (failedRequests.length) {
+    errors.push("failed requests:\n  " + failedRequests.join("\n  "));
+  }
+  return errors;
+}
+
+/**
+ * Claude Code live rows: Insights keeps running totals, not the rows. Far more rows than any cap
+ * keep the Forecast equal to the sum of every row, the status count equal to the row count, and
+ * the page holding one total per model (not per row). The session picker is not rewritten while
+ * the set of session ids is unchanged. Suggestions and What-if show a note for the live session,
+ * and an older (history-loaded) session in the same picker still gets them.
+ */
+async function smokeLiveRows(browser) {
+  const { server, port } = await startStaticServer();
+  const page = await browser.newPage();
+  const { errors, failedRequests } = attachErrorCollectors(page);
+  const NOTE = "Not available for live sessions yet.";
+  try {
+    const hist = (extra) =>
+      Object.assign(
+        {
+          ts: "2025-12-31T10:00:00.000Z",
+          sessionId: "hist-1",
+          agentId: "hist-helper",
+          parentId: "hist-lead",
+          name: "helper",
+          model: "opus",
+          type: "turn",
+          inputTokens: 5000,
+          outputTokens: 500,
+          files: []
+        },
+        extra
+      );
+    await page.route("**/api/history**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ events: [hist({})] })
+      })
+    );
+    await page.goto(`http://127.0.0.1:${port}/test/insights-harness.html?live=1`, {
+      waitUntil: "domcontentloaded",
+      timeout: 15000
+    });
+    await page.waitForSelector(".insights-root", { timeout: 8000 });
+    const statusIs = (n) =>
+      page.waitForFunction(
+        (want) => {
+          const e = document.querySelector("[data-status]");
+          return !!e && e.textContent.indexOf("Live · " + want + " events") === 0;
+        },
+        n,
+        { timeout: 30000 }
+      );
+    const row = (i) => ({
+      type: "turn",
+      iso: new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(),
+      usage: i % 2 ? { model: "opus", in: 1000, out: 1000 } : { model: "haiku", in: 2000, out: 500 }
+    });
+    await statusIs(1); // the one history event
+
+    // a few rows: the picker lists the live session next to the history one, same nodes after more rows
+    await page.evaluate(
+      (rows) => {
+        rows.forEach((r) => window.__insightsHandle.addLiveRow(r));
+      },
+      [row(0), row(1), row(2)]
+    );
+    await statusIs(4);
+    await page.selectOption(".insights-session", "live-session");
+    await page.evaluate(() => {
+      const sel = document.querySelector(".insights-session");
+      window.__opts = Array.from(sel.options);
+    });
+    await page.evaluate(
+      (rows) => {
+        rows.forEach((r) => window.__insightsHandle.addLiveRow(r));
+      },
+      [row(3), row(4)]
+    );
+    await statusIs(6);
+    const kept = await page.evaluate(() => {
+      const sel = document.querySelector(".insights-session");
+      const now = Array.from(sel.options);
+      return {
+        sameNodes:
+          now.length === window.__opts.length && now.every((o, i) => o === window.__opts[i]),
+        texts: now.map((o) => o.textContent)
+      };
+    });
+    if (!kept.sameNodes) errors.push("live rows: the picker was rewritten with its ids unchanged");
+    if (kept.texts.join("|") !== "hist-1|Live session")
+      errors.push("live rows: picker options: " + JSON.stringify(kept.texts));
+
+    // the live session (picked by default: it is the newest): a note, no suggestions, no what-if
+    const picked = await page.evaluate(() => document.querySelector(".insights-session").value);
+    if (picked !== "live-session") errors.push("live rows: session value " + picked);
+    const notes = () =>
+      page.evaluate(() => ({
+        sg: Array.from(
+          document.querySelectorAll('[data-panel="suggestions"] [data-live-unavailable]')
+        ).map((e) => e.textContent.trim()),
+        wi: Array.from(
+          document.querySelectorAll('[data-panel="whatif"] [data-live-unavailable]')
+        ).map((e) => e.textContent.trim()),
+        sgRows: document.querySelectorAll(".insights-suggest-row, [data-suggestions-copy]").length,
+        wiRows: document.querySelectorAll("[data-whatif-list], .insights-whatif-row").length
+      }));
+    const n0 = await notes();
+    if (n0.sg.join() !== NOTE || n0.wi.join() !== NOTE || n0.sgRows !== 0 || n0.wiRows !== 0)
+      errors.push("live rows: live session panels: " + JSON.stringify(n0));
+
+    // the older session: Suggestions and What-if as they always were
+    await page.selectOption(".insights-session", "hist-1");
+    await page.waitForSelector('[data-suggestions-list] [data-agent-id="hist-helper"]', {
+      state: "attached",
+      timeout: 10000
+    });
+    const n1 = await notes();
+    if (n1.sg.length || n1.wi.length || n1.wiRows < 4)
+      errors.push("live rows: history session panels: " + JSON.stringify(n1));
+    await page.selectOption(".insights-session", "live-session");
+    await page.waitForSelector('[data-panel="whatif"] [data-live-unavailable]', {
+      state: "attached",
+      timeout: 10000
+    });
+
+    // far more rows than the old cap: the Forecast is the sum of every row, the page holds totals
+    const result = await page.evaluate(
+      (mk) => {
+        const h = window.__insightsHandle;
+        const total = 25000;
+        const events = [
+          { type: "turn", model: "opus", inputTokens: 5000, outputTokens: 500 } // the history event
+        ];
+        for (let i = 5; i < total; i++) {
+          const u = i % 2 ? mk.opus : mk.haiku;
+          h.addLiveRow({
+            type: "turn",
+            iso: new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(),
+            usage: u
+          });
+        }
+        for (let i = 0; i < total; i++) {
+          const u = i % 2 ? mk.opus : mk.haiku;
+          events.push({ type: "turn", model: u.model, inputTokens: u.in, outputTokens: u.out });
+        }
+        return { total, expected: window.Insights.analyze.totalCost(events) };
+      },
+      {
+        opus: { model: "opus", in: 1000, out: 1000 },
+        haiku: { model: "haiku", in: 2000, out: 500 }
+      }
+    );
+    await statusIs(result.total + 1);
+    await page
+      .waitForFunction(
+        (want) => document.querySelector("[data-forecast-spend]").textContent === want,
+        "$" + result.expected.toFixed(2),
+        { timeout: 30000 }
+      )
+      .catch(() => {}); // the comparison below names the figures
+    const spend = await page.textContent("[data-forecast-spend]");
+    if (spend !== "$" + result.expected.toFixed(2))
+      errors.push(
+        `live rows: Forecast ${spend}, the sum of every row is $${result.expected.toFixed(2)}`
+      );
+    const state = await page.evaluate(() => window.__insightsHandle.__testLiveState());
+    if (state.rows !== result.total) errors.push("live rows: rows counted " + state.rows);
+    if (state.models !== 2) errors.push("live rows: totals held for " + state.models + " models");
+
+    // a reset forgets them
+    await page.evaluate(() => window.__insightsHandle.clearLiveRows());
+    await statusIs(1);
+    const after = await page.evaluate(() => ({
+      sel: document.querySelector(".insights-session").value,
+      held: window.__insightsHandle.__testLiveState()
+    }));
+    if (after.sel !== "hist-1" || after.held.rows !== 0 || after.held.models !== 0)
+      errors.push("live rows: after clearLiveRows: " + JSON.stringify(after));
+  } finally {
+    await page.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+  if (failedRequests.length) {
+    errors.push("failed requests:\n  " + failedRequests.join("\n  "));
+  }
+  return errors;
+}
+
 async function main() {
   const all = assertFixtureOnDisk().map((e) => "[fixture] " + e);
   if (all.length) {
@@ -651,6 +875,8 @@ async function main() {
   try {
     all.push(...(await smokeFile(browser)).map((e) => "[demo file] " + e));
     all.push(...(await smokeHttp(browser)).map((e) => "[demo http] " + e));
+    all.push(...(await smokeEmptySuggestions(browser)).map((e) => "[empty http] " + e));
+    all.push(...(await smokeLiveRows(browser)).map((e) => "[live rows] " + e));
   } finally {
     await browser.close();
   }

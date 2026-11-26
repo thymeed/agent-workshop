@@ -65,6 +65,8 @@
   var dayStats = emptyDayStats();
   /* A Claude Code replay owns the stage: today's counters and role clocks stay as they were. */
   var replaying = false;
+  /** Subagents that arrived as Claude Code catch-up (a replay-marked row): never today's Runs. */
+  var backfillSubs = 0;
   var replayingSince = 0;
   var dailyMode = "demo";
   var demoFixtureApplied = false;
@@ -781,10 +783,17 @@
   function syncLiveSubs(subs) {
     if (dailyMode !== "live" || replaying) return;
     var n = Math.max(0, Number(subs) || 0);
+    if (n === 0) backfillSubs = 0;
+    n = Math.max(0, n - backfillSubs);
     if (n > dayStats.runs) {
       dayStats.runs = n;
       renderDailyStats();
     }
+  }
+
+  /** The next subagent counted by syncLiveSubs came from catch-up: leave it out of Runs. */
+  function absorbBackfillSub() {
+    if (dailyMode === "live" && !replaying) backfillSubs += 1;
   }
 
   /**
@@ -959,6 +968,7 @@
     recordRun: recordRun,
     recordLiveSession: recordLiveSession,
     syncLiveSubs: syncLiveSubs,
+    absorbBackfillSub: absorbBackfillSub,
     setReplaying: setReplaying,
     renderDailyStats: renderDailyStats,
     applyDemoFixtures: applyDemoFixtures,

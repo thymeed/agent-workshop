@@ -40,8 +40,8 @@ function makeEl(tag) {
     contains(other) {
       return el === other || el.children.includes(other);
     },
-    querySelector() {
-      return null;
+    querySelector(sel) {
+      return el.found && el.found[sel] ? el.found[sel] : null;
     },
     appendChild(c) {
       el.children.push(c);
@@ -97,7 +97,11 @@ function load(store) {
     document: {
       getElementById: () => null,
       activeElement: null,
-      body: makeEl("body")
+      body: makeEl("body"),
+      docListeners: {},
+      addEventListener(type, fn) {
+        (this.docListeners[type] = this.docListeners[type] || []).push(fn);
+      }
     }
   };
   vm.createContext(sandbox);
@@ -231,6 +235,7 @@ test("bindViewModeButton switches the view on click", () => {
 test("updateHistoryHint toggles its copy", () => {
   const t = load();
   t.init();
+  t.mod.setViewMode("history");
   t.mod.updateHistoryHint(true);
   assert.match(t.el.historyHint.textContent, /driving/);
   t.mod.updateHistoryHint(false);
@@ -374,4 +379,285 @@ test("onHistoryLeave runs on every non-History view, never on History", () => {
   t.mod.setViewMode("history");
   t.mod.setViewMode("stage");
   assert.equal(left, 2, "Stage leaves History");
+});
+
+test("a History drawer opened from Stage or Insights lists sessions; closing does not", () => {
+  let opened = 0;
+  const t = load();
+  t.init({ onHistoryOpen: () => (opened += 1) });
+  /* The summary opens the drawer directly; the toggle event follows. */
+  t.drawers.drawerHistory.open = true;
+  t.drawers.drawerHistory.listeners.toggle.forEach((fn) => fn());
+  assert.equal(t.mod.getMode(), "stage", "the view stays on Stage");
+  assert.equal(opened, 1, "a drawer opened from Stage calls onHistoryOpen");
+  t.drawers.drawerHistory.open = false;
+  t.drawers.drawerHistory.listeners.toggle.forEach((fn) => fn());
+  assert.equal(opened, 1, "closing the drawer does not call onHistoryOpen");
+});
+
+test("entering History through the view lists sessions once, not twice", () => {
+  let opened = 0;
+  const t = load();
+  t.init({ onHistoryOpen: () => (opened += 1) });
+  t.mod.setViewMode("history");
+  t.drawers.drawerHistory.listeners.toggle.forEach((fn) => fn());
+  assert.equal(opened, 1, "the view call alone; the toggle does not repeat it");
+});
+
+/** A load() whose document serves a replay host and whose panel records mountReplay. */
+function loadWithHost(available) {
+  const t = load();
+  const host = makeEl();
+  host.scrollIntoView = () => {
+    t.scrolls += 1;
+  };
+  t.scrolls = 0;
+  t.mounts = 0;
+  t.sandbox.document.getElementById = (id) => (id === "historyReplayHost" ? host : null);
+  const panel = {
+    mountReplay: () => (t.mounts += 1),
+    showTab() {},
+    pause() {}
+  };
+  t.state = { available, opened: 0, left: 0 };
+  t.init({
+    getInsightsPanel: () => panel,
+    drawerReplayAvailable: () => t.state.available,
+    onHistoryOpen: () => {
+      t.state.opened += 1;
+      /* Listing sessions can drop a replay, which repaints the transport and drops focus. */
+      if (t.state.dropFocusOnOpen) t.sandbox.document.activeElement = t.sandbox.document.body;
+    },
+    onHistoryLeave: () => (t.state.left += 1)
+  });
+  return t;
+}
+
+const toggle = (t) => t.drawers.drawerHistory.listeners.toggle.forEach((fn) => fn());
+
+test("isHistoryOpen is true for the History view and for an open drawer on any view", () => {
+  const t = load();
+  t.init();
+  assert.equal(t.mod.isHistoryOpen(), false, "Stage with the drawer closed");
+  t.drawers.drawerHistory.open = true;
+  assert.equal(t.mod.getMode(), "stage");
+  assert.equal(t.mod.isHistoryOpen(), true, "Stage with the drawer open");
+  t.mod.setViewMode("insights");
+  t.drawers.drawerHistory.open = true;
+  assert.equal(t.mod.isHistoryOpen(), true, "Insights with the drawer open");
+  t.drawers.drawerHistory.open = false;
+  assert.equal(t.mod.isHistoryOpen(), false, "Insights with the drawer closed");
+  t.mod.setViewMode("history");
+  t.drawers.drawerHistory.open = false;
+  assert.equal(t.mod.isHistoryOpen(), true, "the History view counts as open");
+});
+
+test("a drawer opened from Stage mounts the shared transport without scrolling when it can replay", () => {
+  const t = loadWithHost(true);
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  assert.equal(t.mod.getMode(), "stage");
+  assert.equal(t.state.opened, 1, "sessions are listed");
+  assert.equal(t.mounts, 1, "the shared transport is mounted into the host");
+  assert.equal(t.scrolls, 0, "the page is not scrolled");
+  assert.match(t.el.historyHint.textContent, /Pick a session/);
+  assert.doesNotMatch(t.el.historyHint.textContent, /driving/);
+});
+
+test("a drawer opened from Stage mounts nothing where no session can be replayed", () => {
+  const t = loadWithHost(false);
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  assert.equal(t.mounts, 0, "Cursor and Demo keep their old behavior");
+  assert.equal(t.el.historyHint.textContent, "Open the History tab to replay sessions.");
+});
+
+test("closing the drawer outside the History view hands the stage back; in History it does not", () => {
+  const t = loadWithHost(true);
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  const leftBefore = t.state.left;
+  t.drawers.drawerHistory.open = false;
+  toggle(t);
+  assert.equal(t.state.left, leftBefore + 1, "the stage is released");
+  t.mod.setViewMode("history");
+  const leftInHistory = t.state.left;
+  t.drawers.drawerHistory.open = false;
+  toggle(t);
+  assert.equal(t.state.left, leftInHistory, "History view: closing the sheet leaves the replay");
+});
+
+test("the History view still scrolls to Play when it mounts the transport", () => {
+  const t = loadWithHost(true);
+  t.mod.setViewMode("history");
+  assert.ok(t.mounts >= 1);
+  assert.ok(t.scrolls >= 1, "History keeps its scroll");
+});
+
+test("a mode or source change mounts the transport for a drawer that is already open", () => {
+  const t = loadWithHost(false);
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  assert.equal(t.mounts, 0);
+  t.state.available = true;
+  t.mod.syncHistoryAllowed();
+  assert.equal(t.mounts, 1, "now replayable: mounted");
+  assert.match(t.el.historyHint.textContent, /Pick a session/);
+});
+
+test("the hint is not rewritten when the words do not change", () => {
+  const t = load();
+  let writes = 0;
+  let text = "";
+  Object.defineProperty(t.el.historyHint, "textContent", {
+    get: () => text,
+    set: (v) => {
+      writes += 1;
+      text = v;
+    }
+  });
+  t.init();
+  t.mod.setViewMode("history");
+  const before = writes;
+  t.mod.updateHistoryHint(false);
+  t.mod.updateHistoryHint(false);
+  t.mod.setViewMode("history");
+  assert.equal(writes, before, "same state, same text: no write to the live region");
+  t.mod.updateHistoryHint(true);
+  assert.equal(writes, before + 1, "a changed state still writes");
+  assert.equal(text, "Replay driving stage");
+});
+
+test("every History hint is a single sentence", () => {
+  const t = loadWithHost(true);
+  const seen = [];
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  seen.push(t.el.historyHint.textContent);
+  t.state.available = false;
+  t.mod.syncHistoryAllowed();
+  seen.push(t.el.historyHint.textContent);
+  t.mod.setViewMode("history");
+  seen.push(t.el.historyHint.textContent);
+  assert.equal(seen.length, 3);
+  for (const h of seen) {
+    assert.equal(h.split(/[.!?](s|$)/).filter((x) => x.trim() && !/^s*$/.test(x)).length, 1, h);
+  }
+});
+
+test("a remount keeps focus on the same transport control, else moves it to the summary", () => {
+  const t = loadWithHost(true);
+  const host = t.sandbox.document.getElementById("historyReplayHost");
+  const summary = makeEl("summary");
+  t.drawers.drawerHistory.found = { summary };
+  const oldPlay = makeEl("button");
+  oldPlay.attrs["data-replay-play"] = "";
+  host.children.push(oldPlay);
+  const newPlay = makeEl("button");
+  host.found = { "[data-replay-play]": newPlay };
+  t.sandbox.document.activeElement = oldPlay;
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  assert.equal(newPlay.focused, true, "the repainted Play button takes focus");
+  assert.equal(summary.focused, false);
+  /* The control is gone after the repaint: the summary gets it. */
+  host.found = {};
+  t.sandbox.document.activeElement = oldPlay;
+  toggle(t);
+  assert.equal(summary.focused, true, "no matching control: the drawer trigger");
+});
+
+test("focus on a transport control survives the session listing repainting it", () => {
+  const t = loadWithHost(true);
+  t.state.dropFocusOnOpen = true;
+  const host = t.sandbox.document.getElementById("historyReplayHost");
+  const summary = makeEl("summary");
+  t.drawers.drawerHistory.found = { summary };
+  const oldPlay = makeEl("button");
+  oldPlay.attrs["data-replay-play"] = "";
+  host.children.push(oldPlay);
+  const newPlay = makeEl("button");
+  host.found = { "[data-replay-play]": newPlay };
+  t.sandbox.document.activeElement = oldPlay;
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  assert.equal(t.state.opened, 1);
+  assert.equal(newPlay.focused, true, "focus noted before the listing, restored after the mount");
+});
+
+test("a remount never steals focus from outside the transport", () => {
+  const t = loadWithHost(true);
+  const host = t.sandbox.document.getElementById("historyReplayHost");
+  const summary = makeEl("summary");
+  t.drawers.drawerHistory.found = { summary };
+  const play = makeEl("button");
+  host.found = { "[data-replay-play]": play };
+  const other = makeEl("button");
+  t.sandbox.document.activeElement = other;
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  t.sandbox.document.activeElement = t.sandbox.document.body;
+  toggle(t);
+  assert.equal(play.focused, false);
+  assert.equal(summary.focused, false);
+  assert.equal(other.focused, false);
+});
+
+test("closing the drawer outside History moves focus from inside it to the summary", () => {
+  const t = loadWithHost(true);
+  const summary = makeEl("summary");
+  const select = makeEl("select");
+  t.drawers.drawerHistory.found = { summary };
+  t.drawers.drawerHistory.children.push(select);
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  /* Focus still inside when the toggle runs. */
+  t.sandbox.document.activeElement = select;
+  t.drawers.drawerHistory.open = false;
+  toggle(t);
+  assert.equal(summary.focused, true, "focus inside the closed drawer goes to the summary");
+});
+
+test("closing the drawer after focus already dropped to the body still rescues it", () => {
+  const t = loadWithHost(true);
+  const summary = makeEl("summary");
+  const select = makeEl("select");
+  t.drawers.drawerHistory.found = { summary };
+  t.drawers.drawerHistory.children.push(select);
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  const doc = t.sandbox.document;
+  doc.docListeners.focusin.forEach((fn) => fn({ target: select }));
+  doc.activeElement = doc.body; // the browser blurred it when the content was hidden
+  t.drawers.drawerHistory.open = false;
+  doc.docListeners.focusout.forEach((fn) => fn({ target: select, relatedTarget: null }));
+  toggle(t);
+  assert.equal(summary.focused, true, "the last focus was in the drawer");
+});
+
+test("closing the drawer leaves focus alone when it was elsewhere", () => {
+  const t = loadWithHost(true);
+  const summary = makeEl("summary");
+  const select = makeEl("select");
+  const outside = makeEl("button");
+  t.drawers.drawerHistory.found = { summary };
+  t.drawers.drawerHistory.children.push(select);
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  const doc = t.sandbox.document;
+  doc.docListeners.focusin.forEach((fn) => fn({ target: select }));
+  doc.docListeners.focusin.forEach((fn) => fn({ target: outside }));
+  doc.activeElement = outside;
+  t.drawers.drawerHistory.open = false;
+  toggle(t);
+  assert.equal(summary.focused, false, "focus moved elsewhere first: not stolen");
+  /* A click on blank page while the drawer is open also clears the memory. */
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  doc.docListeners.focusin.forEach((fn) => fn({ target: select }));
+  doc.activeElement = doc.body;
+  doc.docListeners.focusout.forEach((fn) => fn({ target: select, relatedTarget: null }));
+  t.drawers.drawerHistory.open = false;
+  toggle(t);
+  assert.equal(summary.focused, false, "blank-page click while open: not stolen");
 });
