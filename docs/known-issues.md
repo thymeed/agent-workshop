@@ -280,7 +280,7 @@ Claude Code source (known limits, found while building it; none of them is a cra
 
 41. **A crate in flight when a Claude Code replay starts does not come back.** Leaving the replay restores the stationary state (characters, active roles, calls, Bill, log, cards; today's counters are frozen during the replay, not restored) but not the transient crates, route tokens or sparks that the replay's own reset clears. One that was mid-flight is gone for good; the reset at the start would have removed it anyway.
 
-42. **Insights Suggestions and What-if are not available for a live Claude Code session.** The sheets show "Not available for live sessions yet." there; the session picker, the event count and the Forecast (which equals the Bill) work. Per-agent pricing from the usage rows is planned. An older session loaded from history keeps both sheets.
+42. **Live Claude Code Suggestions and What-if are list-price estimates from the usage rows.** They used to show "Not available for live sessions yet."; they now render from per-agent totals (one agent per wire `source`, one row per model it ran). Cache tokens are not priced (as in the Bill, item 17), Auto is never suggested and there is no All Auto scenario there. The Suggestions honesty line says "Does not change Claude Code routing" on the live Claude Code session and on the Claude Code source before its first row (app.js `setClaudeCodeSource`); Demo, Cursor and history-loaded sessions keep the Cursor wording.
 
 ## Verified as non-issues
 

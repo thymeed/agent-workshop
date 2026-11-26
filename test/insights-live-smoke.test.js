@@ -3,7 +3,8 @@
  * Code home and a real Chromium. The Insights session picker shows the live session (not "No
  * sessions") with its real event count, which grows by exactly one per appended row; the
  * Forecast spend is the Bill's figure (same cost function, same formatting); the spend pace
- * text says "No spend pace yet" only while nothing is spent; a History replay of an older
+ * text says "No spend pace yet" only while nothing is spent; Suggestions and What-if render for
+ * the live session (no Auto, What-if "As run" equals the Bill); a History replay of an older
  * session is not mixed into the live session's numbers; and today's Runs counts subagent
  * spawns that arrive after the live edge (and not the catch-up, and not a finish).
  * Browser profile, planted home and event log live under .scratch/test-tmp (never system temp).
@@ -80,20 +81,19 @@ const read = (page) =>
     const panels = () => {
       const sg = document.querySelector('#drawerInsights [data-panel="suggestions"]');
       const wi = document.querySelector('#drawerInsights [data-panel="whatif"]');
-      const note = (p) => {
-        const n = p && p.querySelector("[data-live-unavailable]");
-        return n ? n.textContent.trim() : null;
-      };
+      const rows = wi ? Array.from(wi.querySelectorAll(".insights-whatif-row")) : [];
       return {
-        sgNote: note(sg),
-        sgRows: sg
-          ? sg.querySelectorAll(".insights-suggest-row, [data-suggestions-copy]").length
-          : -1,
-        sgOther: sg
+        notes: document.querySelectorAll("#drawerInsights [data-live-unavailable]").length,
+        sgShown: sg
           ? sg.querySelectorAll(".insights-suggest-hero, [data-suggestions-empty]").length
           : -1,
-        wiNote: note(wi),
-        wiRows: wi ? wi.querySelectorAll("[data-whatif-list], .insights-whatif-row").length : -1
+        sgAuto: sg
+          ? Array.from(sg.querySelectorAll(".insights-badge.to")).filter((b) =>
+              /auto/i.test(b.textContent)
+            ).length
+          : -1,
+        wiLabels: rows.map((r) => r.querySelector("span").textContent.trim()),
+        asRun: rows.length ? rows[0].querySelector("strong").textContent.trim() : null
       };
     };
     const t = (sel) => {
@@ -115,15 +115,18 @@ const read = (page) =>
     };
   });
 
-/** A live session has no Suggestions and no What-if: a note stands where they were. */
-const NOTE = "Not available for live sessions yet.";
+/**
+ * A live session gets Suggestions and What-if from its agents: no "not available" note, never an
+ * Auto suggestion or an All Auto scenario, and What-if "As run" is the Bill's figure.
+ */
 const perAgentProblems = (s, where) => {
   const out = [];
-  if (s.sgNote !== NOTE) out.push(`(${where}) suggestions note: ${JSON.stringify(s.sgNote)}`);
-  if (s.wiNote !== NOTE) out.push(`(${where}) what-if note: ${JSON.stringify(s.wiNote)}`);
-  if (s.sgRows !== 0 || s.sgOther !== 0)
-    out.push(`(${where}) suggestions still rendered: ${JSON.stringify(s)}`);
-  if (s.wiRows !== 0) out.push(`(${where}) what-if still rendered: ${JSON.stringify(s)}`);
+  if (s.notes !== 0) out.push(`(${where}) a "not available" note is shown: ${JSON.stringify(s)}`);
+  if (s.sgShown !== 1) out.push(`(${where}) suggestions not rendered: ${JSON.stringify(s)}`);
+  if (s.sgAuto !== 0) out.push(`(${where}) an Auto suggestion: ${JSON.stringify(s)}`);
+  if (s.wiLabels[0] !== "As run" || s.wiLabels.length !== 4 || s.wiLabels.includes("All Auto"))
+    out.push(`(${where}) what-if scenarios: ${JSON.stringify(s.wiLabels)}`);
+  if (s.asRun !== s.bill) out.push(`(${where}) What-if As run ${s.asRun}, Bill ${s.bill}`);
   return out;
 };
 
@@ -377,6 +380,7 @@ async function main() {
     if (b0.forecast !== b0.bill) fail("(backfill) forecast and Bill differ: " + JSON.stringify(b0));
     if (b0.forecast !== "$0.18") fail("(backfill) forecast: " + b0.forecast);
     if (b0.selText !== "Live session") fail("(backfill) picker: " + b0.selText);
+    perAgentProblems(b0, "backfill").forEach(fail);
     // a row after the live edge that the connect backlog hands over counts like its tokens do
     if (b0.runs !== 1) fail("(backfill) Runs from the connect backlog: " + b0.runs);
     await page2.close();
@@ -420,6 +424,26 @@ async function main() {
     );
     const n0 = await read(page3);
     if (n0.forecast !== n0.bill) fail("(reset) forecast and Bill differ: " + JSON.stringify(n0));
+    perAgentProblems(n0, "reset, new session").forEach(fail);
+
+    // ---- the honesty line follows the source: app.js tells Insights on a mode change ----
+    const honesty = () =>
+      page3.evaluate(() => ({
+        claude: window.__cursorAgentsDashTest.insightsLiveState().claudeSource,
+        text: Array.from(document.querySelectorAll("#drawerInsights [data-suggestions-honesty]"))
+          .map((e) => e.textContent + " | " + e.getAttribute("data-tip-detail"))
+          .join(" / ")
+      }));
+    const h0 = await honesty();
+    if (h0.claude !== true || !/Claude Code routing/.test(h0.text) || /Cursor/.test(h0.text))
+      fail("(honesty) Live on Claude Code: " + JSON.stringify(h0));
+    await page3.click("#modeDemo");
+    await waitFor(
+      page3,
+      () => window.__cursorAgentsDashTest.insightsLiveState().claudeSource === false,
+      null,
+      "Insights to hear the switch to Demo"
+    );
     await page3.close();
   } finally {
     try {

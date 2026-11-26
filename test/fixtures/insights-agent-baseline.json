@@ -1,0 +1,164 @@
+{
+  "nobill": {
+    "suggestions": [
+      {
+        "agentId": "agent-worker",
+        "name": "Worker",
+        "model": "opus",
+        "suggestion": "auto",
+        "reason": "Non-parent Opus on a small edit. Auto is a plausible fit.",
+        "actualCost": 0.268,
+        "altCost": 0.067,
+        "savings": 0.201
+      },
+      {
+        "agentId": "agent-advisor",
+        "name": "Advisor",
+        "model": "fable",
+        "suggestion": "sonnet",
+        "reason": "Light edit volume. Sonnet or Auto could cover this.",
+        "actualCost": 0.248,
+        "altCost": 0.062,
+        "savings": 0.186
+      },
+      {
+        "agentId": "agent-scan",
+        "name": "File scan",
+        "model": "fable",
+        "suggestion": "haiku",
+        "reason": "Lookup-style agent on Fable. Haiku is enough for file scans.",
+        "actualCost": 0.08,
+        "altCost": 0.001,
+        "savings": 0.079
+      },
+      {
+        "agentId": "agent-parent-2",
+        "name": "Parent",
+        "model": "opus",
+        "suggestion": "auto",
+        "reason": "Short parent turn. Auto could have handled planning lightly.",
+        "actualCost": 0.07799999999999999,
+        "altCost": 0.019499999999999997,
+        "savings": 0.05849999999999999
+      },
+      {
+        "agentId": "agent-researcher",
+        "name": "Researcher",
+        "model": "sonnet",
+        "suggestion": "haiku",
+        "reason": "Mostly input tokens, tiny output. Haiku is enough.",
+        "actualCost": 0.028999999999999998,
+        "altCost": 0.00145,
+        "savings": 0.027549999999999998
+      }
+    ],
+    "whatIf": [
+      {
+        "id": "actual",
+        "label": "As run",
+        "cost": 1.036
+      },
+      {
+        "id": "all-auto",
+        "label": "All Auto",
+        "cost": 0.7225
+      },
+      {
+        "id": "all-haiku",
+        "label": "All Haiku",
+        "cost": 0.07225
+      },
+      {
+        "id": "cheap-children",
+        "label": "Lead as run (Opus) · children Haiku",
+        "cost": 0.42325
+      },
+      {
+        "id": "suggested",
+        "label": "Apply suggestions",
+        "cost": 0.48395000000000005
+      }
+    ]
+  },
+  "bill": {
+    "suggestions": [
+      {
+        "agentId": "agent-worker",
+        "name": "Worker",
+        "model": "opus",
+        "suggestion": "auto",
+        "reason": "Non-parent Opus on a small edit. Auto is a plausible fit.",
+        "actualCost": 0.268,
+        "altCost": 0.067,
+        "savings": 0.201
+      },
+      {
+        "agentId": "agent-advisor",
+        "name": "Advisor",
+        "model": "fable",
+        "suggestion": "sonnet",
+        "reason": "Light edit volume. Sonnet or Auto could cover this.",
+        "actualCost": 0.248,
+        "altCost": 0.062,
+        "savings": 0.186
+      },
+      {
+        "agentId": "agent-scan",
+        "name": "File scan",
+        "model": "fable",
+        "suggestion": "haiku",
+        "reason": "Lookup-style agent on Fable. Haiku is enough for file scans.",
+        "actualCost": 0.08,
+        "altCost": 0.001,
+        "savings": 0.079
+      },
+      {
+        "agentId": "agent-parent-2",
+        "name": "Parent",
+        "model": "opus",
+        "suggestion": "auto",
+        "reason": "Short parent turn. Auto could have handled planning lightly.",
+        "actualCost": 0.07799999999999999,
+        "altCost": 0.019499999999999997,
+        "savings": 0.05849999999999999
+      },
+      {
+        "agentId": "agent-researcher",
+        "name": "Researcher",
+        "model": "sonnet",
+        "suggestion": "haiku",
+        "reason": "Mostly input tokens, tiny output. Haiku is enough.",
+        "actualCost": 0.028999999999999998,
+        "altCost": 0.00145,
+        "savings": 0.027549999999999998
+      }
+    ],
+    "whatIf": [
+      {
+        "id": "actual",
+        "label": "As run",
+        "cost": 1.036
+      },
+      {
+        "id": "all-auto",
+        "label": "All Auto",
+        "cost": 0.7225
+      },
+      {
+        "id": "all-haiku",
+        "label": "All Haiku",
+        "cost": 0.07225
+      },
+      {
+        "id": "cheap-children",
+        "label": "Lead as run (Opus) · children Haiku",
+        "cost": 0.42325
+      },
+      {
+        "id": "suggested",
+        "label": "Apply suggestions",
+        "cost": 0.48395000000000005
+      }
+    ]
+  }
+}

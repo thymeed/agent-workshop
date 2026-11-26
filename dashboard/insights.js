@@ -336,9 +336,17 @@
     return (Math.max(0, inn || 0) / 1e6) * rates.in + (Math.max(0, out || 0) / 1e6) * rates.out;
   }
 
+  /**
+   * Money as the Bill shows it (bill-math.js formatMoney: three decimals below a cent), so every
+   * Insights figure renders like the Bill. Values are stored and summed at full precision; only
+   * this rounds. Without bill-math (the test harness) the same rule runs locally.
+   */
   function formatMoney(n) {
     if (!isFinite(n)) return "$n/a";
-    if (n < 0.01 && n > 0) return "$" + n.toFixed(4);
+    var bm = global.WorkshopBillMath;
+    if (bm && typeof bm.formatMoney === "function") return bm.formatMoney(n);
+    if (n < 0) n = 0;
+    if (n > 0 && n < 0.01) return "$" + n.toFixed(3);
     return "$" + n.toFixed(2);
   }
 
@@ -494,17 +502,29 @@
     });
   }
 
-  function routingSuggestions(events) {
-    var agents = agentSummaries(events).filter(function (a) {
+  /** Files an agent touched: a path list (event agents) or a bare count (live ledger agents). */
+  function fileCountOf(a) {
+    return typeof a.fileCount === "number" ? a.fileCount : (a.files || []).length;
+  }
+
+  /**
+   * Suggestions from agent summaries (agentSummaries() or the live ledger's agents()).
+   * opts.allowAuto === false never suggests the `auto` model (Claude Code has no Auto): the
+   * two Auto-only rules are skipped and the reasons do not name Auto.
+   */
+  function suggestionsFromAgents(agentList, opts) {
+    var allowAuto = !opts || opts.allowAuto !== false;
+    var agents = (agentList || []).filter(function (a) {
       return a.done || a.types.turn;
     });
     var out = [];
     agents.forEach(function (a) {
       var model = a.model;
       var cost = costFor(model, a.inputTokens, a.outputTokens);
-      var readHeavy = a.files.length >= 1 && a.outputTokens < a.inputTokens * 0.15;
+      var files = fileCountOf(a);
+      var readHeavy = files >= 1 && a.outputTokens < a.inputTokens * 0.15;
       var lightEdit =
-        a.files.length <= 2 && a.inputTokens + a.outputTokens < 40000 && a.outputTokens < 12000;
+        files <= 2 && a.inputTokens + a.outputTokens < 40000 && a.outputTokens < 12000;
       var lookUpOnly = /scan|explor|research|read|search/i.test(a.name || "");
       var suggestion = null;
       var reason = "";
@@ -515,23 +535,35 @@
           ? "Lookup-style agent on Fable. Haiku is enough for file scans."
           : readHeavy
             ? "Read-heavy turns with little output. A cheaper model fits."
-            : "Light edit volume. Sonnet or Auto could cover this.";
+            : allowAuto
+              ? "Light edit volume. Sonnet or Auto could cover this."
+              : "Light edit volume. Sonnet could cover this.";
       } else if (model === "opus" && a.parentId && (lightEdit || readHeavy)) {
-        suggestion = readHeavy ? "haiku" : "auto";
-        reason = readHeavy
-          ? "Child agent mostly reading. Haiku or Auto instead of Opus."
-          : "Non-parent Opus on a small edit. Auto is a plausible fit.";
+        if (readHeavy || allowAuto) {
+          suggestion = readHeavy ? "haiku" : "auto";
+          reason = readHeavy
+            ? allowAuto
+              ? "Child agent mostly reading. Haiku or Auto instead of Opus."
+              : "Child agent mostly reading. Haiku instead of Opus."
+            : "Non-parent Opus on a small edit. Auto is a plausible fit.";
+        }
       } else if (model === "sonnet" && readHeavy && a.outputTokens < 2000) {
         suggestion = "haiku";
         reason = "Mostly input tokens, tiny output. Haiku is enough.";
-      } else if (model === "opus" && !a.parentId && lightEdit && a.inputTokens < 12000) {
+      } else if (
+        allowAuto &&
+        model === "opus" &&
+        !a.parentId &&
+        lightEdit &&
+        a.inputTokens < 12000
+      ) {
         suggestion = "auto";
         reason = "Short parent turn. Auto could have handled planning lightly.";
       }
 
       if (suggestion && suggestion !== model) {
         var altCost = costFor(suggestion, a.inputTokens, a.outputTokens);
-        out.push({
+        var item = {
           agentId: a.agentId,
           name: a.name,
           model: model,
@@ -540,7 +572,10 @@
           actualCost: cost,
           altCost: altCost,
           savings: Math.max(0, cost - altCost)
-        });
+        };
+        /* Live ledger agents carry their wire role (the stage jump needs it); event agents do not. */
+        if (a.role) item.role = a.role;
+        out.push(item);
       }
     });
     out.sort(function (a, b) {
@@ -551,24 +586,80 @@
     return out;
   }
 
-  function whatIfScenarios(events) {
-    var actual = totalCost(events);
-    var agents = agentSummaries(events);
+  function routingSuggestions(events) {
+    return suggestionsFromAgents(agentSummaries(events));
+  }
+
+  /** Price buckets in the Bill's order (sessionCostTotal), then Insights' extra `auto`. */
+  var BILL_ORDER = ["opus", "fable", "sonnet", "haiku", "auto"];
+
+  /**
+   * Cost of per-model token totals ({ model: { in, out } }), summed bucket by bucket in the
+   * Bill's order, so it equals the Bill's sessionCostTotal of the same totals exactly.
+   */
+  function bucketsCost(buckets) {
+    var b = buckets || {};
+    return BILL_ORDER.reduce(function (sum, key) {
+      var t = b[key];
+      return t ? sum + costFor(key, Number(t.in) || 0, Number(t.out) || 0) : sum;
+    }, 0);
+  }
+
+  /**
+   * Label of the "children Haiku" scenario, which keeps the Lead (agents with no parentId) at its
+   * real as-run model(s). It names that model only when every Lead agent with tokens ran on one
+   * model and it is not Auto (Auto is Cursor's router, not one model); otherwise it names none.
+   */
+  function cheapChildrenLabel(agents) {
+    var models = [];
+    agents.forEach(function (a) {
+      if (a.parentId || !((a.inputTokens || 0) + (a.outputTokens || 0) > 0)) return;
+      var m = normalizeModel(a.model);
+      if (models.indexOf(m) < 0) models.push(m);
+    });
+    return models.length === 1 && models[0] !== "auto"
+      ? "Lead as run (" + capitalize(models[0]) + ") · children Haiku"
+      : "Lead as run · children Haiku";
+  }
+
+  /**
+   * What-if scenarios from agent summaries. `actual` is the "As run" cost the caller computed.
+   * opts.allowAuto === false omits "All Auto" and never applies an Auto suggestion.
+   * opts.billOrder prices every scenario per model bucket in the Bill's order (bucketsCost),
+   * so a scenario that moves no tokens returns exactly `actual` when `actual` came from
+   * bucketsCost of the same agents.
+   */
+  function whatIfFromAgents(agentList, actual, opts) {
+    var allowAuto = !opts || opts.allowAuto !== false;
+    var billOrder = !!(opts && opts.billOrder);
+    var agents = agentList || [];
     function remapCost(mapper) {
+      if (billOrder) {
+        var buckets = {};
+        agents.forEach(function (a) {
+          var m = normalizeModel(mapper(a));
+          var t = buckets[m] || (buckets[m] = { in: 0, out: 0 });
+          t.in += a.inputTokens || 0;
+          t.out += a.outputTokens || 0;
+        });
+        return bucketsCost(buckets);
+      }
       return agents.reduce(function (sum, a) {
         var m = mapper(a);
         return sum + costFor(m, a.inputTokens, a.outputTokens);
       }, 0);
     }
-    return [
-      { id: "actual", label: "As run", cost: actual },
-      {
+    var list = [{ id: "actual", label: "As run", cost: actual }];
+    if (allowAuto) {
+      list.push({
         id: "all-auto",
         label: "All Auto",
         cost: remapCost(function () {
           return "auto";
         })
-      },
+      });
+    }
+    return list.concat([
       {
         id: "all-haiku",
         label: "All Haiku",
@@ -578,9 +669,9 @@
       },
       {
         id: "cheap-children",
-        label: "Parent Opus · children Haiku",
+        label: cheapChildrenLabel(agents),
         cost: remapCost(function (a) {
-          return a.parentId ? "haiku" : "opus";
+          return a.parentId ? "haiku" : a.model;
         })
       },
       {
@@ -588,7 +679,7 @@
         label: "Apply suggestions",
         cost: (function () {
           var map = {};
-          routingSuggestions(events).forEach(function (s) {
+          suggestionsFromAgents(agents, opts).forEach(function (s) {
             map[s.agentId] = s.suggestion;
           });
           return remapCost(function (a) {
@@ -596,7 +687,163 @@
           });
         })()
       }
-    ];
+    ]);
+  }
+
+  function whatIfScenarios(events) {
+    return whatIfFromAgents(agentSummaries(events), totalCost(events));
+  }
+
+  /* ---- Claude Code live ledger: per-agent token totals straight from the usage rows ---- */
+
+  /** Allowed wire `source` values (the same literal as lib/claude-code-wire.js eventFromRow). */
+  var LIVE_SOURCE_RE = /^(session|subagent:\d{1,6})$/;
+  /** Distinct file paths remembered per source, only to count them. */
+  var LIVE_FILE_CAP = 500;
+  /** Key of the parent (`session`) agent: the parentId every subagent row points at. */
+  var LIVE_PARENT_KEY = "live-session";
+  var LIVE_ROLE_LABEL = {
+    parent: "Lead",
+    advisor: "Planner",
+    worker: "Worker",
+    explorer: "Researcher",
+    researcher: "Reviewer"
+  };
+
+  function liveSourceOf(row) {
+    var s = row.source;
+    return typeof s === "string" && LIVE_SOURCE_RE.test(s) ? s : "session";
+  }
+
+  function liveSourceKey(source) {
+    return source === "session" ? LIVE_PARENT_KEY : "live-" + source.replace(":", "-");
+  }
+
+  function capitalize(s) {
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  }
+
+  /**
+   * Claude Code Live pricing ledger. add(row) takes one path-free wire row: a row with usage
+   * and in+out > 0 adds its tokens to (source, Bill bucket), the bucket the Bill's own
+   * normalizeModel call picks. Rows without usage (child spawn, done, error, text) add no
+   * tokens; cache tokens and a done row's subagentTokens are never priced. The source is the
+   * wire's allowlist (anything else is the parent). Memory holds totals per (source, bucket)
+   * and a capped per-source path set used only for a count; agents() carries no paths and no
+   * raw model strings.
+   */
+  function createLiveLedger() {
+    var sources = {};
+    var order = [];
+
+    function sourceRec(source) {
+      if (!sources[source]) {
+        sources[source] = {
+          role: "",
+          paths: Object.create(null),
+          fileCount: 0,
+          buckets: Object.create(null)
+        };
+        order.push(source);
+      }
+      return sources[source];
+    }
+
+    function add(row) {
+      if (!row || typeof row !== "object") return;
+      var source = liveSourceOf(row);
+      var rowRole = typeof row.role === "string" ? row.role.toLowerCase() : "";
+      var act = row.activity && typeof row.activity === "object" ? row.activity : null;
+      var path = act && typeof act.path === "string" ? act.path : "";
+      var u = row.usage && typeof row.usage === "object" ? row.usage : null;
+      var inn = u ? Math.max(0, Number(u.in) || 0) : 0;
+      var out = u ? Math.max(0, Number(u.out) || 0) : 0;
+      var billable = inn + out > 0;
+      if (!billable && !path && sources[source] === undefined) return;
+      var rec = sourceRec(source);
+      if (source !== "session" && !rec.role && rowRole) rec.role = rowRole;
+      if (path && rec.fileCount < LIVE_FILE_CAP && rec.paths[path] !== true) {
+        rec.paths[path] = true;
+        rec.fileCount += 1;
+      }
+      if (!billable) return;
+      var bm = global.WorkshopBillMath;
+      var role = String(u.role || row.role || "").toLowerCase();
+      var model = bm ? bm.normalizeModel(u.model, role) : normalizeModel(u.model);
+      var t = rec.buckets[model];
+      if (!t) t = rec.buckets[model] = { in: 0, out: 0, rows: 0 };
+      t.in += inn;
+      t.out += out;
+      t.rows += 1;
+    }
+
+    function clear() {
+      sources = {};
+      order = [];
+    }
+
+    function sortedSources() {
+      return order.slice().sort(function (a, b) {
+        if (a === b) return 0;
+        if (a === "session") return -1;
+        if (b === "session") return 1;
+        return Number(a.slice(9)) - Number(b.slice(9));
+      });
+    }
+
+    function agents() {
+      var list = [];
+      sortedSources().forEach(function (source) {
+        var rec = sources[source];
+        var keys = BILL_ORDER.filter(function (k) {
+          return rec.buckets[k];
+        });
+        var isParent = source === "session";
+        var role = isParent ? "parent" : rec.role || "worker";
+        var base = isParent ? "Lead" : (LIVE_ROLE_LABEL[role] || "Agent") + " " + source.slice(9);
+        var sourceKey = liveSourceKey(source);
+        keys.forEach(function (k) {
+          var t = rec.buckets[k];
+          list.push({
+            agentId: sourceKey + "-" + k,
+            sourceKey: sourceKey,
+            parentId: isParent ? null : LIVE_PARENT_KEY,
+            name: keys.length > 1 ? base + " · " + capitalize(k) : base,
+            role: role,
+            model: k,
+            inputTokens: t.in,
+            outputTokens: t.out,
+            cost: costFor(k, t.in, t.out),
+            fileCount: rec.fileCount,
+            types: { turn: t.rows },
+            done: false,
+            error: false
+          });
+        });
+      });
+      return list;
+    }
+
+    function byModel() {
+      var out = {};
+      ["opus", "fable", "sonnet", "haiku"].forEach(function (k) {
+        out[k] = { in: 0, out: 0, cost: 0 };
+      });
+      order.forEach(function (source) {
+        var rec = sources[source];
+        Object.keys(rec.buckets).forEach(function (k) {
+          var o = out[k] || (out[k] = { in: 0, out: 0, cost: 0 });
+          o.in += rec.buckets[k].in;
+          o.out += rec.buckets[k].out;
+        });
+      });
+      Object.keys(out).forEach(function (k) {
+        out[k].cost = costFor(k, out[k].in, out[k].out);
+      });
+      return out;
+    }
+
+    return { add: add, clear: clear, agents: agents, byModel: byModel };
   }
 
   function buildTreeAt(events, index) {
@@ -758,11 +1005,11 @@
     var allEvents = [];
     var loadedEvents = [];
     /* Claude Code live rows are never stored one by one: only a row count, the first and last
-       time, and per-model token totals (O(models) however long the session runs). */
+       time, and the ledger's per-agent, per-model token totals (bounded however long it runs). */
     var liveRows = 0;
     var liveFirstMs = NaN;
     var liveLastMs = NaN;
-    var liveTokens = {};
+    var ledger = createLiveLedger();
     var liveTimer = null;
     var sessionId = "";
     var replayIndex = 0;
@@ -980,13 +1227,16 @@
     }
 
     function jumpToAgentDetail(s) {
-      return {
+      var detail = {
         agentId: s.agentId,
         name: s.name,
         model: s.model,
         suggestion: s.suggestion,
         savings: s.savings
       };
+      /* A live agent's id is not a stage role: pass its wire role so the jump finds its card. */
+      if (s.role) detail.role = s.role;
+      return detail;
     }
 
     function dispatchJumpToAgent(s) {
@@ -1067,33 +1317,39 @@
       }
     }
 
-    /** The Claude Code live session: its rows are totals, not agents, so there is nothing per agent to rank. */
-    function isLiveSession() {
+    /**
+     * The picked session is the Claude Code live one: Suggestions and What-if then read the
+     * ledger's agents (priced from the usage rows), never Auto, summed in the Bill's order.
+     */
+    var LIVE_OPTS = { allowAuto: false, billOrder: true };
+    var lastWhatIf = []; // the scenarios last rendered, at full precision (for the smoke)
+    var claudeSource = false; // Live on the Claude Code source (set by app.js)
+    function liveSessionPicked() {
       return !demo && liveRows > 0 && sessionId === LIVE_SESSION_ID;
     }
-
-    /** Stands where Suggestions and What-if would be for the live session (static text). */
-    function liveNoteMarkup() {
-      return (
-        '<div class="insights-empty" data-live-unavailable data-tip="Live session" data-tip-detail="Per-agent figures need per-agent pricing, which a live session does not have yet. The Forecast matches the Bill.">' +
-        emptyBlockFace() +
-        "<strong>Not available for live sessions yet.</strong>" +
-        "</div>"
-      );
+    /** The honesty line names the router the shown data came from: Claude Code for the live
+        session, and on the Claude Code source also before its first row (nothing else listed). */
+    function routingName() {
+      var claudeEmpty = claudeSource && !demo && (!sessionId || sessionId === LIVE_SESSION_ID);
+      return liveSessionPicked() || claudeEmpty ? "Claude Code routing" : "Cursor routing";
     }
 
     function renderSuggestions() {
       var panel = root.querySelector('[data-panel="suggestions"]');
-      if (isLiveSession()) {
-        panel.innerHTML = '<div class="insights-suggest">' + liveNoteMarkup() + "</div>";
-        return;
-      }
-      var list = routingSuggestions(activeEvents());
+      var live = liveSessionPicked();
+      var list = live
+        ? suggestionsFromAgents(ledger.agents(), LIVE_OPTS)
+        : routingSuggestions(activeEvents());
+      var routing = routingName();
       if (!list.length) {
         panel.innerHTML =
           '<div class="insights-suggest">' +
-          '<p class="insights-suggest-honesty" data-suggestions-honesty data-tip="Honesty chip" data-tip-detail="Suggestions do not change Cursor routing. Estimates only.">' +
-          "Does not change Cursor routing. Estimates only." +
+          '<p class="insights-suggest-honesty" data-suggestions-honesty data-tip="Honesty chip" data-tip-detail="Suggestions do not change ' +
+          routing +
+          '. Estimates only.">' +
+          "Does not change " +
+          routing +
+          ". Estimates only." +
           "</p>" +
           '<div class="insights-empty" data-suggestions-empty data-tip="All clear" data-tip-detail="No cheaper-model flags for this session.">' +
           emptyBlockFace() +
@@ -1122,8 +1378,12 @@
         "</div>" +
         "</div>" +
         '<div class="insights-suggest-toolbar">' +
-        '<p class="insights-suggest-honesty" data-suggestions-honesty data-tip="Honesty chip" data-tip-detail="Does not change Cursor routing. Click a row to jump that agent on the workshop stage.">' +
-        "Does not change Cursor routing. Click a row to jump to that agent on the stage." +
+        '<p class="insights-suggest-honesty" data-suggestions-honesty data-tip="Honesty chip" data-tip-detail="Does not change ' +
+        routing +
+        '. Click a row to jump that agent on the workshop stage.">' +
+        "Does not change " +
+        routing +
+        ". Click a row to jump to that agent on the stage." +
         "</p>" +
         '<button type="button" class="insights-suggest-copy" data-suggestions-copy data-tip="Copy as notes" data-tip-detail="Clipboard a numbered list of savings tips for your own notes.">' +
         "Copy as notes" +
@@ -1462,11 +1722,10 @@
 
     function renderWhatIf() {
       var panel = root.querySelector('[data-panel="whatif"]');
-      if (isLiveSession()) {
-        panel.innerHTML = '<div class="insights-whatif">' + liveNoteMarkup() + "</div>";
-        return;
-      }
-      var scenarios = whatIfScenarios(activeEvents());
+      var scenarios = liveSessionPicked()
+        ? whatIfFromAgents(ledger.agents(), bucketsCost(ledger.byModel()), LIVE_OPTS)
+        : whatIfScenarios(activeEvents());
+      lastWhatIf = scenarios;
       var maxCost = Math.max.apply(
         null,
         scenarios
@@ -1542,11 +1801,19 @@
       notifyReplayIndex("session");
     });
 
+    /** Models in the ledger's per-model totals that hold tokens. */
+    function liveModels(totals) {
+      return Object.keys(totals).filter(function (m) {
+        return totals[m].in + totals[m].out > 0;
+      });
+    }
+
     /** The Claude Code live rows as events: one billable event per model, plus one at the last time. */
     function liveAggregateEvents() {
       if (!liveRows) return [];
       var first = new Date(liveFirstMs).toISOString();
-      var events = Object.keys(liveTokens).map(function (m) {
+      var totals = ledger.byModel();
+      var events = liveModels(totals).map(function (m) {
         return {
           ts: first,
           sessionId: LIVE_SESSION_ID,
@@ -1555,8 +1822,8 @@
           name: "Live session",
           model: m,
           type: "turn",
-          inputTokens: liveTokens[m].in,
-          outputTokens: liveTokens[m].out,
+          inputTokens: totals[m].in,
+          outputTokens: totals[m].out,
           files: []
         };
       });
@@ -1616,8 +1883,8 @@
     /**
      * Claude Code Live: one path-free row the page applied (the same row the stage and the Bill
      * got, in memory only). It joins the session "Live session": every row counts as an event, a
-     * row with usage adds its tokens to its model's total the way the Bill bills it (a row without
-     * usage names no model and only counts). Demo ignores it.
+     * row with usage adds its tokens to the ledger (per agent, per model) the way the Bill bills
+     * it (a row without usage names no model and only counts). Demo ignores it.
      */
     function addLiveRow(row) {
       if (destroyed || demo || !row || typeof row !== "object") return;
@@ -1628,29 +1895,20 @@
       liveRows += 1;
       if (!(ms >= liveFirstMs)) liveFirstMs = ms;
       if (!(ms <= liveLastMs)) liveLastMs = ms;
-      var u = row.usage && typeof row.usage === "object" ? row.usage : null;
-      if (u) {
-        var inn = Math.max(0, Number(u.in) || 0);
-        var out = Math.max(0, Number(u.out) || 0);
-        if (inn + out > 0) {
-          var bm = global.WorkshopBillMath;
-          var role = String(u.role || row.role || "").toLowerCase();
-          var model = bm ? bm.normalizeModel(u.model, role) : normalizeModel(u.model);
-          var t = liveTokens[model] || (liveTokens[model] = { in: 0, out: 0 });
-          t.in += inn;
-          t.out += out;
-        }
-      }
+      ledger.add(row);
       scheduleLiveRefresh();
     }
 
-    /** A new stream, a reset or a leave of Live: forget the live rows. */
+    /**
+     * A new stream, a reset or a leave of Live: forget the live rows and every agent (subagent
+     * numbers restart in a new session, so no old agent may survive).
+     */
     function clearLiveRows() {
       if (!liveRows) return;
       liveRows = 0;
       liveFirstMs = NaN;
       liveLastMs = NaN;
-      liveTokens = {};
+      ledger.clear();
       scheduleLiveRefresh();
     }
 
@@ -1732,6 +1990,13 @@
 
     load().then(notifyReady).catch(notifyReady);
 
+    /** app.js: true while Live shows the Claude Code source (only changes wording). */
+    function setClaudeCodeSource(on) {
+      if (claudeSource === !!on) return;
+      claudeSource = !!on;
+      if (root.querySelector('[data-panel="suggestions"]')) renderSuggestions();
+    }
+
     function setDemoMode(isDemo) {
       demo = !!isDemo;
       modePill.textContent = demo ? "Demo" : "Live";
@@ -1756,9 +2021,18 @@
       clearLiveRows: clearLiveRows,
       /* test-only: not used by the page */
       __testLiveState: function () {
-        return { rows: liveRows, models: Object.keys(liveTokens).length };
+        return {
+          rows: liveRows,
+          models: liveModels(ledger.byModel()).length,
+          agents: ledger.agents().length,
+          claudeSource: claudeSource,
+          whatIf: lastWhatIf.map(function (s) {
+            return { id: s.id, cost: s.cost };
+          })
+        };
       },
       setReplayEmptyText: setReplayEmptyText,
+      setClaudeCodeSource: setClaudeCodeSource,
       onReady: onReady,
       setDemoMode: setDemoMode,
       showTab: showTab,
@@ -1793,7 +2067,12 @@
       forecast: forecast,
       routingSuggestions: routingSuggestions,
       whatIfScenarios: whatIfScenarios,
+      suggestionsFromAgents: suggestionsFromAgents,
+      whatIfFromAgents: whatIfFromAgents,
+      bucketsCost: bucketsCost,
+      createLiveLedger: createLiveLedger,
       costFor: costFor,
+      formatMoney: formatMoney,
       usageByModel: usageByModel,
       totalCost: totalCost,
       buildTreeAt: buildTreeAt,
