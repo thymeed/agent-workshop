@@ -137,6 +137,44 @@ async function smokeDemoFile(browser) {
     );
   }
 
+  // The Claude Code session picker sits outside the replay host, so it needs the theme tokens
+  // itself; without them its native popup draws pale text on white (computed style works while hidden).
+  const historyPicker = await page.evaluate(() => {
+    const wrap = document.getElementById("claudeHistoryHost");
+    const select = document.getElementById("claudeHistorySession");
+    if (!wrap || !select) return { missing: true };
+    const s = getComputedStyle(select);
+    // a session under a minute is dimmed (muted token), a normal one keeps the ink colour
+    const short = document.createElement("option");
+    short.className = "is-short";
+    const normal = document.createElement("option");
+    select.append(short, normal);
+    const dim = getComputedStyle(short).color;
+    const ink = getComputedStyle(normal).color;
+    short.remove();
+    normal.remove();
+    return {
+      ink: getComputedStyle(wrap).getPropertyValue("--insights-ink").trim(),
+      bg: s.backgroundColor,
+      scheme: s.colorScheme,
+      dim,
+      optionInk: ink
+    };
+  });
+  if (
+    historyPicker.missing ||
+    historyPicker.ink !== "#f2f6f4" ||
+    historyPicker.bg === "rgba(0, 0, 0, 0)" ||
+    historyPicker.scheme !== "dark" ||
+    historyPicker.dim !== "rgb(143, 154, 156)" ||
+    historyPicker.optionInk !== "rgb(242, 246, 244)"
+  ) {
+    errors.push(
+      "History session picker: theme tokens, dark color-scheme or short-session dim missing " +
+        JSON.stringify(historyPicker)
+    );
+  }
+
   await page.click("#viewInsights");
   await page.waitForSelector('.drawer[data-panel="insights"][open] .insights-root', {
     timeout: 5000

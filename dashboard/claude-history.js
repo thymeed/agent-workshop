@@ -60,12 +60,8 @@
     return { count: list.length, startMs: first, endMs: last };
   }
 
-  /**
-   * Picker label of one listed session: local time, event count (once known), duration (when
-   * both ends are known). `loaded` is describeEvents() of the session after it was opened.
-   * Never carries a prompt, path, folder, file name or the opaque id.
-   */
-  function formatLabel(session, loaded) {
+  /** Start, end and event count of a listed session, filled in from its loaded events. */
+  function spanOf(session, loaded) {
     var s = session || {};
     var start = parseMs(s.startedAt);
     var end = parseMs(s.lastAt);
@@ -78,6 +74,27 @@
         end = loaded.endMs;
       }
     }
+    return { start: start, end: end, count: count };
+  }
+
+  /** True when both ends are known and the session lasted under a minute (its label says "0 min"). */
+  function isShort(session, loaded) {
+    var sp = spanOf(session, loaded);
+    return (
+      isFinite(sp.start) && isFinite(sp.end) && sp.end >= sp.start && sp.end - sp.start < 60000
+    );
+  }
+
+  /**
+   * Picker label of one listed session: local time, event count (once known), duration (when
+   * both ends are known). `loaded` is describeEvents() of the session after it was opened.
+   * Never carries a prompt, path, folder, file name or the opaque id.
+   */
+  function formatLabel(session, loaded) {
+    var sp = spanOf(session, loaded);
+    var start = sp.start;
+    var end = sp.end;
+    var count = sp.count;
     var when = isFinite(start) ? start : end;
     if (!isFinite(when)) return count === null ? "Session" : "Session · " + countText(count);
     var parts = [formatWhen(when)];
@@ -139,11 +156,13 @@
       els.status.textContent = msg || "";
     }
 
-    function addOption(value, text, disabled) {
+    function addOption(value, text, disabled, short) {
       var o = document.createElement("option");
       o.value = value;
       o.textContent = text;
       if (disabled) o.disabled = true;
+      // under a minute: dimmed in CSS, still listed and selectable
+      if (short) o.className = "is-short";
       els.select.appendChild(o);
     }
 
@@ -166,7 +185,7 @@
       els.select.textContent = "";
       addOption("", "Choose a session…", false);
       sessions.forEach(function (s) {
-        addOption(s.id, formatLabel(s, loaded[s.id]), false);
+        addOption(s.id, formatLabel(s, loaded[s.id]), false, isShort(s, loaded[s.id]));
       });
       els.select.value = keepId || "";
     }
@@ -358,6 +377,7 @@
   global.ClaudeHistory = {
     create: create,
     formatLabel: formatLabel,
+    isShort: isShort,
     formatWhen: formatWhen,
     formatDuration: formatDuration,
     describeEvents: describeEvents,

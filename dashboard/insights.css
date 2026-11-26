@@ -1,7 +1,8 @@
 /* Cursor Agents · Insights drawer sheet */
 
 .insights-root,
-.history-replay-host {
+.history-replay-host,
+.claude-history {
   --insights-bg: #0b0c0d;
   --insights-surface: #121618;
   --insights-surface-2: #181e20;
@@ -1066,6 +1067,23 @@
   text-transform: none;
   letter-spacing: 0;
   max-width: 100%;
+  /* dark native popup (Chrome, Edge, Firefox on Windows draw it light otherwise) */
+  color-scheme: dark;
+}
+
+/* explicit option colours: the popup does not inherit the select's background everywhere */
+.claude-history-session option {
+  background-color: var(--insights-surface-2);
+  color: var(--insights-ink);
+}
+
+.claude-history-session option:disabled,
+.claude-history-session option.is-short {
+  color: var(--insights-muted);
+}
+
+.claude-history-session:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
 .claude-history-session:focus-visible {
