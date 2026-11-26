@@ -589,3 +589,15 @@ test("a project or source change with a replay open tells the page", async () =>
   await h.ch.sync("live|cursor|p2");
   assert.equal(dropped.length, 2, "source change");
 });
+
+test("a sync while the History drawer is open lists sessions, not the open-History hint", async () => {
+  const h = harness();
+  /* The drawer is open (isHistoryOpen true) while the view is Stage: sync must list. */
+  h.state.historyOpen = true;
+  const done = h.ch.sync("live|claude-code|p1");
+  assert.equal(h.calls.at(-1), "/api/claude/sessions", "sync fetches the list");
+  await h.answer(200, { sessions: [sess("cs-aaaaaaaaaaaaaaaaaaaaaaaa", {})] });
+  await done;
+  assert.ok(!h.select.texts().includes("Open History to list sessions"), "no hint once open");
+  assert.ok(h.select.values().includes("cs-aaaaaaaaaaaaaaaaaaaaaaaa"), "the session is listed");
+});

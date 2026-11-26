@@ -280,6 +280,81 @@ async function main() {
       { timeout: 15000 }
     );
 
+    // ---- the History drawer's own summary lists sessions while the view stays Stage ----
+    const pickerTexts = () =>
+      page.evaluate(() =>
+        [...document.getElementById("claudeHistorySession").options].map((o) => o.textContent)
+      );
+    const viewNow = () => page.evaluate(() => document.getElementById("app").dataset.viewMode);
+    const listLabel0 = (start, minutes) => `${when(start)} · ${minutes} min`;
+    const closedTexts = await pickerTexts();
+    if (closedTexts.join("|") !== "Open History to list sessions")
+      errors.push("closed drawer picker: " + JSON.stringify(closedTexts));
+    await page.click("#drawerHistory > summary");
+    await page.waitForFunction(
+      () => document.getElementById("claudeHistorySession").options.length === 3,
+      null,
+      { timeout: 15000 }
+    );
+    const summaryTexts = await pickerTexts();
+    if (summaryTexts.some((t) => /Open History/.test(t)) || summaryTexts.length !== 3)
+      errors.push("summary open did not list sessions: " + JSON.stringify(summaryTexts));
+    if (summaryTexts[1] !== listLabel0(startNew, 5))
+      errors.push("summary open list: " + JSON.stringify(summaryTexts));
+    if ((await viewNow()) !== "stage")
+      errors.push("the summary moved the view to " + (await viewNow()));
+    // fresh load, the History view never visited: the drawer already carries the Play control
+    const freshPlay = await page.evaluate(
+      () => !!document.querySelector("#historyReplayHost [data-replay-play]")
+    );
+    if (!freshPlay) errors.push("the drawer opened from Stage has no Play control");
+    const freshHint = await page.textContent("#historyHint");
+    if (!/Pick a session/.test(freshHint) || /driving/.test(freshHint))
+      errors.push("drawer hint from Stage: " + freshHint);
+
+    // a project pick from the page with the drawer open (Stage view) lists the new project
+    await page.selectOption("#projectPicker", { index: 1 });
+    await page.waitForFunction(
+      () => document.getElementById("footerProject").textContent === "proj-other",
+      null,
+      { timeout: 15000 }
+    );
+    /* This only lists when the page hands the open drawer (not just the History view) to the
+       Claude Code list: app.js passes view.isHistoryOpen(). */
+    const relisted = await page
+      .waitForFunction(
+        () => document.getElementById("claudeHistorySession").options.length === 2,
+        null,
+        {
+          timeout: 15000
+        }
+      )
+      .then(
+        () => true,
+        () => false
+      );
+    if (!relisted)
+      errors.push(
+        "pick with the drawer open did not relist (isHistoryOpen not passed?): " +
+          JSON.stringify(await pickerTexts())
+      );
+    const pickedTexts = await pickerTexts();
+    if (pickedTexts[1] !== listLabel0(minute(nowMs - 5 * DAY), 2) || pickedTexts.length !== 2)
+      errors.push("pick with the drawer open: " + JSON.stringify(pickedTexts));
+    // back to the first project and close the drawer: the rest of the run starts from Stage as before
+    await page.selectOption("#projectPicker", { index: 0 });
+    await page.waitForFunction(
+      () => document.getElementById("footerProject").textContent === "proj-new",
+      null,
+      { timeout: 15000 }
+    );
+    await page.click("#drawerHistory > summary");
+    await page.waitForFunction(
+      () => document.querySelectorAll("#sessionLog .log-line").length > 1,
+      null,
+      { timeout: 15000 }
+    );
+
     // ---- the History tab is there in Claude Code mode ----
     const histVisible = await page.evaluate(() => {
       const b = document.getElementById("viewHistory");
@@ -523,6 +598,190 @@ async function main() {
     errors.push(...differ("Play then Insights", s2, viaInsights));
     await page.click("#viewStage");
     errors.push(...differ("Insights then Stage", s2, await sig(page)));
+
+    // ---- the History drawer opened from Stage plays a session too ----
+    const sDrawer = await sig(page);
+    // Only a real list refresh writes "sessions from the last 14 days"; the toggle event that
+    // starts it arrives after the click, so mark the line first and wait for the refresh to replace it.
+    await page.evaluate(() => {
+      document.getElementById("claudeHistoryStatus").textContent = "marker";
+    });
+    await page.click("#drawerHistory > summary");
+    await page.waitForFunction(
+      () =>
+        /sessions from the last 14 days/.test(
+          document.getElementById("claudeHistoryStatus").textContent
+        ),
+      null,
+      { timeout: 15000 }
+    );
+    await waitList(page);
+    // a fresh pick: the list refresh on open replaced the status line of any earlier pick
+    await page.selectOption("#claudeHistorySession", "");
+    await page.selectOption("#claudeHistorySession", opts[2].value);
+    await page.waitForFunction(
+      () => /\d+ events?$/.test(document.getElementById("claudeHistoryStatus").textContent),
+      null,
+      { timeout: 15000 }
+    );
+    const drawerMeta = await page.textContent("#historyReplayHost [data-scrubber-meta]");
+    if (drawerMeta !== `1 / ${n}`)
+      errors.push("drawer transport meta: " + drawerMeta + " want " + n);
+    const drawerStatus = await page.textContent("#claudeHistoryStatus");
+    if (!drawerStatus.startsWith(`${n} ${n === 1 ? "event" : "events"}`))
+      errors.push("drawer event count: " + drawerStatus + " want " + n);
+    if ((await viewNow()) !== "stage") errors.push("the drawer pick moved the view");
+    if ((await sig(page)).taken) errors.push("choosing a session in the drawer took the stage");
+    /* Rendered: the Play control is inside the drawer's host and on screen. */
+    const playRendered = await page.evaluate(() => {
+      const host = document.getElementById("historyReplayHost");
+      const btn = host && host.querySelector("[data-replay-play]");
+      return !!btn && host.contains(btn) && btn.getBoundingClientRect().width > 0;
+    });
+    if (!playRendered) errors.push("drawer Play control is not rendered inside #historyReplayHost");
+    /* Wired: pressing it (below) takes the stage through the replay guard and the hint says so. */
+    await play(page);
+    const drawerPlayed = await sig(page);
+    if (!drawerPlayed.taken || !drawerPlayed.guard.holding)
+      errors.push("Play in the drawer did not take the stage");
+    if (drawerPlayed.log === sDrawer.log)
+      errors.push("Play in the drawer did not change the stage");
+    if ((await viewNow()) !== "stage") errors.push("Play in the drawer moved the view");
+    if (!/driving/.test(await page.textContent("#historyHint")))
+      errors.push("the drawer hint does not say the replay drives the stage");
+    // closing the drawer hands the stage back, like leaving History
+    await page.click("#drawerHistory > summary");
+    await page.waitForFunction(() => !window.__cursorAgentsDashTest.isReplaySessionActive(), null, {
+      timeout: 15000
+    });
+    const drawerBack = await sig(page);
+    if (drawerBack.guard.holding) errors.push("closing the drawer left the snapshot held");
+    errors.push(...differ("drawer Play then close", sDrawer, drawerBack));
+
+    // ---- focus: a remount keeps focus on the control; closing the drawer rescues it ----
+    const activeIs = (sel) => page.evaluate((q) => !!document.activeElement?.matches(q), sel);
+    await page.click("#drawerHistory > summary");
+    await page.waitForFunction(
+      () => !!document.querySelector("#historyReplayHost [data-replay-play]"),
+      null,
+      { timeout: 15000 }
+    );
+    await page.focus("#historyReplayHost [data-replay-play]");
+    await page.evaluate(() => {
+      window.__oldPlay = document.querySelector("#historyReplayHost [data-replay-play]");
+      // an open drawer whose toggle fires again repaints the transport
+      document.getElementById("drawerHistory").dispatchEvent(new Event("toggle"));
+    });
+    const kept = await page.evaluate(() => {
+      const now = document.querySelector("#historyReplayHost [data-replay-play]");
+      return {
+        repainted: now !== window.__oldPlay,
+        focused: document.activeElement === now
+      };
+    });
+    if (!kept.repainted) errors.push("focus test: the transport was not repainted");
+    if (!kept.focused) errors.push("a transport remount lost focus from the Play button");
+    await page.focus("#viewStage");
+    await page.evaluate(() => {
+      document.getElementById("drawerHistory").dispatchEvent(new Event("toggle"));
+    });
+    if (!(await activeIs("#viewStage")))
+      errors.push("a transport remount stole focus from outside the transport");
+    // close with focus on Play: the drawer's summary takes it (the toggle event runs after the close)
+    await page.focus("#historyReplayHost [data-replay-play]");
+    await page.evaluate(() => {
+      document.getElementById("drawerHistory").open = false;
+    });
+    await page
+      .waitForFunction(
+        () => document.activeElement === document.querySelector("#drawerHistory > summary"),
+        null,
+        { timeout: 15000 }
+      )
+      .catch(() => errors.push("closing the drawer with focus on Play did not focus the summary"));
+    // close with focus elsewhere: untouched
+    await page.click("#drawerHistory > summary");
+    await page.waitForFunction(() => document.getElementById("drawerHistory").open, null, {
+      timeout: 15000
+    });
+    await page.focus("#viewStage");
+    await page.evaluate(() => {
+      document.getElementById("drawerHistory").open = false;
+    });
+    await page.waitForFunction(() => !window.__cursorAgentsDashTest.isReplaySessionActive(), null, {
+      timeout: 15000
+    });
+    if (!(await activeIs("#viewStage")))
+      errors.push("closing the drawer moved focus that was outside it");
+    // the History tab shows the same session with the same count
+    await page.click("#viewHistory");
+    await waitList(page);
+    await page.selectOption("#claudeHistorySession", "");
+    await page.selectOption("#claudeHistorySession", opts[2].value);
+    await page.waitForFunction(
+      () => /\d+ events?$/.test(document.getElementById("claudeHistoryStatus").textContent),
+      null,
+      { timeout: 15000 }
+    );
+    const tabMeta = await page.textContent("#historyReplayHost [data-scrubber-meta]");
+    if (tabMeta !== drawerMeta)
+      errors.push("History tab count " + tabMeta + " != drawer " + drawerMeta);
+    await page.click("#viewStage");
+
+    // ---- focus on Play survives the repaint the drawer's own open triggers ----
+    // The list refresh on open drops a replay whose picker is empty, which repaints the transport
+    // synchronously. Focus must be noted BEFORE that (view-mode.js), or it lands on the body.
+    await page.click("#viewHistory");
+    await waitList(page);
+    await page.selectOption("#claudeHistorySession", opts[2].value);
+    await page.waitForFunction(
+      () => /\d+ events?$/.test(document.getElementById("claudeHistoryStatus").textContent),
+      null,
+      { timeout: 15000 }
+    );
+    await page.click("#viewStage");
+    await page.waitForFunction(() => !document.getElementById("drawerHistory").open, null, {
+      timeout: 15000
+    });
+    const armed = await page.evaluate(() => {
+      const sel = document.getElementById("claudeHistorySession");
+      const drawer = document.getElementById("drawerHistory");
+      const oldPlay = document.querySelector("#historyReplayHost [data-replay-play]");
+      if (!oldPlay) return "no mounted transport";
+      sel.value = ""; // silently: the replay is still held, the picker no longer names it
+      document.getElementById("claudeHistoryStatus").textContent = "marker";
+      window.__oldPlay = oldPlay;
+      drawer.open = true; // the native toggle event follows after this task
+      oldPlay.focus();
+      return document.activeElement === oldPlay ? "ok" : "focus did not take";
+    });
+    if (armed !== "ok") errors.push("focus-order test could not arm: " + armed);
+    else {
+      // wait on state: only the list refresh after the repaint writes this status line
+      await page.waitForFunction(
+        () =>
+          /sessions from the last 14 days/.test(
+            document.getElementById("claudeHistoryStatus").textContent
+          ),
+        null,
+        { timeout: 15000 }
+      );
+      const after = await page.evaluate(() => {
+        const now = document.querySelector("#historyReplayHost [data-replay-play]");
+        return {
+          repainted: !window.__oldPlay.isConnected,
+          onPlay: !!now && document.activeElement === now
+        };
+      });
+      if (!after.repainted) errors.push("focus-order test: the transport was not repainted");
+      else if (!after.onPlay)
+        errors.push("opening the drawer with focus on Play lost focus (noted after the repaint?)");
+    }
+    await page.click("#drawerHistory > summary");
+    await page.waitForFunction(() => !document.getElementById("drawerHistory").open, null, {
+      timeout: 15000
+    });
+    await page.click("#viewStage");
 
     // ---- three quick pick / Play / leave cycles ----
     for (let i = 0; i < 3; i++) {

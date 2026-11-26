@@ -137,6 +137,22 @@ async function smokeDemoFile(browser) {
     );
   }
 
+  await page.click("#viewInsights");
+  await page.waitForSelector('.drawer[data-panel="insights"][open] .insights-root', {
+    timeout: 5000
+  });
+  const insightsFooterOk = await page.evaluate(() => {
+    const root = document.querySelector('.drawer[data-panel="insights"] .insights-root');
+    if (!root) return false;
+    const css = getComputedStyle(root);
+    return css.borderBottomLeftRadius === "0px" && css.borderBottomRightRadius === "0px";
+  });
+  if (!insightsFooterOk) {
+    errors.push(
+      "Insights drawer: .insights-root keeps rounded bottom corners (clips the footer status line)"
+    );
+  }
+
   const stageBlocksOk = await page.evaluate(() => {
     const roles = ["opus", "advisor", "worker", "explorer", "researcher"];
     return roles.every((role) => {

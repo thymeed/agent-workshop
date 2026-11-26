@@ -280,6 +280,8 @@ Claude Code source (known limits, found while building it; none of them is a cra
 
 41. **A crate in flight when a Claude Code replay starts does not come back.** Leaving the replay restores the stationary state (characters, active roles, calls, Bill, log, cards; today's counters are frozen during the replay, not restored) but not the transient crates, route tokens or sparks that the replay's own reset clears. One that was mid-flight is gone for good; the reset at the start would have removed it anyway.
 
+42. **Insights Suggestions and What-if are not available for a live Claude Code session.** The sheets show "Not available for live sessions yet." there; the session picker, the event count and the Forecast (which equals the Bill) work. Per-agent pricing from the usage rows is planned. An older session loaded from history keeps both sheets.
+
 ## Verified as non-issues
 
 - **Focus is not lost when a drawer sheet closes.** `setViewMode` checks whether the

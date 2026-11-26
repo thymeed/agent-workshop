@@ -1055,6 +1055,9 @@
     advisorLastEl.textContent = "Last advice: none";
     setEffort(mode === "live" ? "live" : "mixed");
     bill.resetUsage();
+    if (insightsPanel && typeof insightsPanel.clearLiveRows === "function") {
+      insightsPanel.clearLiveRows();
+    }
     activity.clear();
     if (AgentCards && typeof AgentCards.reset === "function") {
       AgentCards.reset({ keepDaily: mode === "live", mode: mode });
@@ -1109,8 +1112,41 @@
     var usageOpts = { skipDaily: alreadySeen || isReplay || bridgeReplay };
     var skipTiming =
       !!opts.skipTiming || alreadySeen || liveSseBacklogReplay || !!ev.sseBacklog || bridgeReplay;
-    var skipMotion = !!opts.skipMotion || (isReplay && prefersReducedMotion());
+    /* The one motion gate. Backfill is silent: a bridge replay row and the SSE connect backlog (the
+       row's own mark or the page's quiet window). State is still applied. Only rows after the live
+       edge animate. A row id already seen is not backfill: after a bridge restart the ids restart
+       while the project ids stay, so a new row can carry an old id (it still skips timing and stats). A user-driven History replay (isReplay) is not
+       backfill: its Play steps animate one at a time, its scrub rebuild passes skipMotion. */
+    var backfillRow = !isReplay && (bridgeReplay || liveSseBacklogReplay || !!ev.sseBacklog);
+    var skipMotion = !!opts.skipMotion || backfillRow || (isReplay && prefersReducedMotion());
+    /* Crates, route tokens and the $ spark are spawned deep inside activity and bill: quietLiveRows
+       is their existing off switch, held for this row only. */
+    var prevQuiet = quietLiveRows;
+    if (skipMotion) quietLiveRows = true;
+    try {
+      applyLiveEventBody(
+        ev,
+        isReplay,
+        alreadySeen,
+        bridgeReplay,
+        usageOpts,
+        skipTiming,
+        skipMotion
+      );
+    } finally {
+      quietLiveRows = prevQuiet;
+    }
+  }
 
+  function applyLiveEventBody(
+    ev,
+    isReplay,
+    alreadySeen,
+    bridgeReplay,
+    usageOpts,
+    skipTiming,
+    skipMotion
+  ) {
     var role = ev.role || "parent";
     var cardRole =
       role === "parent"
@@ -1154,8 +1190,22 @@
       var key = role + ":" + (ev.source || "");
       if (!state.liveSubs[key] && role !== "parent" && role !== "advisor") {
         state.liveSubs[key] = true;
+        /* A Claude Code catch-up subagent shows in subs but is not one of today's runs (as its tokens). */
+        if (bridgeReplay && AgentCards && typeof AgentCards.absorbBackfillSub === "function") {
+          AgentCards.absorbBackfillSub();
+        }
         setSubs(Object.keys(state.liveSubs).length);
       }
+    }
+    /* Insights follows the Bill: the same applied rows (never a History replay's), in memory only. */
+    if (
+      !isReplay &&
+      mode === "live" &&
+      view.currentSource() === "claude-code" &&
+      insightsPanel &&
+      typeof insightsPanel.addLiveRow === "function"
+    ) {
+      insightsPanel.addLiveRow(ev);
     }
     if (ev.usage) {
       addUsage(
@@ -1340,10 +1390,21 @@
     prefersReducedMotion: prefersReducedMotion
   };
 
+  /** Live on Claude Code: the History drawer can replay a session without the History view. */
+  function drawerReplayAvailable() {
+    return mode === "live" && view.currentSource() === "claude-code";
+  }
+
+  /** The History view always owns the stage; the drawer does too, but only for a Claude Code replay. */
+  function replayOwnsStage() {
+    if (view.getMode() === "history") return true;
+    return view.isHistoryOpen() && drawerReplayAvailable();
+  }
+
   function onReplayIndexChange(payload) {
     if (!ReplayStage || !payload) return;
-    /* Insights reloads history in the background on Stage/Insights. Only History view owns the stage. */
-    if (view.getMode() !== "history") {
+    /* Insights reloads history in the background on Stage/Insights. Only History (or the open drawer on Claude Code) owns the stage. */
+    if (!replayOwnsStage()) {
       replaySessionActive = false;
       if (replayGuard) replayGuard.end();
       return;
@@ -1374,7 +1435,7 @@
         });
       }
       lastReplayIndex = index;
-      if (view.getMode() === "history") updateHistoryHint(true);
+      if (replayOwnsStage()) updateHistoryHint(true);
       return;
     }
 
@@ -1384,7 +1445,7 @@
     });
     if (liveSessionBrowse) replaySessionActive = false;
     lastReplayIndex = index;
-    if (view.getMode() === "history") updateHistoryHint(true);
+    if (replayOwnsStage()) updateHistoryHint(true);
   }
 
   if (insightsPanel && typeof insightsPanel.onReplayIndex === "function") {
@@ -1913,6 +1974,7 @@
     onHistoryOpen: function () {
       if (claudeHistory) claudeHistory.onHistoryOpen();
     },
+    drawerReplayAvailable: drawerReplayAvailable,
     onHistoryLeave: function () {
       endClaudeReplay();
     }
@@ -1936,7 +1998,7 @@
         return insightsPanel;
       },
       isHistoryOpen: function () {
-        return view.getMode() === "history";
+        return view.isHistoryOpen();
       },
       /* The replay is dropped (Choose a session…, a project, source or mode change). */
       onReplayDropped: function () {
