@@ -359,7 +359,168 @@ test("allowAuto false: no Auto suggestion and no All Auto scenario", () => {
   const cheap = A.whatIfFromAgents(agents, 1, { allowAuto: false }).find(
     (s) => s.id === "cheap-children"
   );
-  assert.equal(cheap.label, "Parent Opus · children Haiku");
+  assert.equal(cheap.label, "Lead as run (Opus) · children Haiku");
+});
+
+/* ---- "Lead as run · children Haiku": the Lead keeps its real model(s), children go Haiku ---- */
+
+/** Bill-order sum of { model: {in, out} } computed here, not through Insights. */
+function billOrderSum(buckets) {
+  return ["opus", "fable", "sonnet", "haiku"].reduce(
+    (s, k) => (buckets[k] ? s + BM.modelCost(k, buckets[k].in, buckets[k].out) : s),
+    0
+  );
+}
+function addTo(buckets, k, inn, out) {
+  const t = buckets[k] || (buckets[k] = { in: 0, out: 0 });
+  t.in += inn;
+  t.out += out;
+}
+const cheapOf = (agents, actual) =>
+  A.whatIfFromAgents(agents, actual, { allowAuto: false, billOrder: true }).find(
+    (s) => s.id === "cheap-children"
+  );
+
+test("children Haiku: a Sonnet Lead stays Sonnet; scenario = As run minus the children's savings", () => {
+  const lead = { in: 48213, out: 9127 };
+  const kids = [
+    ["subagent:1", "worker", "opus", 30711, 8123],
+    ["subagent:2", "researcher", "sonnet", 12345, 6789],
+    ["subagent:3", "worker", "opus", 701, 99]
+  ];
+  const rows = [row("session", "parent", { model: "sonnet", in: lead.in, out: lead.out })];
+  kids.forEach(([src, role, model, i, o]) => rows.push(row(src, role, { model, in: i, out: o })));
+  const ledger = ledgerOf(rows);
+  const agents = ledger.agents();
+  const asRun = A.bucketsCost(ledger.byModel());
+  assert.equal(asRun, billTotal(rows).total, "As run === Bill");
+  const cheap = cheapOf(agents, asRun);
+  assert.equal(cheap.label, "Lead as run (Sonnet) · children Haiku");
+
+  /* Independent: the children's as-run cost minus the same tokens at Haiku. */
+  const kidsAsRun = kids.reduce((s, k) => s + BM.modelCost(k[2], k[3], k[4]), 0);
+  const kidsAtHaiku = kids.reduce((s, k) => s + BM.modelCost("haiku", k[3], k[4]), 0);
+  const savings = kidsAsRun - kidsAtHaiku;
+  assert.ok(savings > 0);
+  /* As run - savings is a different float order than the Bill-order sum of the remapped
+     buckets, so it is equal to the last bits only, and equal as rendered. */
+  assert.ok(Math.abs(cheap.cost - (asRun - savings)) < 1e-12);
+  assert.equal(BM.formatMoney(cheap.cost), BM.formatMoney(asRun - savings));
+  /* Exact, in the same order: Lead buckets + every child's tokens in Haiku, Bill order. */
+  const b = {};
+  addTo(b, "sonnet", lead.in, lead.out);
+  kids.forEach((k) => addTo(b, "haiku", k[3], k[4]));
+  assert.equal(cheap.cost, billOrderSum(b));
+  assert.ok(cheap.cost < asRun);
+  /* The old rule priced the Lead at Opus: the scenario would have cost more than this. */
+  const old = {};
+  addTo(old, "opus", lead.in, lead.out);
+  kids.forEach((k) => addTo(old, "haiku", k[3], k[4]));
+  assert.ok(billOrderSum(old) > cheap.cost);
+});
+
+test("children Haiku: children already on Haiku save nothing, scenario === As run", () => {
+  const rows = [
+    row("session", "parent", { model: "sonnet", in: 9001, out: 777 }),
+    row("subagent:1", "worker", { model: "haiku", in: 31337, out: 4242 }),
+    row("subagent:2", "explorer", { model: "haiku", in: 13, out: 7 })
+  ];
+  const ledger = ledgerOf(rows);
+  const asRun = A.bucketsCost(ledger.byModel());
+  const cheap = cheapOf(ledger.agents(), asRun);
+  assert.equal(cheap.cost, asRun);
+  assert.equal(cheap.cost, billTotal(rows).total);
+  assert.equal(cheap.label, "Lead as run (Sonnet) · children Haiku");
+});
+
+test("children Haiku: a Lead with two model rows is named without a model", () => {
+  const rows = [
+    row("session", "parent", { model: "sonnet", in: 5000, out: 500 }),
+    row("session", "parent", { model: "opus", in: 4000, out: 400 }),
+    row("subagent:1", "worker", { model: "opus", in: 3000, out: 300 })
+  ];
+  const ledger = ledgerOf(rows);
+  const agents = ledger.agents();
+  assert.equal(agents.filter((a) => a.parentId === null).length, 2);
+  const asRun = A.bucketsCost(ledger.byModel());
+  const cheap = cheapOf(agents, asRun);
+  assert.equal(cheap.label, "Lead as run · children Haiku");
+  const b = {};
+  addTo(b, "sonnet", 5000, 500);
+  addTo(b, "opus", 4000, 400);
+  addTo(b, "haiku", 3000, 300);
+  assert.equal(cheap.cost, billOrderSum(b), "each Lead row keeps its own model");
+});
+
+test("children Haiku on the event path (Demo, Cursor): the Lead keeps its real model", () => {
+  const ev = (agentId, parentId, model, inn, out) => ({
+    ts: "2026-10-09T14:00:00.000Z",
+    sessionId: "s",
+    agentId,
+    parentId,
+    name: agentId,
+    model,
+    type: "turn",
+    inputTokens: inn,
+    outputTokens: out,
+    files: []
+  });
+  const cheap = (events) => A.whatIfScenarios(events).find((s) => s.id === "cheap-children");
+  const kid = ev("kid", "lead", "opus", 20000, 3000);
+
+  const sonnetLead = cheap([ev("lead", null, "sonnet", 10000, 2000), kid]);
+  assert.equal(sonnetLead.label, "Lead as run (Sonnet) · children Haiku");
+  assert.equal(
+    sonnetLead.cost,
+    A.costFor("sonnet", 10000, 2000) + A.costFor("haiku", 20000, 3000),
+    "Lead at Sonnet, not Opus"
+  );
+
+  const autoLead = cheap([ev("lead", null, "auto", 10000, 2000), kid]);
+  assert.equal(autoLead.label, "Lead as run · children Haiku", "Auto is not one model");
+  assert.equal(autoLead.cost, A.costFor("auto", 10000, 2000) + A.costFor("haiku", 20000, 3000));
+
+  const twoLeads = cheap([
+    ev("lead", null, "sonnet", 10000, 2000),
+    ev("lead-2", null, "opus", 100, 20),
+    kid
+  ]);
+  assert.equal(twoLeads.label, "Lead as run · children Haiku");
+
+  /* A Lead with no tokens names nothing; a scenario is never hidden. */
+  const idle = A.whatIfScenarios([ev("lead", null, "opus", 0, 0), kid]);
+  assert.equal(idle.find((s) => s.id === "cheap-children").label, "Lead as run · children Haiku");
+});
+
+test("money renders like the Bill: three decimals below a cent, with or without bill-math", () => {
+  const values = [0.0001, 0.00049, 0.0005, 0.0012, 0.00444, 0.0049999, 0.005, 0.0099, 0.00999];
+  values.push(0, 0.01, 0.0123, 1.5, 123.456, -3);
+  const { analyze: noBill } = loadInsights(false);
+  for (const v of values) {
+    assert.equal(A.formatMoney(v), BM.formatMoney(v), "with bill-math: " + v);
+    assert.equal(noBill.formatMoney(v), BM.formatMoney(v), "local rule: " + v);
+  }
+  assert.equal(A.formatMoney(0.0012), "$0.001");
+  assert.equal(noBill.formatMoney(0.0049999), "$0.005");
+  for (const bad of [NaN, Infinity, -Infinity]) {
+    assert.equal(A.formatMoney(bad), "$n/a");
+    assert.equal(noBill.formatMoney(bad), "$n/a");
+  }
+  /* Store and sum at full precision, round once: 9 rows of $0.0004 render as $0.004. */
+  const sum = Array.from({ length: 9 }, () => 0.0004).reduce((s, x) => s + x, 0);
+  assert.equal(A.formatMoney(sum), BM.formatMoney(sum));
+  assert.equal(A.formatMoney(sum), "$0.004");
+});
+
+test("live suggestions carry the agent's wire role for the stage jump", () => {
+  const rows = [
+    row("subagent:2", "explorer", { model: "opus", in: 30000, out: 100 }),
+    row("subagent:2", "explorer", null, { activity: { kind: "read", path: "a.js" } })
+  ];
+  const s = A.suggestionsFromAgents(ledgerOf(rows).agents(), { allowAuto: false });
+  assert.equal(s.length, 1);
+  assert.equal(s[0].role, "explorer");
+  assert.equal(s[0].agentId, "live-subagent-2-opus");
 });
 
 test("allowAuto false keeps a read-heavy Opus child's Haiku suggestion without naming Auto", () => {

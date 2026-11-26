@@ -682,14 +682,14 @@ async function smokeEmptySuggestions(browser) {
  * Claude Code live rows: Insights keeps running totals, not the rows. Far more rows than any cap
  * keep the Forecast equal to the sum of every row, the status count equal to the row count, and
  * the page holding one total per model (not per row). The session picker is not rewritten while
- * the set of session ids is unchanged. Suggestions and What-if show a note for the live session,
- * and an older (history-loaded) session in the same picker still gets them.
+ * the set of session ids is unchanged. Suggestions and What-if render for the live session from
+ * its agents (no note, no All Auto), and an older (history-loaded) session in the same picker
+ * still gets them from its events.
  */
 async function smokeLiveRows(browser) {
   const { server, port } = await startStaticServer();
   const page = await browser.newPage();
   const { errors, failedRequests } = attachErrorCollectors(page);
-  const NOTE = "Not available for live sessions yet.";
   try {
     const hist = (extra) =>
       Object.assign(
@@ -768,22 +768,29 @@ async function smokeLiveRows(browser) {
     if (kept.texts.join("|") !== "hist-1|Live session")
       errors.push("live rows: picker options: " + JSON.stringify(kept.texts));
 
-    // the live session (picked by default: it is the newest): a note, no suggestions, no what-if
+    // the live session (picked by default: it is the newest): Suggestions and What-if from its
+    // agents, no "not available" note, and no All Auto (Claude Code has no Auto)
     const picked = await page.evaluate(() => document.querySelector(".insights-session").value);
     if (picked !== "live-session") errors.push("live rows: session value " + picked);
     const notes = () =>
       page.evaluate(() => ({
-        sg: Array.from(
-          document.querySelectorAll('[data-panel="suggestions"] [data-live-unavailable]')
-        ).map((e) => e.textContent.trim()),
-        wi: Array.from(
-          document.querySelectorAll('[data-panel="whatif"] [data-live-unavailable]')
-        ).map((e) => e.textContent.trim()),
-        sgRows: document.querySelectorAll(".insights-suggest-row, [data-suggestions-copy]").length,
-        wiRows: document.querySelectorAll("[data-whatif-list], .insights-whatif-row").length
+        notes: document.querySelectorAll("[data-live-unavailable]").length,
+        sgEmpty: document.querySelectorAll('[data-panel="suggestions"] [data-suggestions-empty]')
+          .length,
+        sgIds: Array.from(document.querySelectorAll("[data-suggestions-list] [data-agent-id]")).map(
+          (e) => e.getAttribute("data-agent-id")
+        ),
+        wi: Array.from(document.querySelectorAll(".insights-whatif-row span")).map((e) =>
+          e.textContent.trim()
+        )
       }));
     const n0 = await notes();
-    if (n0.sg.join() !== NOTE || n0.wi.join() !== NOTE || n0.sgRows !== 0 || n0.wiRows !== 0)
+    if (
+      n0.notes !== 0 ||
+      n0.sgEmpty !== 1 ||
+      n0.sgIds.length !== 0 ||
+      n0.wi.join("|") !== "As run|All Haiku|Lead as run · children Haiku|Apply suggestions"
+    )
       errors.push("live rows: live session panels: " + JSON.stringify(n0));
 
     // the older session: Suggestions and What-if as they always were
@@ -793,10 +800,10 @@ async function smokeLiveRows(browser) {
       timeout: 10000
     });
     const n1 = await notes();
-    if (n1.sg.length || n1.wi.length || n1.wiRows < 4)
+    if (n1.notes || n1.sgIds.join() !== "hist-helper" || n1.wi.indexOf("All Auto") < 0)
       errors.push("live rows: history session panels: " + JSON.stringify(n1));
     await page.selectOption(".insights-session", "live-session");
-    await page.waitForSelector('[data-panel="whatif"] [data-live-unavailable]', {
+    await page.waitForSelector('[data-panel="suggestions"] [data-suggestions-empty]', {
       state: "attached",
       timeout: 10000
     });
@@ -852,7 +859,12 @@ async function smokeLiveRows(browser) {
       sel: document.querySelector(".insights-session").value,
       held: window.__insightsHandle.__testLiveState()
     }));
-    if (after.sel !== "hist-1" || after.held.rows !== 0 || after.held.models !== 0)
+    if (
+      after.sel !== "hist-1" ||
+      after.held.rows !== 0 ||
+      after.held.models !== 0 ||
+      after.held.agents !== 0
+    )
       errors.push("live rows: after clearLiveRows: " + JSON.stringify(after));
   } finally {
     await page.close();
@@ -1185,25 +1197,474 @@ async function smokeLiveRowClear(browser) {
           options: Array.from(document.querySelectorAll(".insights-session option")).map(
             (o) => o.value
           ),
-          notes: ["suggestions", "whatif"].filter((p) =>
-            document.querySelector('[data-panel="' + p + '"] [data-live-unavailable]')
+          whatIf: Array.from(document.querySelectorAll(".insights-whatif-row span")).map((e) =>
+            e.textContent.trim()
           )
         }));
       const before = await picker();
-      if (before.value !== "live-session" || before.notes.join() !== "suggestions,whatif")
+      if (
+        before.value !== "live-session" ||
+        before.whatIf.join("|") !==
+          "As run|All Haiku|Lead as run (Opus) · children Haiku|Apply suggestions"
+      )
         errors.push(
-          "clear: setup, the live session is not picked with its note: " + JSON.stringify(before)
+          "clear: setup, the live session is not picked with its What-if: " + JSON.stringify(before)
         );
       await b.page.evaluate(() => window.__insightsHandle.clearLiveRows());
       await waitStatus(b.page, 1);
       const sel = await picker();
       if (sel.value !== "hist-1" || sel.options.includes("live-session"))
         errors.push("clear: the picked live session did not revert: " + JSON.stringify(sel));
-      if (sel.notes.length)
-        errors.push("clear: the live note is still shown after the clear: " + sel.notes.join());
+      if (sel.whatIf.indexOf("All Auto") < 0 || sel.whatIf.some((l) => /\(Opus\)/.test(l)))
+        errors.push("clear: the history session's What-if after the clear: " + sel.whatIf);
       errors.push(...b.errors.map((e) => "clear (picker): " + e));
     } finally {
       await b.page.close();
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+  return errors;
+}
+
+/** Load the real bill-math and bill.js into a harness page; the Bill is fed like app.js feeds it. */
+async function addRealBill(page) {
+  await page.addScriptTag({ path: path.join(ROOT, "dashboard", "bill-math.js") });
+  await page.addScriptTag({ path: path.join(ROOT, "dashboard", "bill.js") });
+  await page.evaluate(() => {
+    const el = () => ({ textContent: "", style: {}, className: "", id: "" });
+    const billEls = new Proxy({}, { get: (o, k) => o[k] || (o[k] = el()) });
+    const state = { calls: 0, subs: 0, liveSubs: {}, usage: window.WorkshopBillMath.emptyUsage() };
+    window.WorkshopBill.init({
+      state,
+      billEls,
+      hud: {},
+      billMath: window.WorkshopBillMath,
+      getMode: () => "live",
+      cards: () => null,
+      tipSpark: () => {}
+    });
+    window.__bill = { state, billEls };
+    /* One wire row to the Bill (addUsage, as app.js does) and to Insights. */
+    window.__feed = (r) => {
+      if (r.usage)
+        window.WorkshopBill.addUsage(
+          { model: r.usage.model, role: r.usage.role || r.role, in: r.usage.in, out: r.usage.out },
+          { skipDaily: true }
+        );
+      window.__insightsHandle.addLiveRow(r);
+    };
+  });
+}
+
+/** What the live session's panels and the Bill show. */
+const parityView = (page) =>
+  page.evaluate(() => {
+    const bm = window.WorkshopBillMath;
+    const wi = Array.from(document.querySelectorAll(".insights-whatif-row")).map((r) => ({
+      label: r.querySelector("span").textContent.trim(),
+      cost: r.querySelector("strong").textContent.trim()
+    }));
+    const sg = Array.from(document.querySelectorAll("[data-suggestions-list] [data-agent-id]"));
+    const panels = document.querySelector(".insights-panels");
+    return {
+      forecast: document.querySelector("[data-forecast-spend]").textContent,
+      wi,
+      billText: window.__bill.billEls.sessionTotal.textContent,
+      billFormatted: bm.formatMoney(bm.sessionCostTotal(window.__bill.state.usage)),
+      billRaw: bm.sessionCostTotal(window.__bill.state.usage),
+      honesty: Array.from(document.querySelectorAll("[data-suggestions-honesty]")).map(
+        (e) => e.textContent + " | " + e.getAttribute("data-tip-detail")
+      ),
+      sgIds: sg.map((e) => e.getAttribute("data-agent-id")),
+      sgTo: Array.from(document.querySelectorAll("[data-suggestions-list] .insights-badge.to")).map(
+        (e) => e.textContent
+      ),
+      sgReasons: Array.from(document.querySelectorAll(".insights-suggest-reason")).map(
+        (e) => e.textContent
+      ),
+      sgEmpty: document.querySelectorAll("[data-suggestions-empty]").length,
+      allIds: Array.from(panels.querySelectorAll("[data-agent-id]")).map((e) =>
+        e.getAttribute("data-agent-id")
+      ),
+      imgs: panels.querySelectorAll("img").length,
+      /* the per-agent sheets only (the Forecast's own hint names dashboard/*.js files) */
+      html:
+        document.querySelector('[data-panel="suggestions"]').innerHTML +
+        document.querySelector('[data-panel="whatif"]').innerHTML,
+      held: window.__insightsHandle.__testLiveState()
+    };
+  });
+
+/**
+ * Live per-agent pricing with the real bill-math and bill.js: about 5,000 sub-cent usage rows
+ * across the Lead and two subagents, every agent off its role default (a Sonnet Lead that also
+ * runs Haiku, a Haiku worker, an Opus researcher). With no suggestions the Forecast spend, What-if
+ * "As run", "Apply suggestions" and the Bill all render the same string; with suggestions the
+ * list holds exactly the expected agents and never Auto. Hostile sources, models and paths never
+ * reach a data-agent-id or the markup.
+ */
+async function smokeLivePricingParity(browser) {
+  const { server, port } = await startStaticServer();
+  const errors = [];
+  const ID_RE = /^live-(session|subagent-\d{1,6})-(opus|fable|sonnet|haiku)$/;
+  try {
+    /* "order": four rows whose per-agent sum differs from the Bill's per-model sum in the last
+       float bit (0.00029140000000000004 vs 0.0002914), so only the Bill's order matches */
+    for (const variant of ["none", "some", "order"]) {
+      const p = await openLiveHarness(browser, port, []);
+      try {
+        await addRealBill(p.page);
+        const n = await p.page.evaluate((v) => {
+          const T0 = Date.UTC(2026, 0, 1);
+          const rows = [];
+          const mk = (i, source, role, model, inn, out, extra) =>
+            Object.assign(
+              {
+                type: "turn",
+                kind: "status",
+                iso: new Date(T0 + i * 1000).toISOString(),
+                role,
+                source,
+                usage: model == null ? null : { model, role, in: inn, out, cacheRead: 0 },
+                activity: null
+              },
+              extra || {}
+            );
+          const SRC = [
+            ["session", "parent", "sonnet"],
+            ["subagent:1", "worker", "haiku"],
+            ["subagent:2", "explorer", "opus"]
+          ];
+          if (v === "order") {
+            rows.push(mk(0, "session", "parent", "sonnet", 41, 17));
+            rows.push(mk(1, "subagent:1", "worker", "haiku", 45, 18));
+            rows.push(mk(2, "subagent:2", "explorer", "haiku", 42, 19));
+            rows.push(mk(3, "session", "parent", "haiku", 47, 15));
+          }
+          for (let i = 0; v !== "order" && i < 5000; i++) {
+            const [source, role, base] = SRC[i % 3];
+            /* the Lead switches to Haiku on some turns: two Lead rows, one per model */
+            const model = source === "session" && i % 7 === 0 ? "haiku" : base;
+            const out = v === "some" && source === "subagent:2" ? 1 : 15 + (i % 11);
+            rows.push(mk(i, source, role, model, 40 + (i % 13), out));
+          }
+          if (v === "some") {
+            /* paths make the Opus researcher read-heavy; a Fable planner and a small Sonnet
+               worker read too; hostile values ride along */
+            const act = (path) => ({ activity: { kind: "read", path, detail: "" } });
+            rows.push(mk(5000, "subagent:2", "explorer", null, 0, 0, act("src/proj-demo/a.js")));
+            rows.push(mk(5001, "subagent:3", "advisor", "fable", 9000, 40, act("b.js")));
+            rows.push(mk(5002, "subagent:4", "worker", "sonnet", 6000, 30, act("c.js")));
+            rows.push(mk(5003, "../x", "parent", "a/../b", 50, 5, act('"><img src=x>')));
+            rows.push(mk(5004, 'subagent:5"><img src=x>', "worker", "<img src=y>", 7, 1));
+          }
+          rows.forEach((r) => window.__feed(r));
+          return rows.length;
+        }, variant);
+        await waitStatus(p.page, n);
+        await p.page
+          .waitForFunction(
+            () =>
+              document.querySelector("[data-forecast-spend]").textContent ===
+              window.__bill.billEls.sessionTotal.textContent,
+            null,
+            { timeout: 10000 }
+          )
+          .catch(() => {}); // the checks below name the figures
+        const v = await parityView(p.page);
+        const tag = "parity (" + variant + "): ";
+        const cost = (label) => (v.wi.find((w) => w.label === label) || {}).cost;
+        const asRun = cost("As run");
+        if (v.billText !== v.billFormatted || !/^\$\d+\.\d{2,3}$/.test(v.billText))
+          errors.push(tag + "Bill " + v.billText + " vs formatted " + v.billFormatted);
+        if (v.forecast !== v.billText)
+          errors.push(tag + `Forecast ${v.forecast}, Bill ${v.billText}`);
+        if (asRun !== v.billText) errors.push(tag + `What-if As run ${asRun}, Bill ${v.billText}`);
+        if (v.wi.some((w) => /auto/i.test(w.label))) errors.push(tag + "All Auto: " + v.html);
+        if (
+          !v.honesty.length ||
+          v.honesty.some((h) => !/Claude Code routing.*\|.*Claude Code routing/.test(h)) ||
+          v.honesty.some((h) => /Cursor/.test(h))
+        )
+          errors.push(tag + "honesty line " + JSON.stringify(v.honesty));
+        const lead = cost("Lead as run · children Haiku");
+        if (!lead || Number(lead.slice(1)) > Number(asRun.slice(1)))
+          errors.push(tag + "children Haiku scenario: " + JSON.stringify(v.wi));
+        if (variant !== "some") {
+          if (v.sgEmpty !== 1 || v.sgIds.length)
+            errors.push(tag + "expected no suggestions: " + JSON.stringify(v.sgIds));
+          if (cost("Apply suggestions") !== v.billText)
+            errors.push(tag + `Apply suggestions ${cost("Apply suggestions")}, Bill ${v.billText}`);
+          if (v.held.agents !== 4) errors.push(tag + "agents " + JSON.stringify(v.held));
+          /* full precision, not only the rendered string: with no suggestions the live panels
+             sum in the Bill's order, so both totals are the Bill's own number */
+          const raw = (id) => (v.held.whatIf.find((s) => s.id === id) || {}).cost;
+          if (raw("actual") !== v.billRaw || raw("suggested") !== v.billRaw)
+            errors.push(
+              tag + `raw As run ${raw("actual")}, Apply ${raw("suggested")}, Bill ${v.billRaw}`
+            );
+        } else {
+          const want = ["live-subagent-2-opus", "live-subagent-3-fable", "live-subagent-4-sonnet"];
+          if (v.sgIds.slice().sort().join() !== want.join())
+            errors.push(tag + "suggestion rows " + JSON.stringify(v.sgIds));
+          if (v.sgTo.some((t) => /auto/i.test(t)) || v.sgReasons.some((t) => /auto/i.test(t)))
+            errors.push(tag + "an Auto suggestion: " + JSON.stringify([v.sgTo, v.sgReasons]));
+          if (v.sgTo.join() !== "haiku,haiku,haiku")
+            errors.push(tag + "suggested models " + JSON.stringify(v.sgTo));
+          if (!(Number(cost("Apply suggestions").slice(1)) < Number(asRun.slice(1))))
+            errors.push(tag + "Apply suggestions does not save: " + JSON.stringify(v.wi));
+        }
+        if (!v.allIds.every((id) => ID_RE.test(id)))
+          errors.push(tag + "an id not from source + bucket: " + JSON.stringify(v.allIds));
+        if (v.imgs || /a\/\.\.\/b|\.\.\/x|proj-demo|img src|\.js/.test(v.html))
+          errors.push(tag + "a raw source, model or path reached the markup");
+        errors.push(...p.errors.map((e) => tag + e));
+      } finally {
+        await p.page.close();
+      }
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+  return errors;
+}
+
+/**
+ * Subagent numbers restart in a new session: after clearLiveRows no agent of the old session
+ * survives. subagent:1 of the old session has a suggestion; the new session's does not include it.
+ */
+async function smokeLiveStaleAgents(browser) {
+  const { server, port } = await startStaticServer();
+  const errors = [];
+  const p = await openLiveHarness(browser, port, []);
+  try {
+    await addRealBill(p.page);
+    const readHeavyOpus = (source, i) => [
+      {
+        type: "turn",
+        iso: new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(),
+        role: "worker",
+        source,
+        usage: { model: "opus", role: "worker", in: 30000, out: 100 },
+        activity: { kind: "read", path: "a.js", detail: "" }
+      }
+    ];
+    await p.page.evaluate(
+      (rows) => rows.forEach((r) => window.__insightsHandle.addLiveRow(r)),
+      readHeavyOpus("subagent:1", 0)
+    );
+    await waitStatus(p.page, 1);
+    const v0 = await parityView(p.page);
+    if (v0.sgIds.join() !== "live-subagent-1-opus")
+      errors.push("stale: the old session's suggestion " + JSON.stringify(v0.sgIds));
+
+    await p.page.evaluate(() => window.__insightsHandle.clearLiveRows());
+    await waitStatus(p.page, 0);
+    const rows = readHeavyOpus("subagent:2", 10).concat([
+      {
+        type: "turn",
+        iso: new Date(Date.UTC(2026, 0, 1, 1)).toISOString(),
+        role: "parent",
+        source: "session",
+        usage: { model: "sonnet", role: "parent", in: 100, out: 900 },
+        activity: null
+      }
+    ]);
+    await p.page.evaluate((r) => r.forEach((x) => window.__insightsHandle.addLiveRow(x)), rows);
+    await waitStatus(p.page, 2);
+    await p.page
+      .waitForSelector('[data-agent-id="live-subagent-2-opus"]', {
+        state: "attached",
+        timeout: 5000
+      })
+      .catch(() => {});
+    const v1 = await parityView(p.page);
+    if (v1.sgIds.join() !== "live-subagent-2-opus" || v1.html.includes("live-subagent-1"))
+      errors.push("stale: after a new session, suggestions " + JSON.stringify(v1.sgIds));
+    if (v1.held.agents !== 2) errors.push("stale: agents held " + JSON.stringify(v1.held));
+    const lead = v1.wi.map((w) => w.label).join("|");
+    if (lead !== "As run|All Haiku|Lead as run (Sonnet) · children Haiku|Apply suggestions")
+      errors.push("stale: what-if " + lead);
+    // a live suggestion row jumps with the agent's wire role (its id is not a stage role)
+    const jumped = await p.page.evaluate(() => {
+      let detail = null;
+      const on = (ev) => (detail = ev.detail);
+      window.addEventListener("cursor-agents:jump-to-agent", on);
+      const row = document.querySelector('[data-agent-id="live-subagent-2-opus"]');
+      if (row) row.click();
+      window.removeEventListener("cursor-agents:jump-to-agent", on);
+      return detail;
+    });
+    if (!jumped || jumped.role !== "worker" || jumped.agentId !== "live-subagent-2-opus")
+      errors.push("stale: jump detail " + JSON.stringify(jumped));
+    errors.push(...p.errors.map((e) => "stale: " + e));
+  } finally {
+    await p.page.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+  return errors;
+}
+
+/**
+ * Money renders like the Bill in Demo and in a history-loaded (Cursor-shaped) session: three
+ * decimals below a cent, the same string as bill-math formatMoney for the same value, whether
+ * bill-math is loaded or not, and never four decimals.
+ */
+/**
+ * The Suggestions honesty line names the router of the selected source, also before the first
+ * live row: Claude Code with no rows yet says Claude Code; a picked Cursor-shaped history session
+ * and the Cursor source say Cursor.
+ */
+async function smokeHonestySource(browser) {
+  const { server, port } = await startStaticServer();
+  const errors = [];
+  const histEvent = {
+    ts: "2025-12-31T10:00:00.000Z",
+    sessionId: "hist-1",
+    agentId: "hist-helper",
+    parentId: "hist-lead",
+    name: "helper",
+    model: "opus",
+    type: "turn",
+    inputTokens: 5000,
+    outputTokens: 500,
+    files: []
+  };
+  const lines = (page) =>
+    page.evaluate(() =>
+      Array.from(document.querySelectorAll("[data-suggestions-honesty]")).map(
+        (e) => e.textContent + " | " + e.getAttribute("data-tip-detail")
+      )
+    );
+  const names = (list, word) =>
+    list.length > 0 &&
+    list.every((h) => h.split(word).length === 3 && !/Cursor.*Claude|Claude.*Cursor/.test(h));
+  try {
+    const p = await openLiveHarness(browser, port, []);
+    try {
+      const before = await lines(p.page);
+      if (!names(before, "Cursor routing")) errors.push("default: " + JSON.stringify(before));
+      await p.page.evaluate(() => window.__insightsHandle.setClaudeCodeSource(true));
+      const cc = await lines(p.page);
+      if (!names(cc, "Claude Code routing"))
+        errors.push("Claude Code, no rows: " + JSON.stringify(cc));
+      await p.page.evaluate(() => window.__insightsHandle.setClaudeCodeSource(false));
+      const back = await lines(p.page);
+      if (!names(back, "Cursor routing")) errors.push("back to Cursor: " + JSON.stringify(back));
+      errors.push(...p.errors);
+    } finally {
+      await p.page.close();
+    }
+    const h = await openLiveHarness(browser, port, [histEvent]);
+    try {
+      await h.page.evaluate(() => window.__insightsHandle.setClaudeCodeSource(true));
+      const hist = await lines(h.page);
+      if (!names(hist, "Cursor routing"))
+        errors.push("history session on Claude Code: " + JSON.stringify(hist));
+      errors.push(...h.errors);
+    } finally {
+      await h.page.close();
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+  return errors;
+}
+
+async function smokeMoneyFormat(browser) {
+  const { server, port } = await startStaticServer();
+  const errors = [];
+  const ev = (agentId, parentId, model, inn, out) => ({
+    ts: "2026-01-01T10:00:00.000Z",
+    sessionId: "hist-cents",
+    agentId,
+    parentId,
+    name: agentId,
+    model,
+    type: "turn",
+    inputTokens: inn,
+    outputTokens: out,
+    files: []
+  });
+  /* sub-cent per model: opus 0.00122, sonnet 0.00446, haiku 0.0000123, fable 0.00808 */
+  const events = [
+    ev("lead", null, "opus", 180, 25),
+    ev("kid-1", "lead", "sonnet", 123, 421),
+    ev("kid-2", "lead", "haiku", 23, 20),
+    ev("kid-3", "lead", "fable", 11, 200)
+  ];
+  const moneyCells = (page) =>
+    page.evaluate(() => {
+      const out = [];
+      document
+        .querySelectorAll(
+          "[data-forecast-table] tbody td:last-child, .insights-whatif-row strong, [data-forecast-spend]"
+        )
+        .forEach((e) => out.push(e.textContent.trim()));
+      return out;
+    });
+  try {
+    for (const withBill of [false, true]) {
+      const tag = "money (" + (withBill ? "bill-math" : "local rule") + "): ";
+      const p = await openLiveHarness(browser, port, events);
+      try {
+        if (withBill)
+          await p.page.addScriptTag({ path: path.join(ROOT, "dashboard", "bill-math.js") });
+        /* a re-render after bill-math is loaded (a picker change repaints every panel) */
+        await p.page.evaluate(() => window.__insightsHandle.reload());
+        await waitStatus(p.page, 4);
+        const cells = await moneyCells(p.page);
+        const want = await p.page.evaluate((evs) => {
+          const A = window.Insights.analyze;
+          /* bill-math's own rule, inlined so the no-bill page is checked against it too */
+          const billFormat = (n) =>
+            !isFinite(n) || n < 0
+              ? "$0.00"
+              : n > 0 && n < 0.01
+                ? "$" + n.toFixed(3)
+                : "$" + n.toFixed(2);
+          const u = A.usageByModel(evs);
+          const rows = ["opus", "fable", "sonnet", "haiku"]
+            .filter((m) => u[m].in + u[m].out > 0)
+            .map((m) => billFormat(u[m].cost));
+          return {
+            rows,
+            spend: billFormat(A.totalCost(evs)),
+            scenarios: A.whatIfScenarios(evs).map((s) => billFormat(s.cost)),
+            same: window.WorkshopBillMath
+              ? [0.0012, 0.00446, 0.0000123].every(
+                  (x) => window.WorkshopBillMath.formatMoney(x) === billFormat(x)
+                )
+              : true
+          };
+        }, events);
+        if (!want.same) errors.push(tag + "the inlined rule differs from bill-math");
+        for (const r of want.rows.concat(want.spend, want.scenarios)) {
+          if (!cells.includes(r))
+            errors.push(tag + r + " not rendered in " + JSON.stringify(cells));
+        }
+        if (!want.rows.some((r) => /^\$0\.00\d$/.test(r)))
+          errors.push(tag + "no sub-cent row in the data: " + JSON.stringify(want.rows));
+        if (cells.some((c) => /\.\d{4}/.test(c))) errors.push(tag + "four decimals: " + cells);
+        errors.push(...p.errors.map((e) => tag + e));
+      } finally {
+        await p.page.close();
+      }
+    }
+    /* Demo: every money figure is two or three decimals, never four */
+    const d = await browser.newPage();
+    try {
+      await d.goto(`http://127.0.0.1:${port}/test/insights-harness.html`, {
+        waitUntil: "domcontentloaded",
+        timeout: 15000
+      });
+      await d.waitForSelector("[data-forecast-table] tbody tr", { timeout: 8000 });
+      const cells = await moneyCells(d);
+      if (!cells.length || cells.some((c) => !/^\$\d+\.\d{2,3}$/.test(c)))
+        errors.push("money (demo): " + JSON.stringify(cells));
+    } finally {
+      await d.close();
     }
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -1227,6 +1688,10 @@ async function main() {
     all.push(...(await smokeLiveRowPricing(browser)).map((e) => "[live pricing] " + e));
     all.push(...(await smokeLiveRowDebounce(browser)).map((e) => "[live debounce] " + e));
     all.push(...(await smokeLiveRowClear(browser)).map((e) => "[live clear] " + e));
+    all.push(...(await smokeLivePricingParity(browser)).map((e) => "[live parity] " + e));
+    all.push(...(await smokeLiveStaleAgents(browser)).map((e) => "[live stale] " + e));
+    all.push(...(await smokeMoneyFormat(browser)).map((e) => "[money] " + e));
+    all.push(...(await smokeHonestySource(browser)).map((e) => "[honesty] " + e));
   } finally {
     await browser.close();
   }

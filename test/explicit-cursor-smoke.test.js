@@ -77,6 +77,11 @@ async function runCase(port, name, seed, errors) {
       document.getElementById("sourceCursor").getAttribute("aria-pressed")
     );
     if (cursorPressed !== "true") errors.push(name + ": Cursor button not pressed");
+    // Insights' honesty line follows the shown source: Cursor here, Claude Code after the click
+    const insightsClaude = () =>
+      page.evaluate(() => window.__cursorAgentsDashTest.insightsLiveState().claudeSource);
+    if ((await insightsClaude()) !== false)
+      errors.push(name + ": Insights thinks the source is Claude Code on the Cursor folder");
 
     await page.click("#sourceClaude", { force: true });
     await page.waitForFunction(
@@ -103,6 +108,8 @@ async function runCase(port, name, seed, errors) {
     await page.waitForTimeout(1500);
     const chip = await page.evaluate(() => document.getElementById("hudSourceValue").textContent);
     if (chip !== "Claude Code") errors.push(name + ": chip flipped back to " + chip);
+    if ((await insightsClaude()) !== true)
+      errors.push(name + ": Insights did not hear the switch to Claude Code");
     await page.screenshot({ path: path.join(SCRATCH, name + ".png") });
   } finally {
     await ctx.close();

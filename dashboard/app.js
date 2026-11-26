@@ -1731,6 +1731,10 @@
   /** Role names follow the page: Claude Code labels only in Live on Claude Code. */
   function syncRoleProfile() {
     window.RoleProfiles.apply(window.RoleProfiles.profileFor(mode, view.currentSource()));
+    // same moments (mode or source shown): the Insights honesty line names the source's router
+    if (insightsPanel && typeof insightsPanel.setClaudeCodeSource === "function") {
+      insightsPanel.setClaudeCodeSource(mode === "live" && view.currentSource() === "claude-code");
+    }
   }
 
   function setMode(next) {
@@ -2248,6 +2252,11 @@
     },
     isReplaySessionActive: function () {
       return replaySessionActive;
+    },
+    insightsLiveState: function () {
+      return insightsPanel && typeof insightsPanel.__testLiveState === "function"
+        ? insightsPanel.__testLiveState()
+        : null;
     },
     replayGuardInfo: function () {
       return replayGuard ? replayGuard.info() : null;
