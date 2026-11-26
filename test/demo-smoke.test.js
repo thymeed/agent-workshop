@@ -137,6 +137,31 @@ async function smokeDemoFile(browser) {
     );
   }
 
+  // The Claude Code session picker sits outside the replay host, so it needs the theme tokens
+  // itself; without them its native popup draws pale text on white (computed style works while hidden).
+  const historyPicker = await page.evaluate(() => {
+    const wrap = document.getElementById("claudeHistoryHost");
+    const select = document.getElementById("claudeHistorySession");
+    if (!wrap || !select) return { missing: true };
+    const s = getComputedStyle(select);
+    return {
+      ink: getComputedStyle(wrap).getPropertyValue("--insights-ink").trim(),
+      bg: s.backgroundColor,
+      scheme: s.colorScheme
+    };
+  });
+  if (
+    historyPicker.missing ||
+    historyPicker.ink !== "#f2f6f4" ||
+    historyPicker.bg === "rgba(0, 0, 0, 0)" ||
+    historyPicker.scheme !== "dark"
+  ) {
+    errors.push(
+      "History session picker: theme tokens or dark color-scheme missing " +
+        JSON.stringify(historyPicker)
+    );
+  }
+
   await page.click("#viewInsights");
   await page.waitForSelector('.drawer[data-panel="insights"][open] .insights-root', {
     timeout: 5000
