@@ -233,7 +233,9 @@ async function main() {
       fail("(ii) zero spend figures: " + JSON.stringify(s0));
 
     // ---- a row after the live edge: count +1, spend appears, Forecast == Bill ----
-    fs.appendFileSync(liveFile, spend("l1", Date.now()) + "\n");
+    // l1 is stamped one day back and l2 (below) now, so the last row and the one before it are a
+    // day apart: the pace span has to end at the LAST row, not the one before it
+    fs.appendFileSync(liveFile, spend("l1", Date.now() - DAY) + "\n");
     await waitCount(page, 2, "one appended row");
     await waitFor(
       page,
@@ -246,8 +248,8 @@ async function main() {
     if (s1.forecast !== s1.bill || s1.bill !== s1.hud)
       fail("(ii) forecast and Bill differ: " + JSON.stringify(s1));
     if (/No spend pace yet/.test(s1.hit || "")) fail("(ii) still no pace with spend: " + s1.hit);
-    // $0.06 over about 2 days is $0.03/day; with the last-time marker gone the span is 0 and it reads $0.06/day
-    if (!/avg \$0\.03\/day/.test(s1.hit || "")) fail("(ii) pace text: " + s1.hit);
+    // first row 2 days back, last row (l1) 1 day back: $0.06 over about 1 day
+    if (!/avg \$0\.06\/day/.test(s1.hit || "")) fail("(ii) pace text after one row: " + s1.hit);
 
     perAgentProblems(s1, "ii, one row with spend").forEach(fail);
 
@@ -262,6 +264,9 @@ async function main() {
     const s2 = await read(page);
     if (s2.forecast !== s2.bill) fail("(ii) forecast and Bill differ: " + JSON.stringify(s2));
     if (s2.bill !== "$0.12") fail("(ii) Bill after two rows: " + s2.bill);
+    // $0.12 over the whole span (2 days back to now) is $0.06/day. A marker at the first time, or
+    // at the row before the last (l1, 1 day back), gives a 1 day span and reads $0.12/day.
+    if (!/avg \$0\.06\/day/.test(s2.hit || "")) fail("(ii) pace text after two rows: " + s2.hit);
 
     // a delegation row carries usage too (type spawn, not turn): it bills the same way
     fs.appendFileSync(

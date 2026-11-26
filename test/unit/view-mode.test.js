@@ -661,3 +661,116 @@ test("closing the drawer leaves focus alone when it was elsewhere", () => {
   toggle(t);
   assert.equal(summary.focused, false, "blank-page click while open: not stolen");
 });
+
+/** A summary whose focus() records the options it was called with. */
+function recordingSummary() {
+  const summary = makeEl("summary");
+  summary.focusCalls = [];
+  summary.focus = (opts) => {
+    summary.focused = true;
+    summary.focusCalls.push(opts);
+  };
+  return summary;
+}
+
+test("a rescue clears the drawer-focus memory: the next close does not rescue again", () => {
+  const t = loadWithHost(true);
+  const summary = recordingSummary();
+  const select = makeEl("select");
+  t.drawers.drawerHistory.found = { summary };
+  t.drawers.drawerHistory.children.push(select);
+  const doc = t.sandbox.document;
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  doc.docListeners.focusin.forEach((fn) => fn({ target: select }));
+  doc.activeElement = doc.body;
+  t.drawers.drawerHistory.open = false;
+  toggle(t);
+  assert.equal(summary.focusCalls.length, 1, "the first close rescues focus");
+  /* Reopen and close with focus already on the body and no new focus inside the drawer. */
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  doc.activeElement = doc.body;
+  t.drawers.drawerHistory.open = false;
+  toggle(t);
+  assert.equal(summary.focusCalls.length, 1, "the memory was spent: no second rescue");
+});
+
+test("rescued and restored focus never scrolls the page (preventScroll: true)", () => {
+  const t = loadWithHost(true);
+  const summary = recordingSummary();
+  const select = makeEl("select");
+  t.drawers.drawerHistory.found = { summary };
+  t.drawers.drawerHistory.children.push(select);
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  t.sandbox.document.activeElement = select;
+  t.drawers.drawerHistory.open = false;
+  toggle(t);
+  assert.equal(summary.focusCalls.length, 1);
+  assert.deepEqual({ ...summary.focusCalls[0] }, { preventScroll: true }, "rescue to the summary");
+
+  /* A remount that hands focus back to the same transport control. */
+  const host = t.sandbox.document.getElementById("historyReplayHost");
+  const oldPlay = makeEl("button");
+  oldPlay.attrs["data-replay-play"] = "";
+  host.children.push(oldPlay);
+  const newPlay = makeEl("button");
+  const calls = [];
+  newPlay.focus = (opts) => calls.push(opts);
+  host.found = { "[data-replay-play]": newPlay };
+  t.sandbox.document.activeElement = oldPlay;
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  assert.equal(calls.length, 1);
+  assert.deepEqual({ ...calls[0] }, { preventScroll: true }, "restore to the transport control");
+});
+
+test("focus on a control inside .insights-replay (outside the host) counts as in the transport", () => {
+  const t = loadWithHost(true);
+  const host = t.sandbox.document.getElementById("historyReplayHost");
+  const summary = recordingSummary();
+  t.drawers.drawerHistory.found = { summary };
+  /* The transport is still painted in the Insights sheet, not in the drawer's host. */
+  const elsewhere = makeEl("button");
+  elsewhere.attrs["data-replay-pause"] = "";
+  elsewhere.closest = (sel) => (sel === ".insights-replay" ? makeEl("div") : null);
+  const newPause = makeEl("button");
+  host.found = { "[data-replay-pause]": newPause };
+  t.sandbox.document.activeElement = elsewhere;
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  assert.equal(newPause.focused, true, "focus follows the control into the drawer's host");
+  assert.equal(summary.focusCalls.length, 0);
+});
+
+test("remountHistoryReplayIfNeeded remounts an open drawer outside History, without scrolling", () => {
+  const t = loadWithHost(true);
+  t.drawers.drawerHistory.open = true;
+  toggle(t);
+  const mounts = t.mounts;
+  const scrolls = t.scrolls;
+  t.mod.remountHistoryReplayIfNeeded();
+  assert.equal(t.mounts, mounts + 1, "the open drawer is remounted");
+  assert.equal(t.scrolls, scrolls, "no scroll outside the History view");
+  t.state.available = false;
+  t.mod.remountHistoryReplayIfNeeded();
+  assert.equal(t.mounts, mounts + 1, "nothing to replay: no remount");
+  t.state.available = true;
+  t.drawers.drawerHistory.open = false;
+  t.mod.remountHistoryReplayIfNeeded();
+  assert.equal(t.mounts, mounts + 1, "a closed drawer is not remounted");
+});
+
+test("leaving History resets the driving hint", () => {
+  const t = loadWithHost(false);
+  t.mod.setViewMode("history");
+  t.mod.updateHistoryHint(true);
+  assert.equal(t.el.historyHint.textContent, "Replay driving stage");
+  t.mod.setViewMode("stage");
+  assert.equal(t.el.historyHint.textContent, "Open the History tab to replay sessions.");
+  t.mod.setViewMode("history");
+  t.mod.updateHistoryHint(true);
+  t.mod.setViewMode("insights");
+  assert.equal(t.el.historyHint.textContent, "Open the History tab to replay sessions.");
+});

@@ -864,6 +864,353 @@ async function smokeLiveRows(browser) {
   return errors;
 }
 
+/** A live harness page with the given history events; resolves once Insights is mounted. */
+async function openLiveHarness(browser, port, events, opts) {
+  const page = await browser.newPage();
+  const collected = attachErrorCollectors(page);
+  if (opts && opts.clock) await page.clock.install();
+  await page.route("**/api/history**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ events: events || [] })
+    })
+  );
+  await page.goto(`http://127.0.0.1:${port}/test/insights-harness.html?live=1`, {
+    waitUntil: "domcontentloaded",
+    timeout: 15000
+  });
+  await page.waitForSelector(".insights-root", { timeout: 8000 });
+  await page.waitForFunction(
+    () => /^Live · \d+ events/.test(document.querySelector("[data-status]").textContent),
+    null,
+    { timeout: 10000 }
+  );
+  return Object.assign({ page }, collected);
+}
+
+const waitStatus = (page, n) =>
+  page.waitForFunction(
+    (want) =>
+      document.querySelector("[data-status]").textContent.indexOf("Live · " + want + " events") ===
+      0,
+    n,
+    { timeout: 10000 }
+  );
+
+/** The forecast's model rows and money figures, as the page shows them. */
+const forecastView = (page) =>
+  page.evaluate(() => ({
+    spend: document.querySelector("[data-forecast-spend]").textContent,
+    pace: document.querySelector("[data-forecast-pace]").textContent,
+    hit: document.querySelector("[data-forecast-hit]").textContent,
+    models: Array.from(
+      document.querySelectorAll('[data-panel="forecast"] tbody tr[class^="model-"]')
+    ).map((tr) => tr.className.replace(/^model-/, "").split(" ")[0]),
+    held: window.__insightsHandle.__testLiveState()
+  }));
+
+/** One live row at `ms` that costs $1.00 at the Opus list price. */
+const dollarRow = (ms) => ({
+  type: "turn",
+  iso: new Date(ms).toISOString(),
+  usage: { model: "opus", in: 250000, out: 0 }
+});
+
+/**
+ * Live rows against the Bill's math: Insights prices through whatever WorkshopBillMath is loaded
+ * (a stub with its own rates here, so the Forecast must follow the stub, not Insights CONFIG),
+ * and with the real bill-math a blank model with the explorer role is Haiku, a zero-token row
+ * adds no model, a row without a time is stamped now (never NaN), and the span marker is never
+ * a model row.
+ */
+async function smokeLiveRowPricing(browser) {
+  const { server, port } = await startStaticServer();
+  const errors = [];
+  const DAY = 86400000;
+  try {
+    // (1) a stub Bill with rates unlike Insights CONFIG
+    const a = await openLiveHarness(browser, port, []);
+    try {
+      const bill = await a.page.evaluate(() => {
+        window.WorkshopBillMath = {
+          RATES: { opus: { in: 100, out: 200 }, haiku: { in: 10, out: 20 } },
+          normalizeModel: (m) => (m === "haiku" ? "haiku" : "opus"),
+          modelCost: function (m, i, o) {
+            const r = this.RATES[m];
+            return (i / 1e6) * r.in + (o / 1e6) * r.out;
+          }
+        };
+        const rows = [
+          { model: "opus", in: 1000000, out: 0 },
+          { model: "haiku", in: 0, out: 1000000 }
+        ];
+        const iso = new Date(Date.UTC(2026, 0, 1)).toISOString();
+        rows.forEach((u) => window.__insightsHandle.addLiveRow({ type: "turn", iso, usage: u }));
+        /* What the Bill shows for the same rows: the same stub, summed per model. */
+        const bm = window.WorkshopBillMath;
+        return rows.reduce((s, u) => s + bm.modelCost(bm.normalizeModel(u.model), u.in, u.out), 0);
+      });
+      await waitStatus(a.page, 2);
+      const v = await forecastView(a.page);
+      const want = "$" + bill.toFixed(2);
+      if (want !== "$120.00") errors.push("stub bill: expected total " + want);
+      if (v.spend !== want) errors.push(`stub bill: Forecast ${v.spend}, the Bill ${want}`);
+      errors.push(...a.errors.map((e) => "stub bill: " + e));
+    } finally {
+      await a.page.close();
+    }
+
+    // (2) the real bill-math: role fallback, zero tokens, no time, the span marker
+    const b = await openLiveHarness(browser, port, []);
+    try {
+      await b.page.addScriptTag({ path: path.join(ROOT, "dashboard", "bill-math.js") });
+      await b.page.evaluate(() =>
+        window.__insightsHandle.addLiveRow({
+          type: "turn",
+          iso: new Date(Date.UTC(2026, 0, 1)).toISOString(),
+          usage: { model: "", role: "explorer", in: 1000000, out: 0 }
+        })
+      );
+      await waitStatus(b.page, 1);
+      const v1 = await forecastView(b.page);
+      if (v1.models.join() !== "haiku")
+        errors.push("blank model, explorer role: model rows " + JSON.stringify(v1.models));
+      if (v1.spend !== "$0.10") errors.push("blank model, explorer role: priced " + v1.spend);
+
+      await b.page.evaluate(() =>
+        window.__insightsHandle.addLiveRow({
+          type: "turn",
+          iso: new Date(Date.UTC(2026, 0, 1, 0, 1)).toISOString(),
+          usage: { model: "sonnet", in: 0, out: 0 }
+        })
+      );
+      await waitStatus(b.page, 2);
+      const v2 = await forecastView(b.page);
+      if (v2.held.models !== 1) errors.push("zero-token row: models held " + v2.held.models);
+      if (v2.models.join() !== "haiku") errors.push("zero-token row: model rows " + v2.models);
+      if (v2.models.includes("auto")) errors.push("the span marker is a model row");
+
+      // a $1.00 row ten days back, then a row with no time: the span runs to now
+      await b.page.evaluate(
+        ([row]) => {
+          const h = window.__insightsHandle;
+          h.clearLiveRows();
+          h.addLiveRow(row);
+          h.addLiveRow({ type: "turn" });
+        },
+        [dollarRow(Date.now() - 10 * DAY)]
+      );
+      // the status already read 2 events before the clear: wait for the $1.00 repaint itself
+      await b.page
+        .waitForFunction(
+          () => document.querySelector("[data-forecast-spend]").textContent === "$1.00",
+          null,
+          { timeout: 5000 }
+        )
+        .catch(() => errors.push("row without a time: the Forecast never showed the $1.00 row"));
+      const v3 = await forecastView(b.page);
+      if (/NaN|Invalid/.test(v3.hit + v3.pace))
+        errors.push("row without a time: forecast " + JSON.stringify(v3));
+      if (v3.pace !== "$0.10/day")
+        errors.push("row without a time: pace " + v3.pace + " (want $1.00 over 10 days to now)");
+      if (v3.models.includes("auto")) errors.push("the span marker is a model row: " + v3.models);
+      errors.push(...b.errors.map((e) => "real bill-math: " + e));
+    } finally {
+      await b.page.close();
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+  return errors;
+}
+
+/**
+ * The live refresh is debounced: 50 rows inside 100 ms repaint the Forecast once, the next row
+ * repaints again, and destroy() clears the pending timer so nothing repaints or throws after it.
+ * Fake timers (page.clock) make the 100 ms exact.
+ */
+async function smokeLiveRowDebounce(browser) {
+  const { server, port } = await startStaticServer();
+  const errors = [];
+  const c = await openLiveHarness(browser, port, [], { clock: true });
+  const { page } = c;
+  try {
+    await page.clock.pauseAt(Date.now() + 1000);
+    await page.evaluate(() => {
+      const panel = document.querySelector('[data-panel="forecast"]');
+      window.__paints = 0;
+      new MutationObserver((muts) => {
+        window.__paints += muts.filter((m) => m.type === "childList").length;
+      }).observe(panel, { childList: true });
+      window.__timers = [];
+      window.__cleared = [];
+      const st = window.setTimeout;
+      const ct = window.clearTimeout;
+      window.setTimeout = function (fn, ms) {
+        const id = st.apply(this, arguments);
+        if (ms === 100) window.__timers.push(id);
+        return id;
+      };
+      window.clearTimeout = function (id) {
+        window.__cleared.push(id);
+        return ct.apply(this, arguments);
+      };
+    });
+    const add = (n, from) =>
+      page.evaluate(
+        ([count, base]) => {
+          for (let i = 0; i < count; i++)
+            window.__insightsHandle.addLiveRow({
+              type: "turn",
+              iso: new Date(Date.UTC(2026, 0, 1) + (base + i) * 1000).toISOString(),
+              usage: { model: "opus", in: 1000, out: 0 }
+            });
+        },
+        [n, from]
+      );
+    for (let k = 0; k < 5; k++) {
+      await add(10, k * 10);
+      await page.clock.runFor(19); // 5 batches of 10 rows inside 95 ms
+    }
+    const before = await page.evaluate(() => window.__paints);
+    if (before !== 0) errors.push("debounce: repainted before 100 ms: " + before);
+    await page.clock.runFor(10);
+    const once = await page.evaluate(() => ({
+      paints: window.__paints,
+      timers: window.__timers.length,
+      status: document.querySelector("[data-status]").textContent
+    }));
+    if (once.paints !== 1)
+      errors.push("debounce: 50 rows in 100 ms painted " + once.paints + " times");
+    if (once.timers !== 1) errors.push("debounce: " + once.timers + " refresh timers for 50 rows");
+    if (once.status.indexOf("Live · 50 events") !== 0)
+      errors.push("debounce: status " + once.status);
+
+    // the next row schedules a new refresh
+    await add(1, 50);
+    await page.clock.runFor(150);
+    const twice = await page.evaluate(() => window.__paints);
+    if (twice !== 2)
+      errors.push("debounce: a later row brought the paints to " + twice + ", want 2");
+
+    // destroy with a refresh pending: the timer is cleared, no repaint, no error
+    await add(1, 51);
+    const pending = await page.evaluate(() => window.__timers[window.__timers.length - 1]);
+    await page.evaluate(() => window.__insightsHandle.destroy());
+    await page.clock.runFor(500);
+    const after = await page.evaluate(() => ({
+      paints: window.__paints,
+      cleared: window.__cleared
+    }));
+    if (!after.cleared.includes(pending))
+      errors.push("destroy: the pending refresh timer was not cleared");
+    if (after.paints !== 2) errors.push("destroy: repainted after destroy: " + after.paints);
+
+    // after destroy a new row or a clear (which schedules a refresh) still repaints nothing
+    await page.evaluate(() => {
+      window.__insightsHandle.addLiveRow({ type: "turn", iso: new Date().toISOString() });
+      window.__insightsHandle.clearLiveRows();
+    });
+    await page.clock.runFor(500);
+    const late = await page.evaluate(() => window.__paints);
+    if (late !== 2) errors.push("destroy: a row or clear after destroy repainted: " + late);
+    errors.push(...c.errors.map((e) => "debounce: " + e));
+  } finally {
+    await page.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+  return errors;
+}
+
+/**
+ * clearLiveRows forgets the span: a new row after a clear spans ~0 (one day at the clamp) even
+ * when it falls inside the old first..last range, and a picked live session falls back to the
+ * history session.
+ */
+async function smokeLiveRowClear(browser) {
+  const { server, port } = await startStaticServer();
+  const errors = [];
+  const DAY = 86400000;
+  const T0 = Date.UTC(2026, 0, 1);
+  try {
+    const a = await openLiveHarness(browser, port, []);
+    try {
+      await a.page.evaluate(
+        (rows) => rows.forEach((r) => window.__insightsHandle.addLiveRow(r)),
+        [dollarRow(T0), dollarRow(T0 + 10 * DAY)]
+      );
+      await waitStatus(a.page, 2);
+      const v0 = await forecastView(a.page);
+      if (v0.pace !== "$0.20/day")
+        errors.push("clear: before, pace " + v0.pace + " (want $2.00 over 10 days)");
+      await a.page.evaluate(
+        (r) => {
+          window.__insightsHandle.clearLiveRows();
+          window.__insightsHandle.addLiveRow(r);
+        },
+        dollarRow(T0 + 5 * DAY)
+      );
+      await waitStatus(a.page, 1);
+      const v1 = await forecastView(a.page);
+      if (v1.pace !== "$1.00/day")
+        errors.push(
+          "clear: a row after a clear has pace " + v1.pace + " (want $1.00/day, span ~0)"
+        );
+      errors.push(...a.errors.map((e) => "clear: " + e));
+    } finally {
+      await a.page.close();
+    }
+
+    const hist = {
+      ts: "2025-12-31T10:00:00.000Z",
+      sessionId: "hist-1",
+      agentId: "hist-helper",
+      parentId: "hist-lead",
+      name: "helper",
+      model: "opus",
+      type: "turn",
+      inputTokens: 5000,
+      outputTokens: 500,
+      files: []
+    };
+    const b = await openLiveHarness(browser, port, [hist]);
+    try {
+      await b.page.evaluate((r) => window.__insightsHandle.addLiveRow(r), dollarRow(T0));
+      await waitStatus(b.page, 2);
+      await b.page.selectOption(".insights-session", "live-session");
+      const picker = () =>
+        b.page.evaluate(() => ({
+          value: document.querySelector(".insights-session").value,
+          options: Array.from(document.querySelectorAll(".insights-session option")).map(
+            (o) => o.value
+          ),
+          notes: ["suggestions", "whatif"].filter((p) =>
+            document.querySelector('[data-panel="' + p + '"] [data-live-unavailable]')
+          )
+        }));
+      const before = await picker();
+      if (before.value !== "live-session" || before.notes.join() !== "suggestions,whatif")
+        errors.push(
+          "clear: setup, the live session is not picked with its note: " + JSON.stringify(before)
+        );
+      await b.page.evaluate(() => window.__insightsHandle.clearLiveRows());
+      await waitStatus(b.page, 1);
+      const sel = await picker();
+      if (sel.value !== "hist-1" || sel.options.includes("live-session"))
+        errors.push("clear: the picked live session did not revert: " + JSON.stringify(sel));
+      if (sel.notes.length)
+        errors.push("clear: the live note is still shown after the clear: " + sel.notes.join());
+      errors.push(...b.errors.map((e) => "clear (picker): " + e));
+    } finally {
+      await b.page.close();
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+  return errors;
+}
+
 async function main() {
   const all = assertFixtureOnDisk().map((e) => "[fixture] " + e);
   if (all.length) {
@@ -877,6 +1224,9 @@ async function main() {
     all.push(...(await smokeHttp(browser)).map((e) => "[demo http] " + e));
     all.push(...(await smokeEmptySuggestions(browser)).map((e) => "[empty http] " + e));
     all.push(...(await smokeLiveRows(browser)).map((e) => "[live rows] " + e));
+    all.push(...(await smokeLiveRowPricing(browser)).map((e) => "[live pricing] " + e));
+    all.push(...(await smokeLiveRowDebounce(browser)).map((e) => "[live debounce] " + e));
+    all.push(...(await smokeLiveRowClear(browser)).map((e) => "[live clear] " + e));
   } finally {
     await browser.close();
   }
