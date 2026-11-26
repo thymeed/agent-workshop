@@ -246,6 +246,48 @@ test("the picker is filled from the list: ids only in values, labels without ids
   }
 });
 
+test("isShort: under a minute with both ends known; unknown or backwards ends are not short", () => {
+  const at = (mi, s) => local(2026, 11, 18, 15, mi, s);
+  assert.equal(H.isShort(sess("a", { startedAt: at(12, 0), lastAt: at(12, 0) })), true);
+  assert.equal(H.isShort(sess("a", { startedAt: at(12, 0), lastAt: at(12, 59) })), true);
+  assert.equal(H.isShort(sess("a", { startedAt: at(12, 0), lastAt: at(13, 0) })), false);
+  assert.equal(H.isShort(sess("a", { startedAt: at(12, 0) })), false);
+  assert.equal(H.isShort(sess("a", { lastAt: at(12, 0) })), false);
+  assert.equal(H.isShort(sess("a", { startedAt: at(13, 0), lastAt: at(12, 0) })), false);
+  assert.equal(H.isShort(null), false);
+  // a session without list times takes them from its opened events, like the label
+  const loaded = { count: 2, startMs: Date.parse(at(12, 0)), endMs: Date.parse(at(12, 30)) };
+  assert.equal(H.isShort(sess("a", {}), loaded), true);
+});
+
+test("sessions under a minute are listed and selectable, marked is-short; longer ones are not", async () => {
+  const h = harness();
+  const p = h.ch.refresh();
+  await h.answer(200, {
+    sessions: [
+      sess("cs-aaaaaaaaaaaaaaaaaaaaaaaa", {
+        startedAt: local(2026, 11, 18, 15, 12),
+        lastAt: local(2026, 11, 18, 15, 12, 40)
+      }),
+      sess("cs-bbbbbbbbbbbbbbbbbbbbbbbb", {
+        startedAt: local(2026, 11, 17, 9, 0),
+        lastAt: local(2026, 11, 17, 9, 8)
+      }),
+      sess("cs-cccccccccccccccccccccccc", { lastAt: local(2026, 11, 10, 9, 0) })
+    ]
+  });
+  await p;
+  assert.deepEqual(
+    h.select.children.map((o) => [o.textContent, o.className || "", !!o.disabled]),
+    [
+      ["Choose a session…", "", false],
+      ["Nov 18, 3:12 PM · 0 min", "is-short", false],
+      ["Nov 17, 9:00 AM · 8 min", "", false],
+      ["Nov 10, 9:00 AM", "", false]
+    ]
+  );
+});
+
 test("a list cut short is said, one session reads in the singular", async () => {
   const h = harness();
   h.ch.refresh();

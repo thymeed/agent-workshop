@@ -144,20 +144,33 @@ async function smokeDemoFile(browser) {
     const select = document.getElementById("claudeHistorySession");
     if (!wrap || !select) return { missing: true };
     const s = getComputedStyle(select);
+    // a session under a minute is dimmed (muted token), a normal one keeps the ink colour
+    const short = document.createElement("option");
+    short.className = "is-short";
+    const normal = document.createElement("option");
+    select.append(short, normal);
+    const dim = getComputedStyle(short).color;
+    const ink = getComputedStyle(normal).color;
+    short.remove();
+    normal.remove();
     return {
       ink: getComputedStyle(wrap).getPropertyValue("--insights-ink").trim(),
       bg: s.backgroundColor,
-      scheme: s.colorScheme
+      scheme: s.colorScheme,
+      dim,
+      optionInk: ink
     };
   });
   if (
     historyPicker.missing ||
     historyPicker.ink !== "#f2f6f4" ||
     historyPicker.bg === "rgba(0, 0, 0, 0)" ||
-    historyPicker.scheme !== "dark"
+    historyPicker.scheme !== "dark" ||
+    historyPicker.dim !== "rgb(143, 154, 156)" ||
+    historyPicker.optionInk !== "rgb(242, 246, 244)"
   ) {
     errors.push(
-      "History session picker: theme tokens or dark color-scheme missing " +
+      "History session picker: theme tokens, dark color-scheme or short-session dim missing " +
         JSON.stringify(historyPicker)
     );
   }

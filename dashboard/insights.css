@@ -1077,7 +1077,8 @@
   color: var(--insights-ink);
 }
 
-.claude-history-session option:disabled {
+.claude-history-session option:disabled,
+.claude-history-session option.is-short {
   color: var(--insights-muted);
 }
 
